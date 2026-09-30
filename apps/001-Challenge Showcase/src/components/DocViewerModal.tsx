@@ -9,6 +9,7 @@ interface DocViewerModalProps {
   appId: string;
   markdownContent: string;
   demoUrl?: string;
+  docUrl?: string;
 }
 
 export const DocViewerModal: React.FC<DocViewerModalProps> = ({
@@ -18,6 +19,7 @@ export const DocViewerModal: React.FC<DocViewerModalProps> = ({
   appId,
   markdownContent,
   demoUrl,
+  docUrl,
 }) => {
   const [copied, setCopied] = React.useState(false);
 
@@ -108,7 +110,20 @@ export const DocViewerModal: React.FC<DocViewerModalProps> = ({
 
         {/* 底部功能列 */}
         <div className="px-6 py-3 border-t border-slate-800/80 bg-slate-950/60 flex items-center justify-between text-xs text-slate-400">
-          <span>文件格式：GitHub Flavored Markdown</span>
+          <div className="flex items-center gap-3">
+            <span>文件格式：GitHub Flavored Markdown</span>
+            {docUrl && (
+              <a
+                href={docUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-indigo-400 hover:text-indigo-300 underline underline-offset-2"
+              >
+                <span>在 GitHub 查看原始檔案</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+          </div>
           <button
             onClick={onClose}
             className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-colors cursor-pointer"

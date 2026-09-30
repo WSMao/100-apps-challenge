@@ -58,4 +58,4 @@ pnpm preview
 
 | Agent 名稱 | 目前階段 | 最近完成 | 下一步 | 備註（問題） |
 | :--- | :--- | :--- | :--- | :--- |
-| Antigravity | MVP 完成 | 001-Challenge Showcase 核心上線：資料驅動、搜尋篩選、愛心按讚彩花、瀏覽統計、留言許願板、Markdown 文件彈窗 | 讓使用者進行介面體驗與功能驗收，規劃第 002 款 App | 專案建置通過，開發伺服器運行於 http://localhost:5173 |
+| Antigravity | MVP 完成 | 001 Showcase 核心體驗完備：標頭數據精簡、多標籤熱門度排序、作品回饋鎖定與雙向隔離、Markdown 彈窗與資料驅動自動載入 | 待使用者驗收與確認 Git 提交，規劃下一款 App | 建置通過 (tsc + vite build)，開發伺服器運行於 http://localhost:5173 |

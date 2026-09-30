@@ -1,6 +1,5 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo } from 'react';
 import { Navbar } from './components/Navbar';
-import { Hero } from './components/Hero';
 import { FilterBar } from './components/FilterBar';
 import { AppCard } from './components/AppCard';
 import { DocViewerModal } from './components/DocViewerModal';
@@ -25,7 +24,7 @@ export function App() {
   // 2. 篩選與搜尋狀態
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<'all' | AppStatus>('all');
-  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
   // 3. 互動數據狀態 (Likes & Views)
   const [feedback, setFeedback] = useState(() => getFeedbackData());
@@ -38,6 +37,7 @@ export function App() {
     appName: string;
     content: string;
     demoUrl?: string;
+    docUrl?: string;
   }>({
     isOpen: false,
     appId: '',
@@ -62,12 +62,6 @@ export function App() {
     }, 3000);
   };
 
-  // 錨點滾動
-  const appsSectionRef = useRef<HTMLDivElement>(null);
-  const handleScrollToApps = () => {
-    appsSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
   // 統計總數據
   const totalLikes = useMemo(() => {
     return Object.values(feedback.likes).reduce((acc, curr) => acc + curr, 0);
@@ -77,23 +71,48 @@ export function App() {
     return Object.values(feedback.views).reduce((acc, curr) => acc + curr, 0);
   }, [feedback.views]);
 
-  // 所有不重複的 Tags
-  const availableTags = useMemo(() => {
-    const set = new Set<string>();
-    allApps.forEach((a) => a.tags?.forEach((t) => set.add(t)));
-    return Array.from(set).sort();
+  // 計算標籤使用頻率並依熱門程度（由多到少）排序
+  const { tagCounts, sortedTags } = useMemo(() => {
+    const counts = new Map<string, number>();
+    allApps.forEach((app) => {
+      app.tags?.forEach((t) => {
+        counts.set(t, (counts.get(t) || 0) + 1);
+      });
+    });
+
+    const sorted = Array.from(counts.keys()).sort((a, b) => {
+      const diff = (counts.get(b) || 0) - (counts.get(a) || 0);
+      return diff !== 0 ? diff : a.localeCompare(b);
+    });
+
+    return { tagCounts: counts, sortedTags: sorted };
   }, [allApps]);
 
-  // 依條件過濾後的 App 列表
+  // 切換單個標籤選取
+  const handleToggleTag = (tag: string) => {
+    setSelectedTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+    );
+  };
+
+  // 重設所有篩選
+  const handleResetFilters = () => {
+    setSearchQuery('');
+    setSelectedStatus('all');
+    setSelectedTags([]);
+  };
+
+  // 依條件過濾後的 App 列表（支援多標籤交集過濾）
   const filteredApps = useMemo(() => {
     return allApps.filter((app) => {
       // 狀態篩選
       if (selectedStatus !== 'all' && app.status !== selectedStatus) {
         return false;
       }
-      // 標籤篩選
-      if (selectedTag && !app.tags.includes(selectedTag)) {
-        return false;
+      // 標籤多選篩選：必須符合所選的所有標籤
+      if (selectedTags.length > 0) {
+        const hasAllTags = selectedTags.every((t) => app.tags?.includes(t));
+        if (!hasAllTags) return false;
       }
       // 關鍵字搜尋
       if (searchQuery.trim()) {
@@ -108,7 +127,7 @@ export function App() {
       }
       return true;
     });
-  }, [allApps, selectedStatus, selectedTag, searchQuery]);
+  }, [allApps, selectedStatus, selectedTags, searchQuery]);
 
   // 互動處理：按讚
   const handleLike = (appId: string) => {
@@ -137,12 +156,17 @@ export function App() {
     }));
 
     const content = getAppReadme(appId);
+    const githubDocUrl = app.docUrl?.startsWith('http')
+      ? app.docUrl
+      : `https://github.com/WSMao/100-apps-challenge/blob/main/apps/${encodeURIComponent(`${app.id}-${app.name}`)}/README.md`;
+
     setDocModal({
       isOpen: true,
       appId: app.id,
       appName: app.name,
       content,
       demoUrl: app.demoUrl,
+      docUrl: githubDocUrl,
     });
   };
 
@@ -169,22 +193,15 @@ export function App() {
       <Navbar
         totalApps={allApps.length}
         maxApps={100}
+        totalLikes={totalLikes}
+        totalViews={totalViews}
         guestbookCount={guestbookCount}
         onOpenGuestbook={() => handleOpenWish()}
         onShowToast={showToast}
       />
 
-      {/* Hero 區域 */}
-      <Hero
-        totalApps={allApps.length}
-        totalLikes={totalLikes}
-        totalViews={totalViews}
-        totalFeedback={guestbookCount}
-        onExploreClick={handleScrollToApps}
-      />
-
       {/* 作品卡片核心展示區 */}
-      <main ref={appsSectionRef} className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
         {/* 標題與簡介 */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6">
           <div>
@@ -208,9 +225,11 @@ export function App() {
           onSearchChange={setSearchQuery}
           selectedStatus={selectedStatus}
           onStatusChange={setSelectedStatus}
-          availableTags={availableTags}
-          selectedTag={selectedTag}
-          onTagSelect={setSelectedTag}
+          availableTags={sortedTags}
+          tagCounts={tagCounts}
+          selectedTags={selectedTags}
+          onToggleTag={handleToggleTag}
+          onResetFilters={handleResetFilters}
           totalFiltered={filteredApps.length}
         />
 
@@ -242,12 +261,8 @@ export function App() {
               嘗試調整搜尋關鍵字，或清除標籤與狀態過濾器。
             </p>
             <button
-              onClick={() => {
-                setSearchQuery('');
-                setSelectedStatus('all');
-                setSelectedTag(null);
-              }}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 transition-colors"
+              onClick={handleResetFilters}
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 transition-colors cursor-pointer"
             >
               清除所有篩選條件
             </button>
@@ -269,6 +284,7 @@ export function App() {
         appName={docModal.appName}
         markdownContent={docModal.content}
         demoUrl={docModal.demoUrl}
+        docUrl={docModal.docUrl}
       />
 
       {/* 留言與許願彈窗 */}

@@ -1,27 +1,38 @@
 import type { AppManifest, GuestbookEntry } from '../types/app';
 
 // 1. 自動掃描 apps/* 目錄下的所有 app-manifest.json
-const manifestFiles = import.meta.glob<Record<string, unknown>>('../../*/app-manifest.json', { eager: true });
+const manifestFiles = import.meta.glob<AppManifest>(
+  ['../../../*/app-manifest.json', '../../app-manifest.json'],
+  {
+    import: 'default',
+    eager: true,
+  }
+);
 
 // 2. 自動掃描 apps/* 目錄下的所有 README.md 檔案以提供即時文件閱讀
-const readmeFiles = import.meta.glob<string>('../../*/README.md', {
-  query: '?raw',
-  import: 'default',
-  eager: true,
-});
+const readmeFiles = import.meta.glob<string>(
+  ['../../../*/README.md', '../../README.md'],
+  {
+    query: '?raw',
+    import: 'default',
+    eager: true,
+  }
+);
 
 /**
  * 解析所有子應用的 manifest 資料
  */
 export function getAllApps(): AppManifest[] {
-  const apps: AppManifest[] = [];
+  const appMap = new Map<string, AppManifest>();
 
   for (const path in manifestFiles) {
     const rawData = manifestFiles[path];
-    const manifest = (rawData && 'default' in rawData ? rawData.default : rawData) as AppManifest;
+    const manifest = (rawData && typeof rawData === 'object' && 'default' in rawData
+      ? (rawData as { default: AppManifest }).default
+      : rawData) as AppManifest;
 
     if (manifest && manifest.id && manifest.name) {
-      apps.push({
+      appMap.set(manifest.id, {
         ...manifest,
         // 若圖片路徑為相對路徑，校正為合適的預覽路徑
         coverImage: manifest.coverImage?.startsWith('http')
@@ -34,18 +45,35 @@ export function getAllApps(): AppManifest[] {
   }
 
   // 按照 ID 由小到大排序 (001, 002, ...)
-  return apps.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+  return Array.from(appMap.values()).sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
 }
 
 /**
  * 依據 appId 獲取對應的 README.md 內容
  */
 export function getAppReadme(appId: string): string {
+  // 1. 檢查路徑是否包含該 app 的目錄特徵
   for (const path in readmeFiles) {
-    // 檢查路徑是否包含該 app 的目錄特徵
     if (path.includes(`/${appId}-`) || path.includes(`/${appId}/`)) {
       return readmeFiles[path];
     }
+  }
+
+  // 2. 若為 001 且當前自身目錄有 ../../README.md
+  if (appId === '001') {
+    if (readmeFiles['../../README.md']) {
+      return readmeFiles['../../README.md'];
+    }
+    const showcaseKey = Object.keys(readmeFiles).find(k => k.includes('Showcase') || k.includes('001'));
+    if (showcaseKey) {
+      return readmeFiles[showcaseKey];
+    }
+  }
+
+  // 3. 容錯：若只有一個 README
+  const keys = Object.keys(readmeFiles);
+  if (keys.length === 1 && appId === '001') {
+    return readmeFiles[keys[0]];
   }
 
   // 如果找不到，提供友善提示
