@@ -1,0 +1,53 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies
+node_modules/
+apps/*/node_modules/
+dist/
+apps/*/dist/
+build/
+apps/*/build/
+.output/
+apps/*/.output/
+
+# Environment files & Secrets (機密設定與金鑰，嚴禁進 Git)
+.env
+.env.*
+!.env.example
+apps/*/.env
+apps/*/.env.*
+!apps/*/.env.example
+
+# Cache & Temporary
+.cache/
+apps/*/.cache/
+.turbo/
+apps/*/.turbo/
+.temp/
+apps/*/.temp/
+
+# Framework specific
+.next/
+apps/*/.next/
+.nuxt/
+apps/*/.nuxt/
+.svelte-kit/
+apps/*/.svelte-kit/
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# VS Code & IDEs (個人工作區與編輯器暫存)
+*.code-workspace
+.vscode/
+!.vscode/extensions.json
+!.vscode/launch.json
+.idea/
