@@ -8,8 +8,10 @@ interface FilterBarProps {
   selectedStatus: 'all' | AppStatus;
   onStatusChange: (status: 'all' | AppStatus) => void;
   availableTags: string[];
-  selectedTag: string | null;
-  onTagSelect: (tag: string | null) => void;
+  tagCounts: Map<string, number>;
+  selectedTags: string[];
+  onToggleTag: (tag: string) => void;
+  onResetFilters: () => void;
   totalFiltered: number;
 }
 
@@ -19,17 +21,13 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   selectedStatus,
   onStatusChange,
   availableTags,
-  selectedTag,
-  onTagSelect,
+  tagCounts,
+  selectedTags,
+  onToggleTag,
+  onResetFilters,
   totalFiltered,
 }) => {
-  const hasActiveFilters = searchQuery !== '' || selectedStatus !== 'all' || selectedTag !== null;
-
-  const handleReset = () => {
-    onSearchChange('');
-    onStatusChange('all');
-    onTagSelect(null);
-  };
+  const hasActiveFilters = searchQuery !== '' || selectedStatus !== 'all' || selectedTags.length > 0;
 
   return (
     <div className="space-y-4 mb-8">
@@ -48,7 +46,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
           {searchQuery && (
             <button
               onClick={() => onSearchChange('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-200"
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-200 cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -59,7 +57,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
         <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-900 border border-slate-800 self-start md:self-auto">
           <button
             onClick={() => onStatusChange('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
               selectedStatus === 'all'
                 ? 'bg-indigo-600 text-white shadow-sm'
                 : 'text-slate-400 hover:text-slate-200'
@@ -69,7 +67,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
           </button>
           <button
             onClick={() => onStatusChange('in-progress')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
               selectedStatus === 'in-progress'
                 ? 'bg-amber-600 text-white shadow-sm'
                 : 'text-slate-400 hover:text-slate-200'
@@ -79,7 +77,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
           </button>
           <button
             onClick={() => onStatusChange('completed')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
               selectedStatus === 'completed'
                 ? 'bg-emerald-600 text-white shadow-sm'
                 : 'text-slate-400 hover:text-slate-200'
@@ -90,34 +88,41 @@ export const FilterBar: React.FC<FilterBarProps> = ({
         </div>
       </div>
 
-      {/* 標籤 Tag 快速過濾列 */}
+      {/* 標籤 Tag 快速過濾列（支援多選、依使用數量由多到少排序） */}
       <div className="flex flex-wrap items-center gap-1.5 pt-1">
         <div className="flex items-center gap-1 text-xs text-slate-500 mr-1">
           <Tag className="w-3.5 h-3.5" />
-          <span>標籤：</span>
+          <span>標籤（可多選）：</span>
         </div>
 
         {availableTags.map((tag) => {
-          const isSelected = selectedTag === tag;
+          const isSelected = selectedTags.includes(tag);
+          const count = tagCounts.get(tag) || 0;
           return (
             <button
               key={tag}
-              onClick={() => onTagSelect(isSelected ? null : tag)}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all border ${
+              onClick={() => onToggleTag(tag)}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all border cursor-pointer ${
                 isSelected
-                  ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 shadow-sm'
+                  ? 'bg-indigo-500/25 text-indigo-200 border-indigo-400/60 shadow-sm shadow-indigo-500/20 font-semibold'
                   : 'bg-slate-900/60 text-slate-400 border-slate-800 hover:border-slate-700 hover:text-slate-200'
               }`}
+              title={`點擊${isSelected ? '取消篩選' : '加入篩選'} #${tag}（共 ${count} 個 App 使用）`}
             >
-              #{tag}
+              <span>#{tag}</span>
+              <span className={`text-[10px] px-1 py-0.2 rounded-full font-mono ${
+                isSelected ? 'bg-indigo-500/30 text-indigo-100' : 'bg-slate-800 text-slate-500'
+              }`}>
+                {count}
+              </span>
             </button>
           );
         })}
 
         {hasActiveFilters && (
           <button
-            onClick={handleReset}
-            className="inline-flex items-center gap-1 ml-auto text-xs text-slate-400 hover:text-pink-400 transition-colors py-1 px-2"
+            onClick={onResetFilters}
+            className="inline-flex items-center gap-1 ml-auto text-xs text-slate-400 hover:text-pink-400 transition-colors py-1 px-2 cursor-pointer"
           >
             <X className="w-3.5 h-3.5" />
             重設篩選 ({totalFiltered} 個結果)
