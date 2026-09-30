@@ -1,0 +1,13 @@
+/* Custom app animations and transitions */
+@keyframes heartPulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.25);
+  }
+}
+
+.heart-active {
+  animation: heartPulse 0.3s ease-in-out;
+}
