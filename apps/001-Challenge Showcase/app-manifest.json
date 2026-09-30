@@ -1,0 +1,11 @@
+{
+  "id": "001",
+  "name": "Challenge Showcase",
+  "description": "100 Apps Challenge 的總入口與展示交流中心。記錄創作軌跡、即時調查作品喜愛度與潛在需求，並提供多向度交流管道。",
+  "tags": ["React 19", "TailwindCSS", "TypeScript", "Vite", "Web"],
+  "platform": "Web",
+  "status": "in-progress",
+  "demoUrl": "http://localhost:5173",
+  "docUrl": "README.md",
+  "coverImage": "assets/cover.svg"
+}
