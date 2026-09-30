@@ -39,7 +39,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
         {/* 左側：Logo 與挑戰標題 */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-pink-600 text-white shadow-lg shadow-indigo-500/25 shrink-0">
             <Sparkles className="w-5 h-5 animate-pulse" />
           </div>
@@ -51,9 +51,9 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* 中間：進度條與愛心/瀏覽數統計 */}
-        <div className="flex items-center gap-3 sm:gap-5">
+        <div className="flex items-center gap-2.5 sm:gap-4 shrink-0">
           {/* 當前進度條 (Desktop) */}
-          <div className="hidden md:flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-xs text-slate-300">
+          <div className="hidden lg:flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-xs text-slate-300">
             <div className="w-24 h-2 rounded-full bg-slate-800 overflow-hidden relative">
               <div
                 className="h-full bg-gradient-to-r from-indigo-500 to-pink-500 transition-all duration-500 rounded-full"
@@ -67,7 +67,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* 愛心數 (純 icon + 數量) */}
           <div
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs font-mono font-bold text-pink-400 shadow-sm"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs font-mono font-bold text-pink-400 shadow-sm shrink-0"
             title={`累計總愛心數：${totalLikes}`}
           >
             <Heart className="w-4 h-4 fill-pink-500/20 text-pink-400" />
@@ -76,7 +76,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* 總瀏覽數 (純 icon + 數量) */}
           <div
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs font-mono font-bold text-cyan-400 shadow-sm"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs font-mono font-bold text-cyan-400 shadow-sm shrink-0"
             title={`總瀏覽人次：${totalViews}`}
           >
             <Eye className="w-4 h-4 text-cyan-400" />
@@ -85,7 +85,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* 右側按鈕：留言板 + GitHub + Mail (純 icon) */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {/* 許願留言板按鈕 */}
           <button
             onClick={onOpenGuestbook}
@@ -95,7 +95,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <MessageCircleHeart className="w-4 h-4 text-pink-400" />
             <span className="hidden sm:inline">許願留言</span>
             {guestbookCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-pink-500 text-white font-mono">
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-pink-500 text-white font-mono">
                 {guestbookCount}
               </span>
             )}
