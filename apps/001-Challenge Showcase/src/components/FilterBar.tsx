@@ -110,7 +110,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
               title={`點擊${isSelected ? '取消篩選' : '加入篩選'} #${tag}（共 ${count} 個 App 使用）`}
             >
               <span>#{tag}</span>
-              <span className={`text-[10px] px-1 py-0.2 rounded-full font-mono ${
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ${
                 isSelected ? 'bg-indigo-500/30 text-indigo-100' : 'bg-slate-800 text-slate-500'
               }`}>
                 {count}

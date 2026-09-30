@@ -82,7 +82,7 @@ export const GuestbookModal: React.FC<GuestbookModalProps> = ({
       />
 
       {/* 容器 */}
-      <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] z-10 animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative w-full max-w-4xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh] z-10 animate-in fade-in zoom-in-95 duration-200">
         {/* 頂部標題 */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-20">
           <div className="flex items-center gap-3">
@@ -118,8 +118,8 @@ export const GuestbookModal: React.FC<GuestbookModalProps> = ({
         </div>
 
         {/* 分頁切換器 (Giscus GitHub Discussions vs 訪客免帳號留言) */}
-        <div className="flex items-center justify-between px-6 py-2.5 bg-slate-950/60 border-b border-slate-800/80 text-xs">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-3 bg-slate-950/60 border-b border-slate-800/80 text-xs">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={() => setActiveTab('giscus')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
@@ -129,7 +129,7 @@ export const GuestbookModal: React.FC<GuestbookModalProps> = ({
               }`}
             >
               <GithubIcon className="w-3.5 h-3.5" />
-              <span>GitHub 討論區 (全網即時)</span>
+              <span>GitHub 討論區 (全網即時同步)</span>
             </button>
 
             <button
@@ -146,11 +146,12 @@ export const GuestbookModal: React.FC<GuestbookModalProps> = ({
           </div>
 
           {/* 關聯作品選擇器 (僅在全域視窗可切換) */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <span className="text-slate-500 text-[11px]">討論範圍：</span>
             {isSpecificApp && targetApp ? (
-              <span className="inline-flex items-center gap-1 text-[11px] text-indigo-300 bg-indigo-500/10 px-2 py-1 rounded border border-indigo-500/20">
+              <span className="inline-flex items-center gap-1 text-[11px] text-indigo-300 bg-indigo-500/10 px-2.5 py-1 rounded-lg border border-indigo-500/20">
                 <Lock className="w-3 h-3 text-indigo-400" />
-                已鎖定 #{targetApp.id}
+                已鎖定 #{targetApp.id} {targetApp.name}
               </span>
             ) : (
               <select
@@ -174,23 +175,23 @@ export const GuestbookModal: React.FC<GuestbookModalProps> = ({
           {activeTab === 'giscus' ? (
             /* Tab 1: Giscus GitHub Discussions 核心串接 */
             <div className="space-y-4">
-              <div className="flex items-center justify-between text-xs text-slate-400 bg-slate-800/40 px-3.5 py-2 rounded-xl border border-slate-800">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-400 bg-slate-800/40 px-4 py-2.5 rounded-xl border border-slate-800">
                 <div className="flex items-center gap-2">
-                  <Globe className="w-3.5 h-3.5 text-emerald-400" />
+                  <Globe className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                   <span>
                     當前討論主題：<strong className="text-slate-200">{currentAppName}</strong>
                   </span>
                 </div>
                 <span className="text-[11px] text-slate-400">
-                  登入 GitHub 即可發言、按 Emoji 反應
+                  登入 GitHub 即可發言、按 Emoji 反應 👍
                 </span>
               </div>
 
               {/* Giscus 組件 (依據 currentTerm 自動隔離切換) */}
-              <div className="min-h-[380px] p-2 sm:p-4 rounded-xl bg-slate-950/40 border border-slate-800/70">
+              <div className="min-h-[400px] p-3 sm:p-5 rounded-xl bg-slate-950/40 border border-slate-800/70 overflow-hidden">
                 <Giscus
                   key={currentTerm}
-                  id="giscus-comments"
+                  id="comments"
                   repo="WSMao/100-apps-challenge"
                   repoId="R_kgDOU1naVA"
                   category="General"
@@ -200,9 +201,9 @@ export const GuestbookModal: React.FC<GuestbookModalProps> = ({
                   reactionsEnabled="1"
                   emitMetadata="0"
                   inputPosition="top"
-                  theme="noborder_dark"
+                  theme="dark_dimmed"
                   lang="zh-TW"
-                  loading="lazy"
+                  loading="eager"
                 />
               </div>
             </div>

@@ -58,4 +58,4 @@ pnpm preview
 
 | Agent 名稱 | 目前階段 | 最近完成 | 下一步 | 備註（問題） |
 | :--- | :--- | :--- | :--- | :--- |
-| Antigravity | MVP 完成 | 001 Showcase 核心體驗完備：串接真實 Giscus 留言板（GitHub Discussions）、雙模式支援（GitHub 全網同步 vs 訪客免帳號留言）、多標籤熱門度排序與 Markdown 彈窗 | 待使用者驗收 Giscus 留言板體驗，規劃下一款 App 或 Supabase 數據持久化 | 建置通過 (tsc + vite build)，開發伺服器運行於 http://localhost:5173 |
+| Antigravity | MVP 完成 | 001 Showcase 正式驗收就緒：串接 Giscus GitHub Discussions、修復彈窗排版與響應式布局、支援雙模式留言與多標籤熱門度排序 | 規劃下一個應用（002），或串接 Supabase 數據持久化 | 專案建置正常，開發伺服器運行於 http://localhost:5173 |
