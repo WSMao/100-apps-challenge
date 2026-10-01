@@ -1,4 +1,11 @@
 import type { AppManifest, GuestbookEntry } from '../types/app';
+import {
+  fetchRemoteAppStats,
+  remoteIncrementLikes,
+  remoteDecrementLikes,
+  remoteIncrementViews,
+  isSupabaseConfigured,
+} from './supabaseService';
 
 // 1. 自動掃描 apps/* 目錄下的所有 app-manifest.json
 const manifestFiles = import.meta.glob<AppManifest>(
@@ -155,9 +162,21 @@ export function toggleAppLike(appId: string): { likes: number; hasLiked: boolean
   if (currentlyLiked) {
     newCount = Math.max(0, currentCount - 1);
     newLikedState = false;
+    // 遠端同步收回按讚
+    if (isSupabaseConfigured) {
+      remoteDecrementLikes(appId).catch((err) =>
+        console.warn('[Supabase] Decrement likes failed:', err)
+      );
+    }
   } else {
     newCount = currentCount + 1;
     newLikedState = true;
+    // 遠端同步增加按讚
+    if (isSupabaseConfigured) {
+      remoteIncrementLikes(appId).catch((err) =>
+        console.warn('[Supabase] Increment likes failed:', err)
+      );
+    }
   }
 
   data.likes[appId] = newCount;
@@ -187,7 +206,55 @@ export function recordAppView(appId: string): number {
     console.error('Failed to save view count:', e);
   }
 
+  // 遠端同步增加瀏覽數
+  if (isSupabaseConfigured) {
+    remoteIncrementViews(appId).catch((err) =>
+      console.warn('[Supabase] Increment views failed:', err)
+    );
+  }
+
   return newCount;
+}
+
+/**
+ * 與遠端 Supabase 同步統計數據
+ */
+export async function syncFeedbackWithRemote(): Promise<{
+  likes: Record<string, number>;
+  views: Record<string, number>;
+  userLiked: Record<string, boolean>;
+}> {
+  const local = getFeedbackData();
+  if (!isSupabaseConfigured) {
+    return local;
+  }
+
+  const remoteStats = await fetchRemoteAppStats();
+  if (!remoteStats) {
+    return local;
+  }
+
+  // 合併遠端真實數據（遠端統計數值作為主要來源，保留本地的使用者個人點讚狀態）
+  const mergedLikes = { ...local.likes };
+  const mergedViews = { ...local.views };
+
+  for (const appId in remoteStats) {
+    mergedLikes[appId] = remoteStats[appId].likes;
+    mergedViews[appId] = remoteStats[appId].views;
+  }
+
+  try {
+    localStorage.setItem(STORAGE_LIKES_KEY, JSON.stringify(mergedLikes));
+    localStorage.setItem(STORAGE_VIEWS_KEY, JSON.stringify(mergedViews));
+  } catch (e) {
+    console.error('Failed to sync merged stats to localStorage:', e);
+  }
+
+  return {
+    likes: mergedLikes,
+    views: mergedViews,
+    userLiked: local.userLiked,
+  };
 }
 
 /**
