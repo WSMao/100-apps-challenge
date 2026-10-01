@@ -22,7 +22,7 @@ create policy "Allow public read access"
 
 -- 4. 寫入初始種子資料 (001-Challenge Showcase)
 insert into public.app_stats (app_id, likes, views)
-values ('001', 18, 126)
+values ('001', 0, 0)
 on conflict (app_id) do update set
   updated_at = now();
 
@@ -66,7 +66,8 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- 6. 賦予公開角色 (anon / authenticated) 執行計數 RPC 的權限
+-- 6. 賦予公開角色 (anon / authenticated) 讀取表格與執行計數 RPC 的權限
+grant select on table public.app_stats to anon, authenticated;
 grant execute on function public.increment_likes(text) to anon, authenticated;
 grant execute on function public.decrement_likes(text) to anon, authenticated;
 grant execute on function public.increment_views(text) to anon, authenticated;
