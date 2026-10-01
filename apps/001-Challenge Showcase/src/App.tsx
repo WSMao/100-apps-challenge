@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { FilterBar } from './components/FilterBar';
 import { AppCard } from './components/AppCard';
@@ -13,6 +13,7 @@ import {
   toggleAppLike,
   recordAppView,
   getGuestbookList,
+  syncFeedbackWithRemote,
 } from './services/appService';
 import type { AppStatus } from './types/app';
 import { Inbox } from 'lucide-react';
@@ -29,6 +30,13 @@ export function App() {
   // 3. 互動數據狀態 (Likes & Views)
   const [feedback, setFeedback] = useState(() => getFeedbackData());
   const [guestbookCount, setGuestbookCount] = useState(() => getGuestbookList().length);
+
+  // 初始載入時與遠端 Supabase 同步真實全網數據
+  useEffect(() => {
+    syncFeedbackWithRemote().then((remoteData) => {
+      setFeedback(remoteData);
+    });
+  }, []);
 
   // 4. Modal 彈窗狀態
   const [docModal, setDocModal] = useState<{

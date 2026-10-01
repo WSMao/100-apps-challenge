@@ -58,4 +58,4 @@ pnpm preview
 
 | Agent 名稱 | 目前階段 | 最近完成 | 下一步 | 備註（問題） |
 | :--- | :--- | :--- | :--- | :--- |
-| Antigravity | MVP 完成 | 001 Showcase 正式驗收就緒：串接 Giscus GitHub Discussions、修復彈窗排版與響應式布局、支援雙模式留言與多標籤熱門度排序 | 規劃下一個應用（002），或串接 Supabase 數據持久化 | 專案建置正常，開發伺服器運行於 http://localhost:5173 |
+| Antigravity | MVP 完成 | 001 Showcase 整合 Supabase 全網統計：實作即時愛心與瀏覽人次持久化 RPC 架構、支援免設定 LocalStorage 平滑降級機制 | 待使用者填入 Supabase 專案金鑰並執行 SQL 建立 app_stats 表格 | 專案建置正常，開發伺服器運行於 http://localhost:5173 |
