@@ -77,23 +77,19 @@ export function getAppReadme(appId: string): string {
     }
   }
 
-  // 3. 容錯：若只有一個 README
-  const keys = Object.keys(readmeFiles);
-  if (keys.length === 1 && appId === '001') {
-    return readmeFiles[keys[0]];
-  }
-
-  // 如果找不到，提供友善提示
-  return `# 專案 #${appId} 文件\n\n目前尚未找到該專案的 README.md 文件。`;
+  return `# ${appId} Documentation\n\n尚無說明文件。`;
 }
 
-// 本地存儲鍵名
-const STORAGE_LIKES_KEY = '100apps_likes_v1';
-const STORAGE_VIEWS_KEY = '100apps_views_v1';
-const STORAGE_USER_LIKED_KEY = '100apps_user_liked_v1';
-const STORAGE_GUESTBOOK_KEY = '100apps_guestbook_v1';
+// ==========================================
+// 互動統計數據（愛心按讚、瀏覽計數、留言許願板）
+// ==========================================
 
-// 初始種子數據（讓頁面首次加載就生動且具參考性）
+const STORAGE_LIKES_KEY = 'showcase_app_likes_v1';
+const STORAGE_VIEWS_KEY = 'showcase_app_views_v1';
+const STORAGE_USER_LIKED_KEY = 'showcase_user_liked_v1';
+const STORAGE_GUESTBOOK_KEY = 'showcase_guestbook_comments_v1';
+
+// 初始種子數據
 const INITIAL_LIKES: Record<string, number> = {
   '001': 18,
 };
@@ -105,15 +101,15 @@ const INITIAL_VIEWS: Record<string, number> = {
 const INITIAL_GUESTBOOK: GuestbookEntry[] = [
   {
     id: 'seed-1',
-    author: '訪客 Alex',
+    author: 'Leo (前端工程師)',
     appId: '001',
     appName: '001-Challenge Showcase',
-    content: '這個 100 Apps 挑戰太酷了！入口網站設計得很舒服，期待接下來的 99 個應用！🔥',
-    createdAt: '2026-09-30 11:30',
+    content: '這個 Showcase 入口網站的資料驅動架構很棒！期待後續 100 款應用推出！🎉',
+    createdAt: '2026-09-30 09:30',
   },
   {
     id: 'seed-2',
-    author: '前端愛好者 Eric',
+    author: 'Alice',
     appId: '001',
     appName: '001-Challenge Showcase',
     content: '許願未來能做一個「台灣電子發票整合查詢」或「SVG 漸層代碼產生器」的小工具！',
