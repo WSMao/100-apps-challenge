@@ -164,7 +164,7 @@ export function toggleAppLike(appId: string): { likes: number; hasLiked: boolean
     newLikedState = false;
     // 遠端同步收回按讚
     if (isSupabaseConfigured) {
-      remoteDecrementLikes(appId).catch((err) =>
+      remoteDecrementLikes(appId).catch((err: unknown) =>
         console.warn('[Supabase] Decrement likes failed:', err)
       );
     }
@@ -173,7 +173,7 @@ export function toggleAppLike(appId: string): { likes: number; hasLiked: boolean
     newLikedState = true;
     // 遠端同步增加按讚
     if (isSupabaseConfigured) {
-      remoteIncrementLikes(appId).catch((err) =>
+      remoteIncrementLikes(appId).catch((err: unknown) =>
         console.warn('[Supabase] Increment likes failed:', err)
       );
     }
@@ -208,7 +208,7 @@ export function recordAppView(appId: string): number {
 
   // 遠端同步增加瀏覽數
   if (isSupabaseConfigured) {
-    remoteIncrementViews(appId).catch((err) =>
+    remoteIncrementViews(appId).catch((err: unknown) =>
       console.warn('[Supabase] Increment views failed:', err)
     );
   }

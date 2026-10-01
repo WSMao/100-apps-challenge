@@ -1,16 +1,16 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl: string | undefined = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey: string | undefined = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const isSupabaseConfigured = Boolean(
+export const isSupabaseConfigured: boolean = Boolean(
   supabaseUrl &&
   supabaseAnonKey &&
   supabaseUrl !== 'https://your-project-id.supabase.co' &&
   !supabaseUrl.includes('placeholder')
 );
 
-export const supabase = isSupabaseConfigured
+export const supabase: SupabaseClient | null = isSupabaseConfigured && supabaseUrl && supabaseAnonKey
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
 
@@ -36,14 +36,14 @@ export async function fetchRemoteAppStats(): Promise<Record<string, { likes: num
     }
 
     const result: Record<string, { likes: number; views: number }> = {};
-    data.forEach((row: AppStatRecord) => {
+    (data as AppStatRecord[]).forEach((row: AppStatRecord) => {
       result[row.app_id] = {
         likes: row.likes ?? 0,
         views: row.views ?? 0,
       };
     });
     return result;
-  } catch (err) {
+  } catch (err: unknown) {
     console.error('[Supabase] fetchRemoteAppStats error:', err);
     return null;
   }
@@ -61,7 +61,7 @@ export async function remoteIncrementLikes(appId: string): Promise<boolean> {
       return false;
     }
     return true;
-  } catch (err) {
+  } catch (err: unknown) {
     console.error('[Supabase] remoteIncrementLikes error:', err);
     return false;
   }
@@ -79,7 +79,7 @@ export async function remoteDecrementLikes(appId: string): Promise<boolean> {
       return false;
     }
     return true;
-  } catch (err) {
+  } catch (err: unknown) {
     console.error('[Supabase] remoteDecrementLikes error:', err);
     return false;
   }
@@ -97,7 +97,7 @@ export async function remoteIncrementViews(appId: string): Promise<boolean> {
       return false;
     }
     return true;
-  } catch (err) {
+  } catch (err: unknown) {
     console.error('[Supabase] remoteIncrementViews error:', err);
     return false;
   }
