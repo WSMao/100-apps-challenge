@@ -89,7 +89,11 @@ export const AppCard: React.FC<AppCardProps> = ({
   return (
     <div className="group relative rounded-2xl bg-slate-900/70 border border-slate-800/80 hover:border-slate-700/80 overflow-hidden shadow-lg hover:shadow-indigo-500/5 transition-all duration-300 flex flex-col hover:-translate-y-1">
       {/* 封面圖 / 預覽區域 */}
-      <div className="relative aspect-video w-full overflow-hidden bg-slate-950 border-b border-slate-800/60">
+      <div
+        onClick={() => onOpenDoc(app.id)}
+        className="relative aspect-video w-full overflow-hidden bg-slate-950 border-b border-slate-800/60 cursor-pointer"
+        title="點擊查看文件與詳情"
+      >
         <img
           src={app.coverImage || '/assets/cover.svg'}
           alt={app.name}
@@ -121,7 +125,11 @@ export const AppCard: React.FC<AppCardProps> = ({
       <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
         <div>
           {/* 名稱 */}
-          <h3 className="text-base font-bold text-slate-100 group-hover:text-indigo-300 transition-colors line-clamp-1">
+          <h3
+            onClick={() => onOpenDoc(app.id)}
+            className="text-base font-bold text-slate-100 group-hover:text-indigo-300 transition-colors line-clamp-1 cursor-pointer"
+            title="點擊查看文件與詳情"
+          >
             {app.name}
           </h3>
 
@@ -168,8 +176,8 @@ export const AppCard: React.FC<AppCardProps> = ({
 
               {/* 瀏覽次數 */}
               <div
-                className="inline-flex items-center gap-1 text-slate-500 text-[11px] font-mono"
-                title={`已累計瀏覽 ${views} 次`}
+                className="inline-flex items-center gap-1 text-slate-500 text-[11px] font-mono cursor-help"
+                title={`已累計瀏覽 ${views} 次（5 分鐘內同裝置不重複計數）`}
               >
                 <Eye className="w-3.5 h-3.5" />
                 <span>{views}</span>
