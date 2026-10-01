@@ -88,6 +88,40 @@ const STORAGE_LIKES_KEY = 'showcase_app_likes_v1';
 const STORAGE_VIEWS_KEY = 'showcase_app_views_v1';
 const STORAGE_USER_LIKED_KEY = 'showcase_user_liked_v1';
 const STORAGE_GUESTBOOK_KEY = 'showcase_guestbook_comments_v1';
+const STORAGE_LAST_VIEW_KEY = 'showcase_app_last_view_timestamps_v1';
+
+/**
+ * 瀏覽計數冷卻時間（預設 5 分鐘，同一使用者/瀏覽器在 5 分鐘內重複點擊同一個 App 不重複計算）
+ */
+export const VIEW_COOLDOWN_MS = 5 * 60 * 1000;
+
+/**
+ * 檢查特定 App 是否已度過瀏覽冷卻期
+ */
+export function canRecordView(appId: string): boolean {
+  try {
+    const raw = localStorage.getItem(STORAGE_LAST_VIEW_KEY);
+    const timestamps: Record<string, number> = raw ? JSON.parse(raw) : {};
+    const lastTime = timestamps[appId] || 0;
+    return Date.now() - lastTime >= VIEW_COOLDOWN_MS;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * 記錄 App 本次被瀏覽的時間戳記
+ */
+function updateLastViewTimestamp(appId: string): void {
+  try {
+    const raw = localStorage.getItem(STORAGE_LAST_VIEW_KEY);
+    const timestamps: Record<string, number> = raw ? JSON.parse(raw) : {};
+    timestamps[appId] = Date.now();
+    localStorage.setItem(STORAGE_LAST_VIEW_KEY, JSON.stringify(timestamps));
+  } catch (e) {
+    console.error('Failed to update last view timestamp:', e);
+  }
+}
 
 // 初始種子數據
 const INITIAL_LIKES: Record<string, number> = {
@@ -189,10 +223,19 @@ export function toggleAppLike(appId: string): { likes: number; hasLiked: boolean
 }
 
 /**
- * 增加瀏覽次數
+ * 增加瀏覽次數（具備 5 分鐘冷卻防刷保護）
+ * @param appId App 編號
+ * @param force 是否忽略冷卻期強制累計（預設 false）
+ * @returns 當前或累計後的瀏覽次數
  */
-export function recordAppView(appId: string): number {
+export function recordAppView(appId: string, force = false): number {
   const data = getFeedbackData();
+
+  // 若在 5 分鐘冷卻期間內且非強制更新，直接回傳當前次數，不重複累計與發送請求
+  if (!force && !canRecordView(appId)) {
+    return data.views[appId] ?? 0;
+  }
+
   const newCount = (data.views[appId] ?? 0) + 1;
   data.views[appId] = newCount;
 
@@ -201,6 +244,9 @@ export function recordAppView(appId: string): number {
   } catch (e) {
     console.error('Failed to save view count:', e);
   }
+
+  // 更新最後造訪時間戳記
+  updateLastViewTimestamp(appId);
 
   // 遠端同步增加瀏覽數
   if (isSupabaseConfigured) {

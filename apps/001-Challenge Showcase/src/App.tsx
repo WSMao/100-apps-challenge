@@ -31,10 +31,18 @@ export function App() {
   const [feedback, setFeedback] = useState(() => getFeedbackData());
   const [guestbookCount, setGuestbookCount] = useState(() => getGuestbookList().length);
 
-  // 初始載入時與遠端 Supabase 同步真實全網數據
+  // 初始載入時與遠端 Supabase 同步真實全網數據，並為 Showcase (#001) 累計網站造訪流量
   useEffect(() => {
     syncFeedbackWithRemote().then((remoteData) => {
-      setFeedback(remoteData);
+      // 訪客進入 Showcase 時自動為 #001 累計造訪流量（由 5 分鐘冷卻機制防刷保護）
+      const views001 = recordAppView('001');
+      setFeedback({
+        ...remoteData,
+        views: {
+          ...remoteData.views,
+          '001': views001,
+        },
+      });
     });
   }, []);
 
