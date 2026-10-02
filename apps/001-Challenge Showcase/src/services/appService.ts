@@ -316,30 +316,37 @@ export function getGuestbookList(): GuestbookEntry[] {
 }
 
 /**
- * 新增一則留言或許願
+ * 將訪客免帳號留言發送至 Vercel API，由 GitHub Bot 寫入對應 Discussion 討論串
  */
-export function addGuestbookComment(entry: {
+export async function sendGuestCommentToGithub(params: {
+  term: string;
   author: string;
   content: string;
-  appId?: string;
-  appName?: string;
-}): GuestbookEntry {
-  const list = getGuestbookList();
-  const newEntry: GuestbookEntry = {
-    id: `guestbook-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-    author: entry.author.trim() || '熱心訪客',
-    content: entry.content.trim(),
-    appId: entry.appId,
-    appName: entry.appName,
-    createdAt: new Date().toLocaleString('zh-TW', { hour12: false }),
-  };
-
-  const updated = [newEntry, ...list];
+}): Promise<{ success: boolean; message?: string }> {
   try {
-    localStorage.setItem(STORAGE_GUESTBOOK_KEY, JSON.stringify(updated));
-  } catch (e) {
-    console.error('Failed to save guestbook entry:', e);
-  }
+    const res = await fetch('/api/guest-comment', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(params),
+    });
 
-  return newEntry;
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        message: data.error || data.details?.[0]?.message || '發送失敗，請稍後再試',
+      };
+    }
+
+    return { success: true };
+  } catch (err: unknown) {
+    console.error('Failed to send guest comment to API:', err);
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : '連線逾時或網路錯誤',
+    };
+  }
 }
+

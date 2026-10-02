@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, MessageSquare, Send, Sparkles, User, MessageCircleHeart, Lock, Globe } from 'lucide-react';
+import { X, Send, Sparkles, User, MessageCircleHeart, Lock, Globe, AlertCircle, CheckCircle2, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import Giscus from '@giscus/react';
-import type { AppManifest, GuestbookEntry } from '../types/app';
-import { addGuestbookComment, getGuestbookList } from '../services/appService';
+import type { AppManifest } from '../types/app';
+import { sendGuestCommentToGithub } from '../services/appService';
 import { GithubIcon } from './icons/GithubIcon';
 
 interface GuestbookModalProps {
@@ -20,15 +20,19 @@ export const GuestbookModal: React.FC<GuestbookModalProps> = ({
   defaultAppId,
   onAddedEntry,
 }) => {
-  const [activeTab, setActiveTab] = useState<'giscus' | 'local'>('giscus');
-  const [entries, setEntries] = useState<GuestbookEntry[]>(() => getGuestbookList());
   const [author, setAuthor] = useState('');
   const [content, setContent] = useState('');
   const [selectedAppId, setSelectedAppId] = useState(defaultAppId || '');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitStatus, setSubmitStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [showGuestForm, setShowGuestForm] = useState(false);
+  // 用於刷新 Giscus 的隨機 key
+  const [giscusRefreshKey, setGiscusRefreshKey] = useState(0);
 
   // 當 defaultAppId 變更時同步設定
   useEffect(() => {
     setSelectedAppId(defaultAppId || '');
+    setSubmitStatus(null);
   }, [defaultAppId, isOpen]);
 
   // 是否為特定 App 觸發的專屬回饋視窗
@@ -36,41 +40,55 @@ export const GuestbookModal: React.FC<GuestbookModalProps> = ({
   const targetApp = useMemo(() => apps.find((a) => a.id === defaultAppId), [apps, defaultAppId]);
 
   // 當前 Giscus 對應的 term (Specific mapping)
+  // 全站留言的 term 使用 "global"
   const currentAppId = isSpecificApp ? defaultAppId : selectedAppId;
-  const currentTerm = currentAppId ? `app-${currentAppId}` : 'showcase-global';
+  const currentTerm = currentAppId ? `app-${currentAppId}` : 'global';
   const currentAppName = useMemo(() => {
-    if (!currentAppId) return '全站總體交流';
+    if (!currentAppId) return '全站總體交流 (global)';
     const found = apps.find((a) => a.id === currentAppId);
     return found ? `#${found.id} ${found.name}` : `App #${currentAppId}`;
   }, [currentAppId, apps]);
 
-  // 過濾本機留言清單：若是特定 App 則只顯示關聯該 App 的回饋；全域視窗則顯示全部
-  const displayEntries = useMemo(() => {
-    if (isSpecificApp && defaultAppId) {
-      return entries.filter((e) => e.appId === defaultAppId);
-    }
-    return entries;
-  }, [entries, isSpecificApp, defaultAppId]);
-
   if (!isOpen) return null;
 
-  const handleSubmitLocal = (e: React.FormEvent) => {
+  const handleSubmitGuest = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!content.trim()) return;
+    if (!content.trim() || isSubmitting) return;
 
-    const actualAppId = isSpecificApp ? defaultAppId : selectedAppId;
-    const matchedApp = apps.find((a) => a.id === actualAppId);
+    setIsSubmitting(true);
+    setSubmitStatus(null);
 
-    addGuestbookComment({
-      author: author.trim() || '熱心訪客',
+    const res = await sendGuestCommentToGithub({
+      term: currentTerm,
+      author: author.trim() || '匿名訪客',
       content: content.trim(),
-      appId: actualAppId || undefined,
-      appName: matchedApp ? `#${matchedApp.id} ${matchedApp.name}` : undefined,
     });
 
-    setEntries(getGuestbookList());
-    setContent('');
-    if (onAddedEntry) onAddedEntry();
+    setIsSubmitting(false);
+
+    if (res.success) {
+      setSubmitStatus({
+        type: 'success',
+        message: '留言已成功送出！正在載入至討論串...',
+      });
+      setContent('');
+      if (onAddedEntry) onAddedEntry();
+
+      // 觸發 Giscus 重新渲染以拉取最新討論內容
+      setTimeout(() => {
+        setGiscusRefreshKey((prev) => prev + 1);
+      }, 1200);
+
+      // 3 秒後自動隱藏成功提示
+      setTimeout(() => {
+        setSubmitStatus(null);
+      }, 4000);
+    } else {
+      setSubmitStatus({
+        type: 'error',
+        message: res.message || '發送失敗，請稍後再試',
+      });
+    }
   };
 
   return (
@@ -82,7 +100,7 @@ export const GuestbookModal: React.FC<GuestbookModalProps> = ({
       />
 
       {/* 容器 */}
-      <div className="relative w-full max-w-4xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh] z-10 animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative w-full max-w-4xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] z-10 animate-in fade-in zoom-in-95 duration-200">
         {/* 頂部標題 */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-20">
           <div className="flex items-center gap-3">
@@ -117,32 +135,13 @@ export const GuestbookModal: React.FC<GuestbookModalProps> = ({
           </button>
         </div>
 
-        {/* 分頁切換器 (Giscus GitHub Discussions vs 訪客免帳號留言) */}
+        {/* 頂部資訊與範圍選擇器 */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-3 bg-slate-950/60 border-b border-slate-800/80 text-xs">
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => setActiveTab('giscus')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
-                activeTab === 'giscus'
-                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/20'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-              }`}
-            >
-              <GithubIcon className="w-3.5 h-3.5" />
-              <span>GitHub 討論區 (全網即時同步)</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('local')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
-                activeTab === 'local'
-                  ? 'bg-pink-600 text-white shadow-sm shadow-pink-500/20'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-              }`}
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              <span>訪客免帳號留言 ({displayEntries.length})</span>
-            </button>
+          <div className="flex items-center gap-2 text-slate-300">
+            <Globe className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span>
+              討論主題：<strong className="text-slate-100">{currentAppName}</strong>
+            </span>
           </div>
 
           {/* 關聯作品選擇器 (僅在全域視窗可切換) */}
@@ -156,10 +155,13 @@ export const GuestbookModal: React.FC<GuestbookModalProps> = ({
             ) : (
               <select
                 value={selectedAppId}
-                onChange={(e) => setSelectedAppId(e.target.value)}
+                onChange={(e) => {
+                  setSelectedAppId(e.target.value);
+                  setSubmitStatus(null);
+                }}
                 className="bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1 text-[11px] text-slate-300 focus:outline-none focus:border-indigo-500"
               >
-                <option value="">全站總體回饋</option>
+                <option value="">全站總體回饋 (global)</option>
                 {apps.map((app) => (
                   <option key={app.id} value={app.id}>
                     #{app.id} {app.name}
@@ -171,56 +173,28 @@ export const GuestbookModal: React.FC<GuestbookModalProps> = ({
         </div>
 
         {/* 內容區 */}
-        <div className="p-6 overflow-y-auto space-y-6">
-          {activeTab === 'giscus' ? (
-            /* Tab 1: Giscus GitHub Discussions 核心串接 */
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-400 bg-slate-800/40 px-4 py-2.5 rounded-xl border border-slate-800">
-                <div className="flex items-center gap-2">
-                  <Globe className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  <span>
-                    當前討論主題：<strong className="text-slate-200">{currentAppName}</strong>
-                  </span>
+        <div className="p-6 overflow-y-auto space-y-5">
+          {/* 訪客免帳號留言摺疊按鈕 / 區塊 */}
+          <div className="rounded-xl border border-slate-700/80 bg-slate-800/40 overflow-hidden transition-all">
+            <button
+              type="button"
+              onClick={() => setShowGuestForm(!showGuestForm)}
+              className="w-full flex items-center justify-between px-4 py-3 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-md bg-pink-500/20 text-pink-400 flex items-center justify-center shrink-0">
+                  <Sparkles className="w-3.5 h-3.5" />
                 </div>
-                <span className="text-[11px] text-slate-400">
-                  登入 GitHub 即可發言、按 Emoji 反應 👍
-                </span>
+                <span>沒有 GitHub 帳號？使用「訪客免登入快速留言」</span>
               </div>
-
-              {/* Giscus 組件 (依據 currentTerm 自動隔離切換) */}
-              <div className="min-h-[400px] p-3 sm:p-5 rounded-xl bg-slate-950/40 border border-slate-800/70 overflow-hidden">
-                <Giscus
-                  key={currentTerm}
-                  id="comments"
-                  repo="WSMao/100-apps-challenge"
-                  repoId="R_kgDOU1naVA"
-                  category="General"
-                  categoryId="DIC_kwDOU1naVM4DGwMC"
-                  mapping="specific"
-                  term={currentTerm}
-                  reactionsEnabled="1"
-                  emitMetadata="0"
-                  inputPosition="top"
-                  theme="dark_dimmed"
-                  lang="zh-TW"
-                  loading="eager"
-                />
+              <div className="flex items-center gap-1 text-slate-400 text-[11px]">
+                <span>{showGuestForm ? '收合表單' : '展開輸入框'}</span>
+                {showGuestForm ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
               </div>
-            </div>
-          ) : (
-            /* Tab 2: 訪客免帳號留言 (本地快速留言) */
-            <div className="space-y-6">
-              {/* 發布回饋表單 */}
-              <form onSubmit={handleSubmitLocal} className="p-4 rounded-xl bg-slate-800/60 border border-slate-700/60 space-y-3">
-                <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
-                  <Sparkles className="w-4 h-4 text-pink-400" />
-                  <span>
-                    {isSpecificApp && targetApp
-                      ? `向作者回饋 #${targetApp.id} ${targetApp.name}`
-                      : '我有想法 / 想要許願'}
-                  </span>
-                </div>
+            </button>
 
+            {showGuestForm && (
+              <form onSubmit={handleSubmitGuest} className="p-4 pt-2 border-t border-slate-700/60 space-y-3 bg-slate-900/50">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">暱稱 / 稱呼（選填）</label>
@@ -228,16 +202,17 @@ export const GuestbookModal: React.FC<GuestbookModalProps> = ({
                       <User className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
                       <input
                         type="text"
-                        placeholder="匿名訪客 / 稱呼"
+                        placeholder="例如：熱心訪客 / 王小明"
                         value={author}
                         onChange={(e) => setAuthor(e.target.value)}
                         className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-pink-500 transition-colors"
+                        disabled={isSubmitting}
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">關聯作品</label>
+                    <label className="block text-xs text-slate-400 mb-1">發送目標討論串</label>
                     <div className="flex items-center px-3 py-2 bg-slate-900/90 border border-slate-700 rounded-lg text-xs text-slate-300">
                       <span className="truncate">{currentAppName}</span>
                     </div>
@@ -257,59 +232,72 @@ export const GuestbookModal: React.FC<GuestbookModalProps> = ({
                     value={content}
                     onChange={(e) => setContent(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-pink-500 transition-colors resize-none"
+                    disabled={isSubmitting}
                   />
                 </div>
 
-                <div className="flex justify-end">
+                {submitStatus && (
+                  <div
+                    className={`flex items-center gap-2 p-3 rounded-lg text-xs ${
+                      submitStatus.type === 'success'
+                        ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300'
+                        : 'bg-rose-500/15 border border-rose-500/30 text-rose-300'
+                    }`}
+                  >
+                    {submitStatus.type === 'success' ? (
+                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                    )}
+                    <span>{submitStatus.message}</span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[11px] text-slate-500">
+                    💡 留言將由 GitHub Bot 自動投遞至該討論串中，全球永久同步。
+                  </span>
                   <button
                     type="submit"
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-pink-600 hover:bg-pink-500 shadow-md shadow-pink-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                    disabled={isSubmitting || !content.trim()}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-pink-600 hover:bg-pink-500 disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-pink-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
                   >
-                    <Send className="w-3.5 h-3.5" />
-                    送出回饋
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        發送中...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" />
+                        免帳號送出
+                      </>
+                    )}
                   </button>
                 </div>
               </form>
+            )}
+          </div>
 
-              {/* 留言列表 */}
-              <div className="space-y-3">
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  {isSpecificApp && targetApp
-                    ? `「#${targetApp.id} ${targetApp.name}」訪客反饋 (${displayEntries.length})`
-                    : `所有訪客反饋與許願 (${displayEntries.length})`}
-                </h4>
-
-                {displayEntries.length === 0 ? (
-                  <div className="text-center py-8 rounded-xl bg-slate-800/20 border border-slate-800 text-slate-500 text-xs">
-                    {isSpecificApp
-                      ? '此作品目前尚無訪客反饋，成為第一個給予評價或建議的人吧！'
-                      : '尚無留言，成為第一個留下想法的人吧！'}
-                  </div>
-                ) : (
-                  displayEntries.map((item) => (
-                    <div
-                      key={item.id}
-                      className="p-3.5 rounded-xl bg-slate-800/40 border border-slate-800 hover:border-slate-700/80 transition-colors space-y-1.5"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium text-slate-200">{item.author}</span>
-                          {item.appName && (
-                            <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/20">
-                              {item.appName}
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-[10px] text-slate-500 font-mono">{item.createdAt}</span>
-                      </div>
-                      <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{item.content}</p>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
+          {/* 唯一的 Giscus 留言討論串（登入 GitHub 直接留，免帳號送出後也同步顯示在這裡） */}
+          <div className="min-h-[420px] p-3 sm:p-5 rounded-xl bg-slate-950/40 border border-slate-800/70 overflow-hidden">
+            <Giscus
+              key={`${currentTerm}-${giscusRefreshKey}`}
+              id="comments"
+              repo="WSMao/100-apps-challenge"
+              repoId="R_kgDOU1naVA"
+              category="General"
+              categoryId="DIC_kwDOU1naVM4DGwMC"
+              mapping="specific"
+              term={currentTerm}
+              reactionsEnabled="1"
+              emitMetadata="0"
+              inputPosition="top"
+              theme="dark_dimmed"
+              lang="zh-TW"
+              loading="eager"
+            />
+          </div>
         </div>
 
         {/* 底部 */}
