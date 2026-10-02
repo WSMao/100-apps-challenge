@@ -39,10 +39,10 @@ export default async function handler(req: any, res: any) {
     // 1. 查找或建立討論串
     // 先查詢該 repo 內是否已經有標題符合 term 的討論串
     const searchDiscussionQuery = `
-      query FindDiscussion($owner: String!, $name: String!, $term: String!) {
+      query FindDiscussion($owner: String!, $name: String!, $categoryId: ID) {
         repository(owner: $owner, name: $name) {
           id
-          discussions(first: 10, categoryId: "${categoryId}") {
+          discussions(first: 20, categoryId: $categoryId) {
             nodes {
               id
               title
@@ -57,7 +57,7 @@ export default async function handler(req: any, res: any) {
       headers: queryHeaders,
       body: JSON.stringify({
         query: searchDiscussionQuery,
-        variables: { owner, name, term },
+        variables: { owner, name, categoryId },
       }),
     });
 

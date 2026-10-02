@@ -334,9 +334,12 @@ export async function sendGuestCommentToGithub(params: {
 
     const data = await res.json();
     if (!res.ok || !data.success) {
+      const detailedMsg = data.details?.[0]?.message 
+        ? `${data.error}: ${data.details[0].message}`
+        : (data.error || '發送失敗，請稍後再試');
       return {
         success: false,
-        message: data.error || data.details?.[0]?.message || '發送失敗，請稍後再試',
+        message: detailedMsg,
       };
     }
 
