@@ -5,7 +5,7 @@
   "tags": ["React", "TailwindCSS", "TypeScript", "Vite", "Web"],
   "platform": "Web",
   "status": "in-progress",
-  "demoUrl": "http://localhost:5173",
+  "demoUrl": "https://001-challengeshowcase.vercel.app/",
   "docUrl": "README.md",
   "coverImage": "assets/cover.svg"
 }
