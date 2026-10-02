@@ -12,9 +12,7 @@ export const isSupabaseConfigured: boolean = Boolean(
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const supabase: SupabaseClient<any, any, any> | null = isSupabaseConfigured && supabaseUrl && supabaseAnonKey
-  ? createClient(supabaseUrl, supabaseAnonKey, {
-      db: { schema: 'app001' },
-    })
+  ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
 
 export interface AppStatRecord {
@@ -30,7 +28,6 @@ export async function fetchRemoteAppStats(): Promise<Record<string, { likes: num
   if (!supabase) return null;
   try {
     const { data, error } = await supabase
-      .schema('app001')
       .from('app_stats')
       .select('app_id, likes, views');
 
@@ -60,7 +57,6 @@ export async function remoteIncrementLikes(appId: string): Promise<boolean> {
   if (!supabase) return false;
   try {
     const { error } = await supabase
-      .schema('app001')
       .rpc('increment_likes', { target_app_id: appId });
     if (error) {
       console.warn('[Supabase] RPC increment_likes error:', error);
@@ -80,7 +76,6 @@ export async function remoteDecrementLikes(appId: string): Promise<boolean> {
   if (!supabase) return false;
   try {
     const { error } = await supabase
-      .schema('app001')
       .rpc('decrement_likes', { target_app_id: appId });
     if (error) {
       console.warn('[Supabase] RPC decrement_likes error:', error);
@@ -100,7 +95,6 @@ export async function remoteIncrementViews(appId: string): Promise<boolean> {
   if (!supabase) return false;
   try {
     const { error } = await supabase
-      .schema('app001')
       .rpc('increment_views', { target_app_id: appId });
     if (error) {
       console.warn('[Supabase] RPC increment_views error:', error);
