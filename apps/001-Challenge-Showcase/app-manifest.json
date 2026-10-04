@@ -4,7 +4,7 @@
   "description": "第 1 號作品正是 100 Apps Challenge 的展示交流中心。在這裡記錄創作過程並探索潛在需求，歡迎交流討論。",
   "tags": ["React", "TailwindCSS", "TypeScript", "Vite", "Web"],
   "platform": "Web",
-  "status": "in-progress",
+  "status": "completed",
   "demoUrl": "https://001-challengeshowcase.vercel.app/",
   "docUrl": "README.md",
   "coverImage": "assets/cover.svg"
