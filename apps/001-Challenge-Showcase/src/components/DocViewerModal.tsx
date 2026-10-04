@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { X, BookOpen, ExternalLink, Copy, Check } from 'lucide-react';
 import { marked } from 'marked';
+import { getDocImageUrl } from '../services/appService';
 
 interface DocViewerModalProps {
   isOpen: boolean;
@@ -23,10 +24,18 @@ export const DocViewerModal: React.FC<DocViewerModalProps> = ({
 }) => {
   const [copied, setCopied] = React.useState(false);
 
-  // 解析 Markdown 為安全 HTML
+  // 解析 Markdown 為安全 HTML，並自動解析替換 docs/ 圖片路徑
   const parsedHtml = useMemo(() => {
     try {
-      return marked.parse(markdownContent, { async: false }) as string;
+      // 替換 markdown 中的相對圖片路徑 (./docs/xxx.png 或 docs/xxx.png) 為 Vite 打包後的 URL
+      const processedMarkdown = markdownContent.replace(
+        /!\[(.*?)\]\((\.?\/?docs\/([^\s\)]+))\)/g,
+        (match, alt, _fullPath, fileName) => {
+          const resolvedUrl = getDocImageUrl(fileName);
+          return resolvedUrl ? `![${alt}](${resolvedUrl})` : match;
+        }
+      );
+      return marked.parse(processedMarkdown, { async: false }) as string;
     } catch (e) {
       console.error('Failed to parse markdown:', e);
       return '<p>Markdown 解析失敗</p>';

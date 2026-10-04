@@ -54,7 +54,7 @@ pnpm preview
 ## 架構
 
 ### Giscus 留言板
-![alt text](../001-Challenge-Showcase/public/assets/github_discussion.png)
+![GitHub Discussions 留言板架構圖](./docs/github_discussion.png)
 1. 有 GitHub：適合開發者與技術社群，直接享有 GitHub 原生的個人頭像、Markdown 完整渲染、Emoji 表情反饋（Reactions）與通知通知機制。
 2. 免登入訪客：提供極簡輸入表單（暱稱、內容）。透過 Vercel Serveless Fuction 中繼轉發。
 

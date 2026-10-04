@@ -26,6 +26,28 @@ const readmeFiles = import.meta.glob<string>(
   }
 );
 
+// 3. 自動掃描所有 docs/ 目錄下的圖片資源，以便在網頁 Markdown 渲染時即時替換
+const docImageFiles = import.meta.glob<string>(
+  ['../../../*/docs/*.{png,jpg,jpeg,svg,gif,webp}', '../../*/docs/*.{png,jpg,jpeg,svg,gif,webp}', '../docs/*.{png,jpg,jpeg,svg,gif,webp}'],
+  {
+    import: 'default',
+    eager: true,
+  }
+);
+
+/**
+ * 依據檔案名稱獲取 docs/ 目錄下圖片的打包 URL
+ */
+export function getDocImageUrl(fileName: string): string | undefined {
+  const cleanName = fileName.replace(/^\.?\/?(docs\/)?/, '');
+  for (const path in docImageFiles) {
+    if (path.endsWith(`/${cleanName}`) || path.endsWith(cleanName)) {
+      return docImageFiles[path];
+    }
+  }
+  return undefined;
+}
+
 /**
  * 解析所有子應用的 manifest 資料
  */
