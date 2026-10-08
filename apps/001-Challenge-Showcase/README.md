@@ -4,18 +4,38 @@
 
 ---
 
+## 🎯 專案目標與 MVP 功能
+
+### 核心痛點
+- 缺乏統一個人的作品曝光空間，難以觀察市場真實反饋與潛在需求。
+- 手動維護作品列表繁瑣，需要自動化、資料驅動的架構以容納 100 個 App。
+- 缺少與訪客及潛在合作者即時互動（按讚、回饋、交流）的管道。
+
+### MVP 核心功能清單
+1. [x] 專案展示卡片 (App Card)：包含編號、名稱、開發狀態（如 in-progress、completed）、分類標籤、簡介、Demo 連結與 Doc 連結（展示 README.md）。實作成資料驅動自動讀取：自動載入各 App 的 app-manifest.json
+2. [x] 搜尋與篩選系統：支援即時文字搜尋、按開發狀態篩選、按 Tag 標籤過濾（支援多選且按熱門度自動排序）
+3. [x] 互動與交流模組 (Engagement)：
+      - [x] Contact：GitHub icon 連結至 GitHub 主頁面、mail icon 點擊複製 email 帳號
+      - [x] 作品喜好反饋：
+        - [x] 按愛心 icon 支援點擊按讚並顯示累積愛心數量（含彩花動效），用以調查具潛力的作品
+        - [x] 瀏覽統計：眼睛 icon 統計並顯示瀏覽數量
+        - [x] 留言與許願板：供訪客留言交流、提供回饋或許願新功能需求
+
+---
+
 ## 🛠️ 技術路線
 - **前端框架**：React 19 + TypeScript
 - **建置工具**：Vite 8
 - **樣式庫**：Tailwind CSS v4
 - **圖示庫**：Lucide React
-- **動效與反饋**：Canvas Confetti (點擊愛心/互動慶祝微動效)
+- **動畫庫**：Canvas Confetti (點擊愛心/互動慶祝微動效)
 - **Markdown 渲染**：`marked` 是用來將 Markdown 語法字串解析並轉換為 HTML 的套件
 - **留言板**：Giscus 串接 GitHub discussions
 - **資料庫**：Supabase 的 Serveless database 服務
 - **前端託管**：GitHub 版本控制，搭配 Vercel 自動部署
-- **後端邏輯**：Vercel Edge Functions
+- **後端託管**：Vercel Edge Functions
 - **依賴管理**：採用 **pnpm** 作為統一依賴套件管理工具。全域硬連結儲存庫可大幅節省磁碟空間，並防止幽靈依賴
+
 ---
 
 ## 🚀 安裝與啟動說明
