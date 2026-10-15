@@ -4,6 +4,7 @@ import { FilterBar } from './components/FilterBar';
 import { AppCard } from './components/AppCard';
 import { DocViewerModal } from './components/DocViewerModal';
 import { GuestbookModal } from './components/GuestbookModal';
+import { ImagePreviewModal } from './components/ImagePreviewModal';
 import { Toast } from './components/Toast';
 import { Footer } from './components/Footer';
 import {
@@ -66,6 +67,19 @@ export function App() {
     defaultAppId?: string;
   }>({
     isOpen: false,
+  });
+
+  const [imagePreview, setImagePreview] = useState<{
+    isOpen: boolean;
+    appId: string;
+    appName: string;
+    images: string[];
+    platform?: string;
+  }>({
+    isOpen: false,
+    appId: '',
+    appName: '',
+    images: [],
   });
 
   // 5. Toast 訊息提示
@@ -203,6 +217,18 @@ export function App() {
     });
   };
 
+  // 互動處理：開啟封面圖片放大預覽
+  const handlePreviewImages = (appId: string, images: string[], platform?: string) => {
+    const app = allApps.find((a) => a.id === appId);
+    setImagePreview({
+      isOpen: true,
+      appId,
+      appName: app?.name || appId,
+      images,
+      platform,
+    });
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-indigo-500/30 selection:text-indigo-200">
       {/* 頂部導航列 */}
@@ -263,6 +289,7 @@ export function App() {
                 onOpenDoc={handleOpenDoc}
                 onOpenWish={handleOpenWish}
                 onDemoClick={handleDemoClick}
+                onPreviewImages={handlePreviewImages}
               />
             ))}
           </div>
@@ -313,6 +340,16 @@ export function App() {
           setGuestbookCount(getGuestbookList().length);
           showToast('留言已送出，感謝您的反饋！🎉');
         }}
+      />
+
+      {/* 封面圖片放大預覽彈窗 (支援左右切換檢視) */}
+      <ImagePreviewModal
+        isOpen={imagePreview.isOpen}
+        onClose={() => setImagePreview((prev) => ({ ...prev, isOpen: false }))}
+        appId={imagePreview.appId}
+        appName={imagePreview.appName}
+        images={imagePreview.images}
+        platform={imagePreview.platform}
       />
 
       {/* 浮動提示 Toast */}
