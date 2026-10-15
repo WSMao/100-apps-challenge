@@ -1,5 +1,4 @@
-import React from 'react';
-import { Heart, Eye, BookOpen, ExternalLink, MessageSquarePlus, Monitor, Globe, Smartphone, Terminal } from 'lucide-react';
+import { Heart, Eye, BookOpen, ExternalLink, MessageSquarePlus, Monitor, Globe, Smartphone, Terminal, Images, ZoomIn } from 'lucide-react';
 import type { AppManifest } from '../types/app';
 import confetti from 'canvas-confetti';
 
@@ -12,6 +11,7 @@ interface AppCardProps {
   onOpenDoc: (appId: string) => void;
   onOpenWish: (appId: string) => void;
   onDemoClick: (appId: string) => void;
+  onPreviewImages: (appId: string, images: string[], platform?: string) => void;
 }
 
 export const AppCard: React.FC<AppCardProps> = ({
@@ -23,6 +23,7 @@ export const AppCard: React.FC<AppCardProps> = ({
   onOpenDoc,
   onOpenWish,
   onDemoClick,
+  onPreviewImages,
 }) => {
   // 狀態徽章風格
   const getStatusBadge = () => {
@@ -88,23 +89,73 @@ export const AppCard: React.FC<AppCardProps> = ({
     }
   };
 
+  const isMobilePlatform = ['ios', 'android', 'mobile'].includes(app.platform.toLowerCase());
+
+  // 獲取該 App 的所有預覽圖片清單
+  const imageList = Array.isArray(app.coverImage)
+    ? app.coverImage
+    : app.coverImage
+    ? [app.coverImage]
+    : ['/assets/default.svg'];
+  const primaryCover = imageList[0] || '/assets/default.svg';
+
+  const handleCoverClick = () => {
+    onPreviewImages(app.id, imageList, app.platform);
+  };
+
   return (
     <div className="group relative rounded-2xl bg-slate-900/70 border border-slate-800/80 hover:border-slate-700/80 overflow-hidden shadow-lg hover:shadow-indigo-500/5 transition-all duration-300 flex flex-col hover:-translate-y-1">
-      {/* 封面圖 / 預覽區域 */}
+      {/* 封面圖 / 預覽區域 (點擊放大預覽封面或多張截圖) */}
       <div
-        onClick={() => onOpenDoc(app.id)}
-        className="relative aspect-video w-full overflow-hidden bg-slate-950 border-b border-slate-800/60 cursor-pointer"
-        title="點擊查看文件與詳情"
+        onClick={handleCoverClick}
+        className="relative aspect-video w-full overflow-hidden bg-slate-950 border-b border-slate-800/60 cursor-pointer flex items-center justify-center group/cover"
+        title="點擊放大檢視封面圖片"
       >
-        <img
-          src={app.coverImage || '/assets/cover.svg'}
-          alt={app.name}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-          onError={(e) => {
-            // 容錯機制：若自訂圖片加載失敗，切換為預設 cover.svg
-            (e.currentTarget as HTMLImageElement).src = '/assets/cover.svg';
-          }}
-        />
+        {isMobilePlatform ? (
+          // 📱 手機應用：擬真手機畫框 + 背景環境柔光
+          <div className="relative w-full h-full flex items-center justify-center p-2.5 overflow-hidden">
+            {/* 1. 背景柔和光暈（同張圖片放大模糊） */}
+            <img
+              src={primaryCover}
+              alt=""
+              aria-hidden="true"
+              className="absolute inset-0 w-full h-full object-cover blur-2xl opacity-35 scale-125 pointer-events-none"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).src = '/assets/default.svg';
+              }}
+            />
+            {/* 2. 精緻手機模型主體 (9:19.5 現代手機標準長寬比) */}
+            <div className="relative h-full aspect-[9/19.5] rounded-xl overflow-hidden shadow-2xl shadow-black/90 border border-slate-700/70 ring-1 ring-white/10 transition-transform duration-500 group-hover:scale-105">
+              <img
+                src={primaryCover}
+                alt={app.name}
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = '/assets/default.svg';
+                }}
+              />
+            </div>
+          </div>
+        ) : (
+          // 🌐 Web / Desktop 應用：標準全幅覆蓋
+          <img
+            src={primaryCover}
+            alt={app.name}
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            onError={(e) => {
+              // 容錯機制：若自訂圖片加載失敗，切換為預設 default.svg
+              (e.currentTarget as HTMLImageElement).src = '/assets/default.svg';
+            }}
+          />
+        )}
+
+        {/* 懸浮放大圖示指示器 (Hover 提示) */}
+        <div className="absolute inset-0 bg-slate-950/30 opacity-0 group-hover/cover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-700 text-xs font-semibold text-slate-200 shadow-xl backdrop-blur transform scale-95 group-hover/cover:scale-100 transition-transform">
+            <ZoomIn className="w-3.5 h-3.5 text-indigo-400" />
+            <span>點擊放大</span>
+          </div>
+        </div>
 
         {/* 頂部懸浮狀態與編號 */}
         <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none">
@@ -116,10 +167,19 @@ export const AppCard: React.FC<AppCardProps> = ({
           </div>
         </div>
 
-        {/* 底部懸浮：平台 */}
-        <div className="absolute bottom-3 left-3 flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-950/80 backdrop-blur-md text-slate-300 border border-slate-800 shadow">
-          {getPlatformIcon()}
-          <span>{app.platform}</span>
+        {/* 底部懸浮：平台與多圖標示 */}
+        <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between pointer-events-none">
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-950/80 backdrop-blur-md text-slate-300 border border-slate-800 shadow">
+            {getPlatformIcon()}
+            <span>{app.platform}</span>
+          </div>
+
+          {imageList.length > 1 && (
+            <div className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-950/80 text-indigo-300 border border-indigo-700/60 shadow backdrop-blur">
+              <Images className="w-3 h-3 text-indigo-400" />
+              <span>{imageList.length} 張</span>
+            </div>
+          )}
         </div>
       </div>
 

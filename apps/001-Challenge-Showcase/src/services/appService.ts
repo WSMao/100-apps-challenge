@@ -35,14 +35,31 @@ const docImageFiles = import.meta.glob<string>(
   }
 );
 
-// 4. 自動掃描 apps/* 目錄下的所有 cover 封面圖並一併打包
-const coverImageFiles = import.meta.glob<string>(
-  ['../../../*/assets/cover.{svg,png,jpg,jpeg,webp}', '../../*/assets/cover.{svg,png,jpg,jpeg,webp}', '../public/assets/cover.svg'],
+// 4. 自動掃描 apps/* 目錄下的所有 assets 圖片資源並一併打包
+const appAssetFiles = import.meta.glob<string>(
+  [
+    '../../../*/assets/*.{svg,png,jpg,jpeg,webp}',
+    '../../assets/*.{svg,png,jpg,jpeg,webp}',
+  ],
   {
     import: 'default',
     eager: true,
   }
 );
+
+/**
+ * 判斷資源路徑是否屬於特定的 appId
+ */
+function isPathForApp(path: string, appId: string): boolean {
+  if (path.includes(`/${appId}-`) || path.includes(`/${appId}/`)) {
+    return true;
+  }
+  // 針對 001 專案本身在相對路徑中可能是 ../../assets
+  if (appId === '001') {
+    return path.includes('001') || path.startsWith('../../assets/');
+  }
+  return false;
+}
 
 /**
  * 依據檔案名稱獲取 docs/ 目錄下圖片的打包 URL
@@ -58,29 +75,63 @@ export function getDocImageUrl(fileName: string): string | undefined {
 }
 
 /**
- * 依據 appId 與 manifest 宣告的 coverImage 路徑，獲取打包後的專屬封面圖 URL
+ * 解析單一圖片路徑或檔名為 Vite 打包後的 URL
  */
-function resolveCoverImageUrl(appId: string, declaredCover?: string): string {
-  if (declaredCover?.startsWith('http') || declaredCover?.startsWith('data:')) {
-    return declaredCover;
+function resolveSingleImageUrl(appId: string, imagePath: string): string {
+  if (!imagePath) {
+    return '/assets/default.svg';
   }
 
-  // 優先在打包的 coverImageFiles 中尋找屬於該 appId 的專屬封面
-  for (const path in coverImageFiles) {
-    if (path.includes(`/${appId}-`) || path.includes(`/${appId}/`)) {
-      return coverImageFiles[path];
+  if (imagePath.startsWith('http') || imagePath.startsWith('data:')) {
+    return imagePath;
+  }
+
+  const cleanFileName = imagePath.replace(/^\.?\/?(assets\/)?/, '');
+
+  // 1. 優先在屬於該 appId 專屬的 assets 目錄下尋找完全吻合的檔名 (嚴格以 / 結尾比對，避免 _cover.svg 誤判為 cover.svg)
+  for (const path in appAssetFiles) {
+    if (isPathForApp(path, appId)) {
+      if (path.endsWith(`/${cleanFileName}`)) {
+        return appAssetFiles[path];
+      }
     }
   }
 
-  // 容錯回退：若為 001 且本身有 cover
+  // 2. 針對 001 專案：位於 public/assets/ 底下的專屬靜態資源，直接以 /assets/${cleanFileName} 提供
   if (appId === '001') {
-    const defaultCover = Object.keys(coverImageFiles).find(k => k.includes('cover.svg'));
-    if (defaultCover) {
-      return coverImageFiles[defaultCover];
+    return `/assets/${cleanFileName}`;
+  }
+
+  // 3. 次優先：屬於該 appId 的專屬封面圖 (含 cover 且嚴格限制屬於同一 appId)
+  for (const path in appAssetFiles) {
+    if (isPathForApp(path, appId) && path.includes('cover')) {
+      return appAssetFiles[path];
     }
   }
 
-  return '/assets/cover.svg';
+  // 4. 容錯回退：預設通用封面 default.svg
+  return '/assets/default.svg';
+}
+
+/**
+ * 依據 appId 與 manifest 宣告的 coverImage (支援單一字串或字串陣列)，獲取打包後的專屬封面圖清單或單圖
+ */
+function resolveCoverImages(
+  appId: string,
+  declaredCover?: string | string[]
+): string | string[] {
+  if (!declaredCover) {
+    return resolveSingleImageUrl(appId, 'assets/default.svg');
+  }
+
+  if (Array.isArray(declaredCover)) {
+    const resolvedList = declaredCover
+      .map((item) => (typeof item === 'string' ? resolveSingleImageUrl(appId, item) : ''))
+      .filter(Boolean);
+    return resolvedList.length > 0 ? resolvedList : resolveSingleImageUrl(appId, 'assets/default.svg');
+  }
+
+  return resolveSingleImageUrl(appId, declaredCover);
 }
 
 /**
@@ -98,8 +149,8 @@ export function getAllApps(): AppManifest[] {
     if (manifest && manifest.id && manifest.name) {
       appMap.set(manifest.id, {
         ...manifest,
-        // 動態解析 Vite 打包後的專屬封面圖路徑
-        coverImage: resolveCoverImageUrl(manifest.id, manifest.coverImage),
+        // 動態解析 Vite 打包後的專屬封面圖路徑（支援單圖或多圖陣列）
+        coverImage: resolveCoverImages(manifest.id, manifest.coverImage),
       });
     }
   }

@@ -7,5 +7,7 @@
   "status": "completed",
   "demoUrl": "https://001-challengeshowcase.vercel.app/",
   "docUrl": "README.md",
-  "coverImage": "assets/cover.svg"
+  "coverImage": [
+    "assets/image.png"
+  ]
 }

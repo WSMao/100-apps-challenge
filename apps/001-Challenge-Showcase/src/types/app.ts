@@ -9,7 +9,7 @@ export interface AppManifest {
   status: AppStatus;
   demoUrl?: string;
   docUrl?: string;
-  coverImage?: string;
+  coverImage?: string | string[];
 }
 
 export interface AppFeedback {
