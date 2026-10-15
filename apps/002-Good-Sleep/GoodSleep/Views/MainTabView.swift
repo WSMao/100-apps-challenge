@@ -3,6 +3,7 @@ import SwiftUI
 /// 主分頁視圖 (OLED 暗夜導航)
 struct MainTabView: View {
     @StateObject private var store = SleepStore()
+    @ObservedObject private var soundManager = SoundManager.shared
     @State private var selectedTab: Int = 0
     
     init() {
@@ -54,5 +55,8 @@ struct MainTabView: View {
                 .tag(3)
         }
         .preferredColorScheme(.dark)
+        .fullScreenCover(isPresented: $soundManager.isAlarmRinging) {
+            AlarmRingingView(store: store)
+        }
     }
 }

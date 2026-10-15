@@ -1,28 +1,55 @@
 import SwiftUI
 
-/// 睡眠紀錄編輯與修改彈窗
+/// 睡眠紀錄編輯與新增彈窗 (支援編輯既有記錄或為指定日期補打卡)
 struct EditSleepLogSheet: View {
     @ObservedObject var store: SleepStore
-    let originalLog: SleepLog
+    let originalLog: SleepLog?
+    let newLogDate: Date?
     @Environment(\.dismiss) private var dismiss
     
     @State private var selectedRating: SleepRating
     @State private var bedtime: Date
     @State private var wakeTime: Date
     @State private var isSnoozed: Bool
-    @State private var snoozeMinutes: Int
     @State private var note: String
     @State private var showingDeleteAlert: Bool = false
     
+    var isEditing: Bool {
+        originalLog != nil
+    }
+    
+    // 編輯既有記錄
     init(store: SleepStore, log: SleepLog) {
         self.store = store
         self.originalLog = log
+        self.newLogDate = nil
         _selectedRating = State(initialValue: log.rating)
         _bedtime = State(initialValue: log.bedtime)
         _wakeTime = State(initialValue: log.wakeTime)
         _isSnoozed = State(initialValue: log.isSnoozed)
-        _snoozeMinutes = State(initialValue: max(5, log.snoozeMinutes))
         _note = State(initialValue: log.note)
+    }
+    
+    // 為指定日期新增睡眠記錄
+    init(store: SleepStore, newLogDate: Date) {
+        self.store = store
+        self.originalLog = nil
+        self.newLogDate = newLogDate
+        
+        let cal = Calendar.current
+        let targetDay = cal.startOfDay(for: newLogDate)
+        
+        // 預設起床時間：該日 07:00
+        let defaultWake = cal.date(bySettingHour: 7, minute: 0, second: 0, of: targetDay) ?? targetDay
+        // 預設入睡時間：前一日 23:00
+        let prevDay = cal.date(byAdding: .day, value: -1, to: targetDay) ?? targetDay
+        let defaultBed = cal.date(bySettingHour: 23, minute: 0, second: 0, of: prevDay) ?? prevDay
+        
+        _selectedRating = State(initialValue: .good)
+        _bedtime = State(initialValue: defaultBed)
+        _wakeTime = State(initialValue: defaultWake)
+        _isSnoozed = State(initialValue: false)
+        _note = State(initialValue: "")
     }
     
     var body: some View {
@@ -32,6 +59,21 @@ struct EditSleepLogSheet: View {
                 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
+                        // 0. 日期標籤 (新增記錄時提示所選日期)
+                        if let targetDate = newLogDate {
+                            HStack {
+                                Image(systemName: "calendar.badge.plus")
+                                    .foregroundColor(SleepTheme.calmTeal)
+                                Text("補登日期：\(dateDisplayFormatter.string(from: targetDate))")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(SleepTheme.textSecondary)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(SleepTheme.surfaceSecondary)
+                            .clipShape(Capsule())
+                        }
+                        
                         // 1. 起床自評狀態貼圖
                         VStack(alignment: .leading, spacing: 10) {
                             Text("起床狀態自評")
@@ -93,7 +135,7 @@ struct EditSleepLogSheet: View {
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         }
                         
-                        // 3. 賴床狀況
+                        // 3. 賴床狀況 (由醒來時間與鬧鐘時間自動換算時長)
                         VStack(alignment: .leading, spacing: 10) {
                             Text("鬧鐘與賴床狀態")
                                 .font(.system(size: 15, weight: .semibold))
@@ -103,21 +145,6 @@ struct EditSleepLogSheet: View {
                                 Toggle("是否有賴床？", isOn: $isSnoozed)
                                     .foregroundColor(SleepTheme.textPrimary)
                                     .tint(SleepTheme.accent)
-                                
-                                if isSnoozed {
-                                    Divider().background(SleepTheme.border)
-                                    
-                                    Stepper(value: $snoozeMinutes, in: 5...60, step: 5) {
-                                        HStack {
-                                            Text("賴床時長：")
-                                                .font(.system(size: 14))
-                                                .foregroundColor(SleepTheme.textSecondary)
-                                            Text("\(snoozeMinutes) 分鐘")
-                                                .font(.system(size: 14, weight: .bold))
-                                                .foregroundColor(SleepTheme.warning)
-                                        }
-                                    }
-                                }
                             }
                             .padding(14)
                             .background(SleepTheme.surface)
@@ -145,18 +172,9 @@ struct EditSleepLogSheet: View {
                         // 儲存與刪除按鈕
                         VStack(spacing: 12) {
                             Button {
-                                var updated = originalLog
-                                updated.bedtime = bedtime
-                                updated.wakeTime = wakeTime
-                                updated.rating = selectedRating
-                                updated.isSnoozed = isSnoozed
-                                updated.snoozeMinutes = isSnoozed ? snoozeMinutes : 0
-                                updated.note = note
-                                
-                                store.updateSleepLog(updated)
-                                dismiss()
+                                saveAction()
                             } label: {
-                                Text("儲存修改")
+                                Text("儲存")
                                     .font(.system(size: 16, weight: .bold))
                                     .foregroundColor(Color(hex: "0B0E14"))
                                     .frame(maxWidth: .infinity)
@@ -165,17 +183,19 @@ struct EditSleepLogSheet: View {
                                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                             }
                             
-                            Button(role: .destructive) {
-                                showingDeleteAlert = true
-                            } label: {
-                                HStack {
-                                    Image(systemName: "trash")
-                                    Text("刪除此筆記錄")
+                            if isEditing, let log = originalLog {
+                                Button(role: .destructive) {
+                                    showingDeleteAlert = true
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "trash")
+                                        Text("刪除此筆記錄")
+                                    }
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(SleepTheme.warning)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
                                 }
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(SleepTheme.warning)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 10)
                             }
                         }
                         .padding(.top, 10)
@@ -184,7 +204,7 @@ struct EditSleepLogSheet: View {
                     .padding(20)
                 }
             }
-            .navigationTitle("編輯睡眠記錄")
+            .navigationTitle(isEditing ? "編輯睡眠記錄" : "新增睡眠記錄")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -197,7 +217,9 @@ struct EditSleepLogSheet: View {
             .alert("確定要刪除此筆記錄嗎？", isPresented: $showingDeleteAlert) {
                 Button("取消", role: .cancel) { }
                 Button("刪除", role: .destructive) {
-                    store.deleteSleepLog(id: originalLog.id)
+                    if let log = originalLog {
+                        store.deleteSleepLog(id: log.id)
+                    }
                     dismiss()
                 }
             } message: {
@@ -205,5 +227,56 @@ struct EditSleepLogSheet: View {
             }
         }
     }
+    
+    /// 自動換算醒來時間與預定鬧鐘時間的差距 (分鐘)
+    private func calculateSnoozeMinutes() -> Int {
+        guard isSnoozed else { return 0 }
+        let cal = Calendar.current
+        let targetAlarm = originalLog?.scheduledWakeTime ?? store.alarmSetting.targetWakeTime
+        let alarmHour = cal.component(.hour, from: targetAlarm)
+        let alarmMinute = cal.component(.minute, from: targetAlarm)
+        
+        if let scheduledOnDay = cal.date(bySettingHour: alarmHour, minute: alarmMinute, second: 0, of: wakeTime) {
+            let diffSeconds = wakeTime.timeIntervalSince(scheduledOnDay)
+            let minutes = Int(round(diffSeconds / 60.0))
+            return max(5, minutes)
+        }
+        return 10
+    }
+    
+    private func saveAction() {
+        let calculatedSnooze = calculateSnoozeMinutes()
+        
+        if let original = originalLog {
+            var updated = original
+            updated.bedtime = bedtime
+            updated.wakeTime = wakeTime
+            updated.rating = selectedRating
+            updated.isSnoozed = isSnoozed
+            updated.snoozeMinutes = calculatedSnooze
+            updated.note = note
+            store.updateSleepLog(updated)
+        } else if let date = newLogDate {
+            let scheduledTime = store.alarmSetting.targetWakeTime
+            let newLog = SleepLog(
+                date: date,
+                bedtime: bedtime,
+                wakeTime: wakeTime,
+                scheduledWakeTime: scheduledTime,
+                rating: selectedRating,
+                isSnoozed: isSnoozed,
+                snoozeMinutes: calculatedSnooze,
+                note: note,
+                completedChecklistCount: 0
+            )
+            store.addSleepLog(newLog)
+        }
+        dismiss()
+    }
+    
+    private var dateDisplayFormatter: DateFormatter {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy 年 M 月 d 日"
+        return f
+    }
 }
-

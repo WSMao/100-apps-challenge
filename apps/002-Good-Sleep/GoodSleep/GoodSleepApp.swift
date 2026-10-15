@@ -24,13 +24,31 @@ final class AppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
         return true
     }
     
-    // 當 App 在前台時收到通知仍照常顯示 Alert
+    // 當 App 在前台時收到通知仍照常顯示 Alert 與聲音
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound, .badge])
+        let identifier = notification.request.identifier
+        if identifier.contains("wake_alarm") {
+            // 前台收到喚醒鬧鐘通知時，觸發循環鈴聲播放與全螢幕視窗
+            SoundManager.shared.startAlarmMelody()
+        }
+        completionHandler([.banner, .sound, .badge, .list])
+    }
+    
+    // 當使用者點擊鬧鐘通知進入 App
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let identifier = response.notification.request.identifier
+        if identifier.contains("wake_alarm") {
+            SoundManager.shared.startAlarmMelody()
+        }
+        completionHandler()
     }
 }
 

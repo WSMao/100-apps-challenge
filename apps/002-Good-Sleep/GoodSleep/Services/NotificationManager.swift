@@ -83,7 +83,9 @@ final class NotificationManager: NSObject, ObservableObject {
         let content = UNMutableNotificationContent()
         content.title = "☀️ 早安！美好的一天開始了"
         content.body = "該起床伸展囉！點擊完成晨間打卡，記錄今日睡眠品質。"
-        content.sound = .default
+        // 使用客製化晨間清脆鐘琴鈴聲
+        content.sound = UNNotificationSound(named: UNNotificationSoundName("alarm_melody.caf"))
+        content.interruptionLevel = .timeSensitive
         
         let trigger = UNCalendarNotificationTrigger(dateMatching: wakeComponents, repeats: true)
         let request = UNNotificationRequest(identifier: "wake_alarm", content: content, trigger: trigger)
@@ -91,6 +93,48 @@ final class NotificationManager: NSObject, ObservableObject {
         center.add(request) { error in
             if let error = error {
                 print("排程鬧鐘失敗: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    /// 5 秒後測試鬧鐘通知 (供使用者測試背景/鎖屏推播與客製化鈴聲)
+    func scheduleTestAlarmIn5Seconds() {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: ["wake_alarm_test"])
+        
+        let content = UNMutableNotificationContent()
+        content.title = "☀️ [測試] 鬧鐘響起！"
+        content.body = "這是一條 5 秒測試喚醒鬧鐘！請點擊進入完成晨間打卡。"
+        content.sound = UNNotificationSound(named: UNNotificationSoundName("alarm_melody.caf"))
+        content.interruptionLevel = .timeSensitive
+        
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false)
+        let request = UNNotificationRequest(identifier: "wake_alarm_test", content: content, trigger: trigger)
+        
+        center.add(request) { error in
+            if let error = error {
+                print("測試鬧鐘排程失敗: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    /// 排程賴床 5 分鐘後再次響起
+    func scheduleSnoozeAlarm(minutes: Int = 5) {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: ["wake_alarm_snooze"])
+        
+        let content = UNMutableNotificationContent()
+        content.title = "⏰ 賴床時間到囉！"
+        content.body = "已經多賴了 \(minutes) 分鐘，深呼吸準備迎接今天吧！"
+        content.sound = UNNotificationSound(named: UNNotificationSoundName("alarm_melody.caf"))
+        content.interruptionLevel = .timeSensitive
+        
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: TimeInterval(minutes * 60), repeats: false)
+        let request = UNNotificationRequest(identifier: "wake_alarm_snooze", content: content, trigger: trigger)
+        
+        center.add(request) { error in
+            if let error = error {
+                print("賴床鬧鐘排程失敗: \(error.localizedDescription)")
             }
         }
     }

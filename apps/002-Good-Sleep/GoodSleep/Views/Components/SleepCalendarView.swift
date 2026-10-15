@@ -1,16 +1,17 @@
 import SwiftUI
 
-/// 睡眠日曆元件 (支援月視圖 / 週視圖滑動切換、年月快選、睡眠打卡標記)
+/// 睡眠日曆元件 (支援月視圖 / 週視圖滑動切換、左/右滑動換月、Today快速返回標籤、年月快選、無記錄點擊補登)
 struct SleepCalendarView: View {
     @Binding var selectedDate: Date
     @ObservedObject var store: SleepStore
+    var onSelectDateWithoutLog: ((Date) -> Void)? = nil
     
     enum CalendarScope {
         case week
         case month
     }
     
-    @State private var scope: CalendarScope = .month
+    @State private var scope: CalendarScope = .week
     @State private var currentMonth: Date = Date()
     @State private var showingDatePicker: Bool = false
     
@@ -19,13 +20,13 @@ struct SleepCalendarView: View {
     
     var body: some View {
         VStack(spacing: 12) {
-            // 頂部日期與快速選擇按鈕
+            // 頂部日期、Today 標籤與快速選擇按鈕
             headerView
             
             // 星期抬頭 (週日 ... 週六)
             weekdayHeaderView
             
-            // 日期網格 (月視圖 or 週視圖)
+            // 日期網格 (月視圖 or 週視圖，支援左右滑動換月/換週，上下滑動收展)
             calendarGridView
             
             // 底部拖拉橫桿 (往上滑收起成週視圖，往下滑展開成月視圖)
@@ -40,6 +41,12 @@ struct SleepCalendarView: View {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .stroke(SleepTheme.border.opacity(0.5), lineWidth: 1)
         )
+        .gesture(
+            DragGesture(minimumDistance: 25)
+                .onEnded { value in
+                    handleDragEnded(value)
+                }
+        )
         .sheet(isPresented: $showingDatePicker) {
             YearMonthPickerSheet(selectedDate: $selectedDate, currentMonth: $currentMonth)
         }
@@ -48,33 +55,118 @@ struct SleepCalendarView: View {
         }
     }
     
-    // MARK: - 頂部日期標題與日曆圖示按鈕
+    // MARK: - 手勢滑動判定 (左右滑動切換月份，上下滑動切換週/月展開)
+    private func handleDragEnded(_ value: DragGesture.Value) {
+        let h = value.translation.width
+        let v = value.translation.height
+        
+        if abs(h) > abs(v) && abs(h) > 35 {
+            // 水平滑動
+            if h > 0 {
+                // 往右滑：上個月 (或上一週)
+                if scope == .month {
+                    changeMonth(by: -1)
+                } else {
+                    changeWeek(by: -1)
+                }
+            } else {
+                // 往左滑：下個月 (或下一週)
+                if scope == .month {
+                    changeMonth(by: 1)
+                } else {
+                    changeWeek(by: 1)
+                }
+            }
+        } else if abs(v) > abs(h) && abs(v) > 30 {
+            // 垂直滑動
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                if v < 0 {
+                    // 往上滑：收起成週視圖
+                    scope = .week
+                } else {
+                    // 往下滑：展開成月視圖
+                    scope = .month
+                }
+            }
+        }
+    }
+    
+    private func changeMonth(by value: Int) {
+        if let nextMonth = calendar.date(byAdding: .month, value: value, to: currentMonth) {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                currentMonth = nextMonth
+            }
+        }
+    }
+    
+    private func changeWeek(by value: Int) {
+        if let nextWeek = calendar.date(byAdding: .weekOfYear, value: value, to: selectedDate) {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                selectedDate = nextWeek
+                currentMonth = nextWeek
+            }
+        }
+    }
+    
+    // MARK: - 頂部日期標題、Today 標籤與日曆圖示按鈕
     private var headerView: some View {
         HStack {
+            // 左側：Today 快速返回標籤 (非今日或正在瀏覽其他月份時顯示)
+            ZStack(alignment: .leading) {
+                if !calendar.isDateInToday(selectedDate) || !calendar.isDate(currentMonth, equalTo: Date(), toGranularity: .month) {
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            selectedDate = Date()
+                            currentMonth = Date()
+                        }
+                    } label: {
+                        Text("Today")
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .foregroundColor(SleepTheme.accent)
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 7)
+                            .background(SleepTheme.surfaceSecondary)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .frame(width: 80, alignment: .leading)
+            
             Spacer()
             
-            // 選取日期顯示 (例: 2026/10/15)
-            Text(dateDisplayFormatter.string(from: selectedDate))
-                .font(.system(size: 19, weight: .bold, design: .rounded))
+            // 中間：選取日期 (若同月份) 或 目前瀏覽年月
+            Text(headerTitleString)
+                .font(.system(size: 18, weight: .bold, design: .rounded))
                 .foregroundColor(SleepTheme.textPrimary)
             
             Spacer()
             
-            // 小日曆圖示 (點擊彈出年月快選)
+            // 右側：小日曆圖示 (點擊彈出年月快選)
             Button {
                 showingDatePicker = true
             } label: {
                 ZStack {
                     Circle()
                         .fill(SleepTheme.surfaceSecondary)
-                        .frame(width: 36, height: 36)
+                        .frame(width: 34, height: 34)
                     
                     Image(systemName: "calendar")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(SleepTheme.accent)
                 }
             }
             .buttonStyle(.plain)
+            .frame(width: 80, alignment: .trailing)
+        }
+    }
+    
+    private var headerTitleString: String {
+        if calendar.isDate(selectedDate, equalTo: currentMonth, toGranularity: .month) {
+            return dateDisplayFormatter.string(from: selectedDate)
+        } else {
+            return monthDisplayFormatter.string(from: currentMonth)
         }
     }
     
@@ -122,10 +214,15 @@ struct SleepCalendarView: View {
         return Button {
             selectedDate = day.date
             currentMonth = day.date
+            
+            // 若該日無記錄，觸發新增視窗回調
+            if !hasSleepRecord {
+                onSelectDateWithoutLog?(day.date)
+            }
         } label: {
             VStack(spacing: 3) {
                 ZStack {
-                    // 選取時的外環光圈 (如附圖中藍/金環)
+                    // 選取時的外環光圈
                     if isSelected {
                         Circle()
                             .stroke(Color(hex: "56B6C2"), lineWidth: 2)
@@ -185,20 +282,6 @@ struct SleepCalendarView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .gesture(
-            DragGesture(minimumDistance: 15)
-                .onEnded { value in
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                        if value.translation.height < -20 {
-                            // 往上滑：收起成週視圖
-                            scope = .week
-                        } else if value.translation.height > 20 {
-                            // 往下滑：展開成月視圖
-                            scope = .month
-                        }
-                    }
-                }
-        )
     }
     
     // MARK: - 日期計算輔助
@@ -264,6 +347,12 @@ struct SleepCalendarView: View {
         f.dateFormat = "yyyy/MM/dd"
         return f
     }
+    
+    private var monthDisplayFormatter: DateFormatter {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy / MM"
+        return f
+    }
 }
 
 // MARK: - 年月快速切換視窗
@@ -298,12 +387,12 @@ struct YearMonthPickerSheet: View {
                         .foregroundColor(SleepTheme.textSecondary)
                         .padding(.top, 16)
                     
-                    HStack(spacing: 0) {
+                    HStack(spacing: 20) {
                         // 年份滾輪
-                        Picker("年", selection: $selectedYear) {
+                        Picker("年份", selection: $selectedYear) {
                             ForEach(years, id: \.self) { year in
                                 Text("\(String(year)) 年")
-                                    .font(.system(size: 18, weight: .medium))
+                                    .font(.system(size: 17, weight: .medium))
                                     .foregroundColor(SleepTheme.textPrimary)
                                     .tag(year)
                             }
@@ -312,10 +401,10 @@ struct YearMonthPickerSheet: View {
                         .frame(maxWidth: .infinity)
                         
                         // 月份滾輪
-                        Picker("月", selection: $selectedMonth) {
+                        Picker("月份", selection: $selectedMonth) {
                             ForEach(months, id: \.self) { month in
                                 Text("\(month) 月")
-                                    .font(.system(size: 18, weight: .medium))
+                                    .font(.system(size: 17, weight: .medium))
                                     .foregroundColor(SleepTheme.textPrimary)
                                     .tag(month)
                             }
@@ -323,23 +412,21 @@ struct YearMonthPickerSheet: View {
                         .pickerStyle(.wheel)
                         .frame(maxWidth: .infinity)
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, 16)
                     .background(SleepTheme.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     
                     Button {
                         var components = DateComponents()
                         components.year = selectedYear
                         components.month = selectedMonth
-                        components.day = min(calendar.component(.day, from: selectedDate), 28)
-                        
+                        components.day = 1
                         if let newDate = calendar.date(from: components) {
-                            selectedDate = newDate
                             currentMonth = newDate
                         }
                         dismiss()
                     } label: {
-                        Text("確認切換")
+                        Text("套用跳轉")
                             .font(.system(size: 16, weight: .bold))
                             .foregroundColor(Color(hex: "0B0E14"))
                             .frame(maxWidth: .infinity)
@@ -350,20 +437,19 @@ struct YearMonthPickerSheet: View {
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
                 }
-                .padding(20)
+                .padding(16)
             }
-            .navigationTitle("選擇年與月份")
+            .navigationTitle("選擇年月")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("關閉") {
+                    Button("取消") {
                         dismiss()
                     }
                     .foregroundColor(SleepTheme.textSecondary)
                 }
             }
         }
-        .presentationDetents([.height(380)])
+        .presentationDetents([.height(340)])
     }
 }
-
