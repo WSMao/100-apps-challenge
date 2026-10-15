@@ -42,7 +42,8 @@
 - **platform 為何**： webapp / iOS / macOS / watchOS / Linux / Windows
 - **專案的 MVP 功能**
 - **技術路線**： 框架、程式語言、套件或 plugins，第三方服務如資料庫、前端託管服務...
-- 探討安全性 Security、可維護性 Maintanence、可擴展性 Scalability
+- **資料儲存方案**：本地或雲端服務。
+- **安全性、可維護性、可擴展性**：探討 Security、Maintanence、Scalability
 
 
 ## 4. 開發規範與工程標準
