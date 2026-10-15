@@ -1,10 +1,25 @@
 import SwiftUI
 
-/// 睡眠趨勢與歷史分頁視圖 (含互動式週/月日曆、置頂連動滾動、點擊修改編輯)
+/// 彈窗目的類型 (編輯現有記錄 或 為某日新增補登)
+enum HistorySheetDestination: Identifiable {
+    case edit(SleepLog)
+    case new(Date)
+    
+    var id: String {
+        switch self {
+        case .edit(let log):
+            return "edit-\(log.id)"
+        case .new(let date):
+            return "new-\(date.timeIntervalSince1970)"
+        }
+    }
+}
+
+/// 睡眠趨勢與歷史分頁視圖 (含互動式週/月日曆、置頂連動滾動、點擊修改編輯、無記錄點擊補登)
 struct HistoryView: View {
     @ObservedObject var store: SleepStore
     @State private var selectedDate: Date = Date()
-    @State private var editingLog: SleepLog? = nil
+    @State private var activeSheet: HistorySheetDestination? = nil
     
     private let calendar = Calendar.current
     
@@ -14,10 +29,16 @@ struct HistoryView: View {
                 SleepTheme.background.ignoresSafeArea()
                 
                 VStack(spacing: 12) {
-                    // 1. 固定在頂部的互動式日曆 (月/週視圖切換 + 年月快選)
-                    SleepCalendarView(selectedDate: $selectedDate, store: store)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 6)
+                    // 1. 固定在頂部的互動式日曆 (支援月/週切換、左右滑動換月、Today返回、無記錄點擊補登)
+                    SleepCalendarView(
+                        selectedDate: $selectedDate,
+                        store: store,
+                        onSelectDateWithoutLog: { date in
+                            activeSheet = .new(date)
+                        }
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.top, 6)
                     
                     // 2. 睡眠紀錄串流列表 (日曆選中日期自動移至第一列顯示，保留時間先後順序)
                     ScrollViewReader { proxy in
@@ -30,7 +51,7 @@ struct HistoryView: View {
                                         let isSelectedDay = calendar.isDate(log.date, inSameDayAs: selectedDate)
                                         
                                         Button {
-                                            editingLog = log
+                                            activeSheet = .edit(log)
                                         } label: {
                                             historyCard(log: log, isHighlight: isSelectedDay)
                                         }
@@ -53,12 +74,24 @@ struct HistoryView: View {
                                 }
                             }
                         }
+                        .onChange(of: store.sleepHistory.count) { _, _ in
+                            if let matchingLog = store.log(for: selectedDate) {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    proxy.scrollTo(matchingLog.id, anchor: .top)
+                                }
+                            }
+                        }
                     }
                 }
             }
             .navigationBarHidden(true) // 移除頂部標題佔位，保留最大視覺空間給日曆與列表
-            .sheet(item: $editingLog) { log in
-                EditSleepLogSheet(store: store, log: log)
+            .sheet(item: $activeSheet) { destination in
+                switch destination {
+                case .edit(let log):
+                    EditSleepLogSheet(store: store, log: log)
+                case .new(let date):
+                    EditSleepLogSheet(store: store, newLogDate: date)
+                }
             }
         }
     }

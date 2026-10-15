@@ -9,9 +9,11 @@ final class SoundManager: ObservableObject {
     @Published var isPlaying: Bool = false
     @Published var currentSound: SoundType? = nil
     @Published var volume: Float = 0.6
+    @Published var isAlarmRinging: Bool = false
     
     private var audioEngine: AVAudioEngine?
     private var noiseNode: AVAudioSourceNode?
+    private var alarmPlayer: AVAudioPlayer?
     
     enum SoundType: String, CaseIterable, Identifiable {
         case rain = "雨夜窗台"
@@ -92,6 +94,42 @@ final class SoundManager: ObservableObject {
                 print("音訊 Session 釋放失敗: \(error.localizedDescription)")
             }
         }
+    }
+    
+    /// 開始播放晨間鬧鐘響鈴 (預設循環響鈴直到使用者關閉或貪睡)
+    func startAlarmMelody(loop: Bool = true) {
+        stop() // 停止白噪音
+        isAlarmRinging = true
+        
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default, options: [])
+            try session.setActive(true)
+        } catch {
+            print("鬧鐘 Session 啟用失敗: \(error.localizedDescription)")
+        }
+        
+        let url = Bundle.main.url(forResource: "alarm_melody", withExtension: "caf") ??
+                  Bundle.main.url(forResource: "alarm_melody", withExtension: "wav")
+        
+        if let soundURL = url {
+            do {
+                alarmPlayer = try AVAudioPlayer(contentsOf: soundURL)
+                alarmPlayer?.numberOfLoops = loop ? -1 : 0
+                alarmPlayer?.volume = 1.0
+                alarmPlayer?.prepareToPlay()
+                alarmPlayer?.play()
+            } catch {
+                print("鬧鐘播放器建立失敗: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    /// 停止鬧鐘響鈴
+    func stopAlarmMelody() {
+        isAlarmRinging = false
+        alarmPlayer?.stop()
+        alarmPlayer = nil
     }
     
     private func startNoiseEngine(type: SoundType) {

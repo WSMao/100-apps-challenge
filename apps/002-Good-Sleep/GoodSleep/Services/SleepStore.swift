@@ -141,10 +141,23 @@ final class SleepStore: ObservableObject {
         saveHistory()
     }
     
-    // MARK: - 睡眠紀錄更新與刪除
+    // MARK: - 睡眠紀錄新增、更新與刪除
+    func addSleepLog(_ log: SleepLog) {
+        let calendar = Calendar.current
+        let targetDay = calendar.startOfDay(for: log.date)
+        if let index = sleepHistory.firstIndex(where: { calendar.startOfDay(for: $0.date) == targetDay }) {
+            sleepHistory[index] = log
+        } else {
+            sleepHistory.append(log)
+        }
+        sleepHistory.sort { $0.date > $1.date }
+        saveHistory()
+    }
+    
     func updateSleepLog(_ log: SleepLog) {
         if let index = sleepHistory.firstIndex(where: { $0.id == log.id }) {
             sleepHistory[index] = log
+            sleepHistory.sort { $0.date > $1.date }
             saveHistory()
         }
     }
