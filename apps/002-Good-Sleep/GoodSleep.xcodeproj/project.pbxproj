@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DC22DE2DA9624D4C8962A8BA /* EditSleepLogSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06D6D67014534D6993AD8EA7 /* EditSleepLogSheet.swift */; };
+		35E714456A114104B26D1198 /* SleepCalendarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5132B7417A1D496B904371F8 /* SleepCalendarView.swift */; };
 		0F95BC8F0C554B5EBDEDA6FA /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FF9B78FC7A04CE89E815399 /* HistoryView.swift */; };
 		16B9517723ED4A96AC8F0588 /* ChecklistRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B541C66730493CB4F668C1 /* ChecklistRow.swift */; };
 		1D706876385946348377BC97 /* SleepStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596FBBE842BE4A20A33F79FD /* SleepStore.swift */; };
@@ -27,6 +29,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		06D6D67014534D6993AD8EA7 /* EditSleepLogSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditSleepLogSheet.swift; sourceTree = "<group>"; };
+		5132B7417A1D496B904371F8 /* SleepCalendarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepCalendarView.swift; sourceTree = "<group>"; };
 		366FC081E54D4B48B0BB249C /* SoundManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundManager.swift; sourceTree = "<group>"; };
 		47750C6BAF104EBCAA32A1BD /* GoodSleepApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoodSleepApp.swift; sourceTree = "<group>"; };
 		4F4F6E521B8B4FF186D7EF4F /* AlarmSetting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmSetting.swift; sourceTree = "<group>"; };
@@ -106,6 +110,8 @@
 		CD62491841804028A40B82F3 /* Components */ = {
 			isa = PBXGroup;
 			children = (
+				06D6D67014534D6993AD8EA7 /* EditSleepLogSheet.swift */,
+				5132B7417A1D496B904371F8 /* SleepCalendarView.swift */,
 				B0B541C66730493CB4F668C1 /* ChecklistRow.swift */,
 				D0879DCA6AE242A08322FAA7 /* MorningCheckInSheet.swift */,
 			);
@@ -206,6 +212,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DC22DE2DA9624D4C8962A8BA /* EditSleepLogSheet.swift in Sources */,
+				35E714456A114104B26D1198 /* SleepCalendarView.swift in Sources */,
 				B96D24D488F143E28B36BD0B /* GoodSleepApp.swift in Sources */,
 				BE3919393B374CD9959B2924 /* SleepTheme.swift in Sources */,
 				83438A5D82B24FC1B7065E71 /* SleepRating.swift in Sources */,
