@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "1600"
+   LastUpgradeVersion = "2700"
    version = "1.7">
    <BuildAction
       parallelizeBuildables = "YES"
@@ -15,7 +15,7 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "GoodSleep"
+               BlueprintIdentifier = "F04EB6B8BB12420D92B61972"
                BuildableName = "GoodSleep.app"
                BlueprintName = "GoodSleep"
                ReferencedContainer = "container:GoodSleep.xcodeproj">
@@ -44,7 +44,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "GoodSleep"
+            BlueprintIdentifier = "F04EB6B8BB12420D92B61972"
             BuildableName = "GoodSleep.app"
             BlueprintName = "GoodSleep"
             ReferencedContainer = "container:GoodSleep.xcodeproj">
@@ -61,7 +61,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "GoodSleep"
+            BlueprintIdentifier = "F04EB6B8BB12420D92B61972"
             BuildableName = "GoodSleep.app"
             BlueprintName = "GoodSleep"
             ReferencedContainer = "container:GoodSleep.xcodeproj">
@@ -76,4 +76,3 @@
       revealArchiveInOrganizer = "YES">
    </ArchiveAction>
 </Scheme>
-
