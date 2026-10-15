@@ -141,6 +141,29 @@ final class SleepStore: ObservableObject {
         saveHistory()
     }
     
+    // MARK: - 睡眠紀錄更新與刪除
+    func updateSleepLog(_ log: SleepLog) {
+        if let index = sleepHistory.firstIndex(where: { $0.id == log.id }) {
+            sleepHistory[index] = log
+            saveHistory()
+        }
+    }
+    
+    func deleteSleepLog(id: UUID) {
+        sleepHistory.removeAll { $0.id == id }
+        saveHistory()
+    }
+    
+    func log(for date: Date) -> SleepLog? {
+        let calendar = Calendar.current
+        let targetDay = calendar.startOfDay(for: date)
+        return sleepHistory.first { calendar.startOfDay(for: $0.date) == targetDay }
+    }
+    
+    func hasLog(on date: Date) -> Bool {
+        return log(for: date) != nil
+    }
+    
     // MARK: - 睡眠統計指標
     var averageSleepHours: Double {
         guard !sleepHistory.isEmpty else { return 0 }

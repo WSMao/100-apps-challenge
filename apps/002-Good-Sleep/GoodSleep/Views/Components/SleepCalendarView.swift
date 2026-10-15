@@ -1,0 +1,369 @@
+import SwiftUI
+
+/// 睡眠日曆元件 (支援月視圖 / 週視圖滑動切換、年月快選、睡眠打卡標記)
+struct SleepCalendarView: View {
+    @Binding var selectedDate: Date
+    @ObservedObject var store: SleepStore
+    
+    enum CalendarScope {
+        case week
+        case month
+    }
+    
+    @State private var scope: CalendarScope = .month
+    @State private var currentMonth: Date = Date()
+    @State private var showingDatePicker: Bool = false
+    
+    private let calendar = Calendar.current
+    private let weekdays = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"]
+    
+    var body: some View {
+        VStack(spacing: 12) {
+            // 頂部日期與快速選擇按鈕
+            headerView
+            
+            // 星期抬頭 (週日 ... 週六)
+            weekdayHeaderView
+            
+            // 日期網格 (月視圖 or 週視圖)
+            calendarGridView
+            
+            // 底部拖拉橫桿 (往上滑收起成週視圖，往下滑展開成月視圖)
+            dragHandleBar
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
+        .background(SleepTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(SleepTheme.border.opacity(0.5), lineWidth: 1)
+        )
+        .sheet(isPresented: $showingDatePicker) {
+            YearMonthPickerSheet(selectedDate: $selectedDate, currentMonth: $currentMonth)
+        }
+        .onAppear {
+            currentMonth = selectedDate
+        }
+    }
+    
+    // MARK: - 頂部日期標題與日曆圖示按鈕
+    private var headerView: some View {
+        HStack {
+            Spacer()
+            
+            // 選取日期顯示 (例: 2026/10/15)
+            Text(dateDisplayFormatter.string(from: selectedDate))
+                .font(.system(size: 19, weight: .bold, design: .rounded))
+                .foregroundColor(SleepTheme.textPrimary)
+            
+            Spacer()
+            
+            // 小日曆圖示 (點擊彈出年月快選)
+            Button {
+                showingDatePicker = true
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(SleepTheme.surfaceSecondary)
+                        .frame(width: 36, height: 36)
+                    
+                    Image(systemName: "calendar")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(SleepTheme.accent)
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
+    
+    // MARK: - 星期欄頭
+    private var weekdayHeaderView: some View {
+        HStack {
+            ForEach(0..<7, id: \.self) { index in
+                Text(weekdays[index])
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(maxWidth: .infinity)
+                    .foregroundColor(weekdayColor(for: index))
+            }
+        }
+        .padding(.vertical, 4)
+    }
+    
+    private func weekdayColor(for index: Int) -> Color {
+        if index == 0 {
+            return Color(hex: "E06C75") // 週日 (淡紅)
+        } else if index == 6 {
+            return Color(hex: "73DACA") // 週六 (柔綠)
+        } else {
+            return SleepTheme.textSecondary
+        }
+    }
+    
+    // MARK: - 日期網格
+    private var calendarGridView: some View {
+        let days = (scope == .month) ? generateMonthDays(for: currentMonth) : generateWeekDays(for: selectedDate)
+        
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 10) {
+            ForEach(days, id: \.date) { day in
+                dayCell(day: day)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: scope)
+    }
+    
+    private func dayCell(day: DayInfo) -> some View {
+        let isSelected = calendar.isDate(day.date, inSameDayAs: selectedDate)
+        let isToday = calendar.isDateInToday(day.date)
+        let hasSleepRecord = store.hasLog(on: day.date)
+        let colIndex = (calendar.component(.weekday, from: day.date) - 1) % 7
+        
+        return Button {
+            selectedDate = day.date
+            currentMonth = day.date
+        } label: {
+            VStack(spacing: 3) {
+                ZStack {
+                    // 選取時的外環光圈 (如附圖中藍/金環)
+                    if isSelected {
+                        Circle()
+                            .stroke(Color(hex: "56B6C2"), lineWidth: 2)
+                            .frame(width: 34, height: 34)
+                    } else if isToday {
+                        Circle()
+                            .fill(SleepTheme.surfaceSecondary)
+                            .frame(width: 32, height: 32)
+                    }
+                    
+                    Text(day.dayString)
+                        .font(.system(size: 15, weight: (isSelected || isToday) ? .bold : .medium, design: .rounded))
+                        .foregroundColor(cellTextColor(day: day, colIndex: colIndex, isSelected: isSelected))
+                }
+                .frame(height: 34)
+                
+                // 睡眠打卡標記點
+                Circle()
+                    .fill(hasSleepRecord ? SleepTheme.accent : Color.clear)
+                    .frame(width: 4, height: 4)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private func cellTextColor(day: DayInfo, colIndex: Int, isSelected: Bool) -> Color {
+        if isSelected {
+            return SleepTheme.textPrimary
+        }
+        if !day.isCurrentMonth {
+            return SleepTheme.textTertiary.opacity(0.4)
+        }
+        if colIndex == 0 {
+            return Color(hex: "E06C75").opacity(0.85) // 週日
+        } else if colIndex == 6 {
+            return Color(hex: "73DACA").opacity(0.85) // 週六
+        } else {
+            return SleepTheme.textPrimary
+        }
+    }
+    
+    // MARK: - 底部拖拉橫桿 (手勢往上滑收起成週視圖，往下滑展開成月視圖)
+    private var dragHandleBar: some View {
+        Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                scope = (scope == .month) ? .week : .month
+            }
+        } label: {
+            VStack(spacing: 4) {
+                Capsule()
+                    .fill(SleepTheme.border.opacity(0.9))
+                    .frame(width: 42, height: 5)
+                    .padding(.vertical, 6)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .gesture(
+            DragGesture(minimumDistance: 15)
+                .onEnded { value in
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        if value.translation.height < -20 {
+                            // 往上滑：收起成週視圖
+                            scope = .week
+                        } else if value.translation.height > 20 {
+                            // 往下滑：展開成月視圖
+                            scope = .month
+                        }
+                    }
+                }
+        )
+    }
+    
+    // MARK: - 日期計算輔助
+    struct DayInfo {
+        let date: Date
+        let dayString: String
+        let isCurrentMonth: Bool
+    }
+    
+    private func generateMonthDays(for monthDate: Date) -> [DayInfo] {
+        guard let monthInterval = calendar.dateInterval(of: .month, for: monthDate),
+              let firstWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.start) else {
+            return []
+        }
+        
+        var days: [DayInfo] = []
+        var current = firstWeek.start
+        
+        // 渲染 6 週或足夠覆蓋當月的日期
+        for _ in 0..<42 {
+            let isCurrent = calendar.isDate(current, equalTo: monthDate, toGranularity: .month)
+            let dayNum = calendar.component(.day, from: current)
+            let dayStr = String(format: "%02d", dayNum)
+            
+            days.append(DayInfo(date: current, dayString: dayStr, isCurrentMonth: isCurrent))
+            
+            guard let next = calendar.date(byAdding: .day, value: 1, to: current) else { break }
+            current = next
+            
+            // 如果已經進入下個月且剛好是週六結束，提早停止
+            if days.count >= 28 && !isCurrent && calendar.component(.weekday, from: current) == 1 {
+                break
+            }
+        }
+        
+        return days
+    }
+    
+    private func generateWeekDays(for date: Date) -> [DayInfo] {
+        guard let weekInterval = calendar.dateInterval(of: .weekOfYear, for: date) else {
+            return []
+        }
+        
+        var days: [DayInfo] = []
+        var current = weekInterval.start
+        
+        for _ in 0..<7 {
+            let isCurrent = calendar.isDate(current, equalTo: date, toGranularity: .month)
+            let dayNum = calendar.component(.day, from: current)
+            let dayStr = String(format: "%02d", dayNum)
+            
+            days.append(DayInfo(date: current, dayString: dayStr, isCurrentMonth: isCurrent))
+            
+            guard let next = calendar.date(byAdding: .day, value: 1, to: current) else { break }
+            current = next
+        }
+        
+        return days
+    }
+    
+    private var dateDisplayFormatter: DateFormatter {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy/MM/dd"
+        return f
+    }
+}
+
+// MARK: - 年月快速切換視窗
+struct YearMonthPickerSheet: View {
+    @Binding var selectedDate: Date
+    @Binding var currentMonth: Date
+    @Environment(\.dismiss) private var dismiss
+    
+    @State private var selectedYear: Int
+    @State private var selectedMonth: Int
+    
+    private let calendar = Calendar.current
+    private let years = Array(2020...2032)
+    private let months = Array(1...12)
+    
+    init(selectedDate: Binding<Date>, currentMonth: Binding<Date>) {
+        self._selectedDate = selectedDate
+        self._currentMonth = currentMonth
+        let cal = Calendar.current
+        _selectedYear = State(initialValue: cal.component(.year, from: currentMonth.wrappedValue))
+        _selectedMonth = State(initialValue: cal.component(.month, from: currentMonth.wrappedValue))
+    }
+    
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                SleepTheme.background.ignoresSafeArea()
+                
+                VStack(spacing: 24) {
+                    Text("快速切換年月")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(SleepTheme.textSecondary)
+                        .padding(.top, 16)
+                    
+                    HStack(spacing: 0) {
+                        // 年份滾輪
+                        Picker("年", selection: $selectedYear) {
+                            ForEach(years, id: \.self) { year in
+                                Text("\(String(year)) 年")
+                                    .font(.system(size: 18, weight: .medium))
+                                    .foregroundColor(SleepTheme.textPrimary)
+                                    .tag(year)
+                            }
+                        }
+                        .pickerStyle(.wheel)
+                        .frame(maxWidth: .infinity)
+                        
+                        // 月份滾輪
+                        Picker("月", selection: $selectedMonth) {
+                            ForEach(months, id: \.self) { month in
+                                Text("\(month) 月")
+                                    .font(.system(size: 18, weight: .medium))
+                                    .foregroundColor(SleepTheme.textPrimary)
+                                    .tag(month)
+                            }
+                        }
+                        .pickerStyle(.wheel)
+                        .frame(maxWidth: .infinity)
+                    }
+                    .padding(.horizontal, 20)
+                    .background(SleepTheme.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    
+                    Button {
+                        var components = DateComponents()
+                        components.year = selectedYear
+                        components.month = selectedMonth
+                        components.day = min(calendar.component(.day, from: selectedDate), 28)
+                        
+                        if let newDate = calendar.date(from: components) {
+                            selectedDate = newDate
+                            currentMonth = newDate
+                        }
+                        dismiss()
+                    } label: {
+                        Text("確認切換")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(Color(hex: "0B0E14"))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(SleepTheme.accent)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
+                }
+                .padding(20)
+            }
+            .navigationTitle("選擇年與月份")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("關閉") {
+                        dismiss()
+                    }
+                    .foregroundColor(SleepTheme.textSecondary)
+                }
+            }
+        }
+        .presentationDetents([.height(380)])
+    }
+}
+
