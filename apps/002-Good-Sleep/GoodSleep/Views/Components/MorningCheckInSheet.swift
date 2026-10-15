@@ -1,0 +1,200 @@
+import SwiftUI
+
+/// 晨間起床打卡與復盤彈窗
+struct MorningCheckInSheet: View {
+    @ObservedObject var store: SleepStore
+    @Environment(\.dismiss) private var dismiss
+    
+    @State private var selectedRating: SleepRating = .good
+    @State private var bedtime: Date = Calendar.current.date(byAdding: .hour, value: -8, to: Date()) ?? Date()
+    @State private var wakeTime: Date = Date()
+    @State private var isSnoozed: Bool = false
+    @State private var snoozeMinutes: Int = 10
+    @State private var note: String = ""
+    
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                SleepTheme.background.ignoresSafeArea()
+                
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        // 晨間問候
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("☀️ 早安！今天睡得如何？")
+                                .font(.system(size: 22, weight: .bold))
+                                .foregroundColor(SleepTheme.textPrimary)
+                            
+                            Text("花 30 秒記錄醒來的身心狀態，協助建立個人專屬的規律作息。")
+                                .font(.system(size: 14))
+                                .foregroundColor(SleepTheme.textSecondary)
+                        }
+                        
+                        // 1. 醒來精神狀態貼圖 (四選一)
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("1. 起床狀態自評")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(SleepTheme.accent)
+                            
+                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                                ForEach(SleepRating.allCases) { rating in
+                                    Button {
+                                        selectedRating = rating
+                                    } label: {
+                                        VStack(spacing: 8) {
+                                            Text(rating.emoji)
+                                                .font(.system(size: 36))
+                                            
+                                            Text(rating.title)
+                                                .font(.system(size: 14, weight: .semibold))
+                                                .foregroundColor(selectedRating == rating ? SleepTheme.accent : SleepTheme.textPrimary)
+                                            
+                                            Text(rating.description)
+                                                .font(.system(size: 11))
+                                                .foregroundColor(SleepTheme.textTertiary)
+                                                .multilineTextAlignment(.center)
+                                                .lineLimit(2)
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 14)
+                                        .padding(.horizontal, 8)
+                                        .background(selectedRating == rating ? SleepTheme.accent.opacity(0.12) : SleepTheme.surface)
+                                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                                .stroke(selectedRating == rating ? SleepTheme.accent : SleepTheme.border.opacity(0.4), lineWidth: selectedRating == rating ? 1.5 : 1)
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                        
+                        // 2. 實際入睡與起床時間
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("2. 睡眠時間確認")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(SleepTheme.accent)
+                            
+                            VStack(spacing: 12) {
+                                DatePicker(
+                                    "昨晚入睡時間",
+                                    selection: $bedtime,
+                                    displayedComponents: [.date, .hourAndMinute]
+                                )
+                                .datePickerStyle(.compact)
+                                .foregroundColor(SleepTheme.textPrimary)
+                                
+                                Divider().background(SleepTheme.border)
+                                
+                                DatePicker(
+                                    "今晨醒來時間",
+                                    selection: $wakeTime,
+                                    displayedComponents: [.date, .hourAndMinute]
+                                )
+                                .datePickerStyle(.compact)
+                                .foregroundColor(SleepTheme.textPrimary)
+                            }
+                            .padding(16)
+                            .background(SleepTheme.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                        
+                        // 3. 賴床檢測
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("3. 鬧鐘與賴床追蹤")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(SleepTheme.accent)
+                            
+                            VStack(spacing: 14) {
+                                Toggle(isOn: $isSnoozed) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("鬧鐘響後有賴床嗎？")
+                                            .font(.system(size: 15, weight: .medium))
+                                            .foregroundColor(SleepTheme.textPrimary)
+                                        Text("有按貪睡按鈕或稍微躺著不想起")
+                                            .font(.system(size: 12))
+                                            .foregroundColor(SleepTheme.textTertiary)
+                                    }
+                                }
+                                .tint(SleepTheme.accent)
+                                
+                                if isSnoozed {
+                                    Divider().background(SleepTheme.border)
+                                    
+                                    Stepper(value: $snoozeMinutes, in: 5...60, step: 5) {
+                                        HStack {
+                                            Text("大約賴床時長：")
+                                                .font(.system(size: 14))
+                                                .foregroundColor(SleepTheme.textSecondary)
+                                            Text("\(snoozeMinutes) 分鐘")
+                                                .font(.system(size: 14, weight: .bold))
+                                                .foregroundColor(SleepTheme.warning)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(16)
+                            .background(SleepTheme.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                        
+                        // 4. 晨間微筆記
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("4. 晨間筆記 (選填)")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(SleepTheme.accent)
+                            
+                            TextField("記下昨晚入睡速度、做夢內容或醒來感受...", text: $note, axis: .vertical)
+                                .lineLimit(3...5)
+                                .padding(14)
+                                .background(SleepTheme.surface)
+                                .foregroundColor(SleepTheme.textPrimary)
+                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .stroke(SleepTheme.border.opacity(0.4), lineWidth: 1)
+                                )
+                        }
+                        
+                        // 保存完成按鈕
+                        Button {
+                            store.recordMorningWakeUp(
+                                bedtime: bedtime,
+                                wakeTime: wakeTime,
+                                rating: selectedRating,
+                                isSnoozed: isSnoozed,
+                                snoozeMinutes: isSnoozed ? snoozeMinutes : 0,
+                                note: note
+                            )
+                            dismiss()
+                        } label: {
+                            Text("完成今日晨間打卡")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(Color(hex: "0B0E14"))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 16)
+                                .background(SleepTheme.accent)
+                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .shadow(color: SleepTheme.accent.opacity(0.3), radius: 10, y: 4)
+                        }
+                        .padding(.top, 10)
+                        .padding(.bottom, 30)
+                    }
+                    .padding(20)
+                }
+            }
+            .navigationTitle("晨間起床復盤")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        dismiss()
+                    }
+                    .foregroundColor(SleepTheme.textSecondary)
+                }
+            }
+        }
+    }
+}
+

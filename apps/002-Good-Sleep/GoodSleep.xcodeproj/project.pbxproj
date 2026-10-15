@@ -1,0 +1,359 @@
+// !$*UTF-8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		B96D24D488F143E28B36BD0B /* GoodSleepApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47750C6BAF104EBCAA32A1BD /* GoodSleepApp.swift */; };
+		BE3919393B374CD9959B2924 /* SleepTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89110E07D67B4934997F53A3 /* SleepTheme.swift */; };
+		83438A5D82B24FC1B7065E71 /* SleepRating.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F992494279A4907906AAEE8 /* SleepRating.swift */; };
+		3CC7A2ADA9C44BCFB29354A0 /* ChecklistItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C3F071EAF24A239A3753BE /* ChecklistItem.swift */; };
+		D62579E9C70D4BD6A60A084E /* AlarmSetting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F4F6E521B8B4FF186D7EF4F /* AlarmSetting.swift */; };
+		A6A105DAF70E40F29470298D /* SleepLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3C24A757C3349839285457B /* SleepLog.swift */; };
+		47CADACB7CCA450CA6986A88 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0906944A55A487EB2FE2956 /* NotificationManager.swift */; };
+		1E9067EBE6074AC08013B843 /* SoundManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 366FC081E54D4B48B0BB249C /* SoundManager.swift */; };
+		1D706876385946348377BC97 /* SleepStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596FBBE842BE4A20A33F79FD /* SleepStore.swift */; };
+		F745071F0595411EA2EAE1CF /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71104337CDB245279A16593D /* TodayView.swift */; };
+		71F0F452D39540369352513A /* ChecklistView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE4D7F653D3E42A3A8D67785 /* ChecklistView.swift */; };
+		84F2DDE081EB45A9B97EEE2C /* AlarmView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B74E1AB829C24E23BF659BF1 /* AlarmView.swift */; };
+		0F95BC8F0C554B5EBDEDA6FA /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FF9B78FC7A04CE89E815399 /* HistoryView.swift */; };
+		4E530610C23A45B58B5FC1A7 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17EC3BCE22A42B1822705C1 /* MainTabView.swift */; };
+		16B9517723ED4A96AC8F0588 /* ChecklistRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B541C66730493CB4F668C1 /* ChecklistRow.swift */; };
+		800E575EF7A043A7942741A5 /* MorningCheckInSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0879DCA6AE242A08322FAA7 /* MorningCheckInSheet.swift */; };
+		6CF72C39E9B74818A0D5D9DD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6BD7145275E94B78A91E615E /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		C8E63F46103F4FD994DC78AF /* GoodSleep.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GoodSleep.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		47750C6BAF104EBCAA32A1BD /* GoodSleepApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GoodSleepApp.swift"; sourceTree = "<group>"; };
+		89110E07D67B4934997F53A3 /* SleepTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SleepTheme.swift"; sourceTree = "<group>"; };
+		8F992494279A4907906AAEE8 /* SleepRating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SleepRating.swift"; sourceTree = "<group>"; };
+		F5C3F071EAF24A239A3753BE /* ChecklistItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecklistItem.swift"; sourceTree = "<group>"; };
+		4F4F6E521B8B4FF186D7EF4F /* AlarmSetting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AlarmSetting.swift"; sourceTree = "<group>"; };
+		B3C24A757C3349839285457B /* SleepLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SleepLog.swift"; sourceTree = "<group>"; };
+		C0906944A55A487EB2FE2956 /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NotificationManager.swift"; sourceTree = "<group>"; };
+		366FC081E54D4B48B0BB249C /* SoundManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SoundManager.swift"; sourceTree = "<group>"; };
+		596FBBE842BE4A20A33F79FD /* SleepStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SleepStore.swift"; sourceTree = "<group>"; };
+		71104337CDB245279A16593D /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TodayView.swift"; sourceTree = "<group>"; };
+		DE4D7F653D3E42A3A8D67785 /* ChecklistView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecklistView.swift"; sourceTree = "<group>"; };
+		B74E1AB829C24E23BF659BF1 /* AlarmView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AlarmView.swift"; sourceTree = "<group>"; };
+		7FF9B78FC7A04CE89E815399 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HistoryView.swift"; sourceTree = "<group>"; };
+		F17EC3BCE22A42B1822705C1 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MainTabView.swift"; sourceTree = "<group>"; };
+		B0B541C66730493CB4F668C1 /* ChecklistRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChecklistRow.swift"; sourceTree = "<group>"; };
+		D0879DCA6AE242A08322FAA7 /* MorningCheckInSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MorningCheckInSheet.swift"; sourceTree = "<group>"; };
+		6BD7145275E94B78A91E615E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Assets.xcassets"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		51A119DACCF044B98E58A9F5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		4704F717FDD84572B31802F6 = {
+			isa = PBXGroup;
+			children = (
+				D178F55465394A5E828A3607 /* GoodSleep */,
+				9242B13FBCEB469295E32EE9 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		9242B13FBCEB469295E32EE9 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C8E63F46103F4FD994DC78AF /* GoodSleep.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		D178F55465394A5E828A3607 /* GoodSleep */ = {
+			isa = PBXGroup;
+			children = (
+				47750C6BAF104EBCAA32A1BD /* GoodSleepApp.swift */,
+				C3E36E58521243148AACCA99 /* Models */,
+				8312CDB4502F4C438C05738A /* Services */,
+				032A1E8274904D5ABFC82970 /* Theme */,
+				E37986A8C9D44D8CA46A1E84 /* Views */,
+				6BD7145275E94B78A91E615E /* Assets.xcassets */,
+			);
+			path = GoodSleep;
+			sourceTree = "<group>";
+		};
+		C3E36E58521243148AACCA99 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				8F992494279A4907906AAEE8 /* SleepRating.swift */,
+				F5C3F071EAF24A239A3753BE /* ChecklistItem.swift */,
+				4F4F6E521B8B4FF186D7EF4F /* AlarmSetting.swift */,
+				B3C24A757C3349839285457B /* SleepLog.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		8312CDB4502F4C438C05738A /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				C0906944A55A487EB2FE2956 /* NotificationManager.swift */,
+				366FC081E54D4B48B0BB249C /* SoundManager.swift */,
+				596FBBE842BE4A20A33F79FD /* SleepStore.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		032A1E8274904D5ABFC82970 /* Theme */ = {
+			isa = PBXGroup;
+			children = (
+				89110E07D67B4934997F53A3 /* SleepTheme.swift */,
+			);
+			path = Theme;
+			sourceTree = "<group>";
+		};
+		E37986A8C9D44D8CA46A1E84 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				F17EC3BCE22A42B1822705C1 /* MainTabView.swift */,
+				71104337CDB245279A16593D /* TodayView.swift */,
+				DE4D7F653D3E42A3A8D67785 /* ChecklistView.swift */,
+				B74E1AB829C24E23BF659BF1 /* AlarmView.swift */,
+				7FF9B78FC7A04CE89E815399 /* HistoryView.swift */,
+				CD62491841804028A40B82F3 /* Components */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		CD62491841804028A40B82F3 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				B0B541C66730493CB4F668C1 /* ChecklistRow.swift */,
+				D0879DCA6AE242A08322FAA7 /* MorningCheckInSheet.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		F04EB6B8BB12420D92B61972 /* GoodSleep */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7162A677D9FA4B23BF9EEBC7 /* Build configuration list for PBXNativeTarget "GoodSleep" */;
+			buildPhases = (
+				9D7F941F5A6E42D395FE2B8A /* Sources */,
+				51A119DACCF044B98E58A9F5 /* Frameworks */,
+				13ECAB93A5524C5AACD71B82 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = GoodSleep;
+			productName = GoodSleep;
+			productReference = C8E63F46103F4FD994DC78AF /* GoodSleep.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		3ED0E199C5CD4F2394DDFEC1 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					F04EB6B8BB12420D92B61972 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = 436B9954A43040AC89D3DA3C /* Build configuration list for PBXProject "GoodSleep" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 4704F717FDD84572B31802F6;
+			productRefGroup = 9242B13FBCEB469295E32EE9 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				F04EB6B8BB12420D92B61972 /* GoodSleep */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		13ECAB93A5524C5AACD71B82 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6CF72C39E9B74818A0D5D9DD /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		9D7F941F5A6E42D395FE2B8A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B96D24D488F143E28B36BD0B /* GoodSleepApp.swift in Sources */,
+				BE3919393B374CD9959B2924 /* SleepTheme.swift in Sources */,
+				83438A5D82B24FC1B7065E71 /* SleepRating.swift in Sources */,
+				3CC7A2ADA9C44BCFB29354A0 /* ChecklistItem.swift in Sources */,
+				D62579E9C70D4BD6A60A084E /* AlarmSetting.swift in Sources */,
+				A6A105DAF70E40F29470298D /* SleepLog.swift in Sources */,
+				47CADACB7CCA450CA6986A88 /* NotificationManager.swift in Sources */,
+				1E9067EBE6074AC08013B843 /* SoundManager.swift in Sources */,
+				1D706876385946348377BC97 /* SleepStore.swift in Sources */,
+				F745071F0595411EA2EAE1CF /* TodayView.swift in Sources */,
+				71F0F452D39540369352513A /* ChecklistView.swift in Sources */,
+				84F2DDE081EB45A9B97EEE2C /* AlarmView.swift in Sources */,
+				0F95BC8F0C554B5EBDEDA6FA /* HistoryView.swift in Sources */,
+				4E530610C23A45B58B5FC1A7 /* MainTabView.swift in Sources */,
+				16B9517723ED4A96AC8F0588 /* ChecklistRow.swift in Sources */,
+				800E575EF7A043A7942741A5 /* MorningCheckInSheet.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		895C211C1C9C44B0B2D6252B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		71CAF4DA66F74C16A4E6D624 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_OPTIMIZATION_LEVEL = s;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		EAEB1A296FDE4F52BB7A6D1D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "好好睡覺";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.challenge100.GoodSleep;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		FCAD38A49F4C461DABEB7850 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "好好睡覺";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.challenge100.GoodSleep;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		436B9954A43040AC89D3DA3C /* Build configuration list for PBXProject "GoodSleep" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				895C211C1C9C44B0B2D6252B /* Debug */,
+				71CAF4DA66F74C16A4E6D624 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7162A677D9FA4B23BF9EEBC7 /* Build configuration list for PBXNativeTarget "GoodSleep" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EAEB1A296FDE4F52BB7A6D1D /* Debug */,
+				FCAD38A49F4C461DABEB7850 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 3ED0E199C5CD4F2394DDFEC1 /* Project object */;
+}
