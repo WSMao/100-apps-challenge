@@ -41,15 +41,18 @@ final class SoundManager: ObservableObject {
     }
     
     init() {
-        configureAudioSession()
+        // 延遲至真正播放音效時才在背景啟用 Session，避免主線程 UI 凍結警告 (Hang Risk)
     }
     
-    private func configureAudioSession() {
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            print("音訊 Session 設定失敗: \(error.localizedDescription)")
+    private func activateAudioSession() {
+        Task.detached(priority: .userInitiated) {
+            do {
+                let session = AVAudioSession.sharedInstance()
+                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+                try session.setActive(true)
+            } catch {
+                print("音訊 Session 啟用失敗: \(error.localizedDescription)")
+            }
         }
     }
     
@@ -66,6 +69,7 @@ final class SoundManager: ObservableObject {
         stop()
         currentSound = type
         isPlaying = true
+        activateAudioSession()
         
         // 透過 AVAudioEngine 即時合成音訊，無需依賴龐大 mp3 外部資源
         startNoiseEngine(type: type)
@@ -80,6 +84,14 @@ final class SoundManager: ObservableObject {
         noiseNode = nil
         isPlaying = false
         currentSound = nil
+        
+        Task.detached(priority: .background) {
+            do {
+                try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            } catch {
+                print("音訊 Session 釋放失敗: \(error.localizedDescription)")
+            }
+        }
     }
     
     private func startNoiseEngine(type: SoundType) {
