@@ -1,0 +1,12 @@
+{
+  "id": "002",
+  "name": "Good Sleep",
+  "description": "告別失眠焦慮！專為 iOS 打造的原生睡眠引導應用，透過睡前避坑檢核、智慧提醒、晨間報告與自評，找回高品質規律好眠。",
+  "tags": ["iOS", "SwiftUI", "Swift", "Health", "Mobile"],
+  "platform": "iOS",
+  "status": "in-progress",
+  "demoUrl": "",
+  "docUrl": "README.md",
+  "coverImage": "assets/cover.png"
+}
+
