@@ -35,6 +35,15 @@ const docImageFiles = import.meta.glob<string>(
   }
 );
 
+// 4. 自動掃描 apps/* 目錄下的所有 cover 封面圖並一併打包
+const coverImageFiles = import.meta.glob<string>(
+  ['../../../*/assets/cover.{svg,png,jpg,jpeg,webp}', '../../*/assets/cover.{svg,png,jpg,jpeg,webp}', '../public/assets/cover.svg'],
+  {
+    import: 'default',
+    eager: true,
+  }
+);
+
 /**
  * 依據檔案名稱獲取 docs/ 目錄下圖片的打包 URL
  */
@@ -46,6 +55,32 @@ export function getDocImageUrl(fileName: string): string | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * 依據 appId 與 manifest 宣告的 coverImage 路徑，獲取打包後的專屬封面圖 URL
+ */
+function resolveCoverImageUrl(appId: string, declaredCover?: string): string {
+  if (declaredCover?.startsWith('http') || declaredCover?.startsWith('data:')) {
+    return declaredCover;
+  }
+
+  // 優先在打包的 coverImageFiles 中尋找屬於該 appId 的專屬封面
+  for (const path in coverImageFiles) {
+    if (path.includes(`/${appId}-`) || path.includes(`/${appId}/`)) {
+      return coverImageFiles[path];
+    }
+  }
+
+  // 容錯回退：若為 001 且本身有 cover
+  if (appId === '001') {
+    const defaultCover = Object.keys(coverImageFiles).find(k => k.includes('cover.svg'));
+    if (defaultCover) {
+      return coverImageFiles[defaultCover];
+    }
+  }
+
+  return '/assets/cover.svg';
 }
 
 /**
@@ -63,12 +98,8 @@ export function getAllApps(): AppManifest[] {
     if (manifest && manifest.id && manifest.name) {
       appMap.set(manifest.id, {
         ...manifest,
-        // 若圖片路徑為相對路徑，校正為合適的預覽路徑
-        coverImage: manifest.coverImage?.startsWith('http')
-          ? manifest.coverImage
-          : manifest.coverImage?.startsWith('/')
-          ? manifest.coverImage
-          : `/${manifest.coverImage || 'assets/cover.svg'}`,
+        // 動態解析 Vite 打包後的專屬封面圖路徑
+        coverImage: resolveCoverImageUrl(manifest.id, manifest.coverImage),
       });
     }
   }

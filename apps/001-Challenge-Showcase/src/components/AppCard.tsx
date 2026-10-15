@@ -58,6 +58,8 @@ export const AppCard: React.FC<AppCardProps> = ({
       case 'web':
         return <Globe className="w-3.5 h-3.5" />;
       case 'mobile':
+      case 'ios':
+      case 'android':
         return <Smartphone className="w-3.5 h-3.5" />;
       case 'cli':
         return <Terminal className="w-3.5 h-3.5" />;
