@@ -97,6 +97,12 @@ final class NotificationManager: NSObject, ObservableObject {
         }
     }
     
+    /// 取消晨間喚醒鬧鐘通知
+    func cancelWakeAlarm() {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: ["wake_alarm", "wake_alarm_test", "wake_alarm_snooze"])
+    }
+    
     /// 5 秒後測試鬧鐘通知 (供使用者測試背景/鎖屏推播與客製化鈴聲)
     func scheduleTestAlarmIn5Seconds() {
         let center = UNUserNotificationCenter.current()

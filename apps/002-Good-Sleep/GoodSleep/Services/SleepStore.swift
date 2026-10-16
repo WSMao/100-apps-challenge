@@ -185,6 +185,12 @@ final class SleepStore: ObservableObject {
         UserDefaults.standard.removeObject(forKey: pendingBedtimeNoteKey)
     }
     
+    /// 取消本次睡眠：清除正在睡眠狀態並取消對應鬧鐘推播
+    func cancelSleep() {
+        clearSleepingState()
+        NotificationManager.shared.cancelWakeAlarm()
+    }
+    
     func recordMorningWakeUp(
         bedtime: Date,
         wakeTime: Date,

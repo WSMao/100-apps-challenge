@@ -12,8 +12,8 @@ struct EditSleepLogSheet: View {
     @State private var wakeTime: Date
     @State private var isSnoozed: Bool
     @State private var note: String
+    @State private var bedtimeNote: String
     @State private var showingDeleteAlert: Bool = false
-    @State private var bedtimeNote: String = ""
     
     var isEditing: Bool {
         originalLog != nil
@@ -52,6 +52,7 @@ struct EditSleepLogSheet: View {
         _wakeTime = State(initialValue: defaultWake)
         _isSnoozed = State(initialValue: false)
         _note = State(initialValue: "")
+        _bedtimeNote = State(initialValue: "")
     }
     
     var body: some View {

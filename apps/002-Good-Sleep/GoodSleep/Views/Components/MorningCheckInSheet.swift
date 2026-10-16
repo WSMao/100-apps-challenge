@@ -21,6 +21,12 @@ struct MorningCheckInSheet: View {
         _note = State(initialValue: store.todayLog?.note ?? "")
     }
     
+    private var targetNightString: String {
+        let f = DateFormatter()
+        f.dateFormat = "M/d"
+        return f.string(from: bedtime)
+    }
+    
     var body: some View {
         NavigationStack {
             ZStack {
@@ -30,11 +36,11 @@ struct MorningCheckInSheet: View {
                     VStack(alignment: .leading, spacing: 24) {
                         // 晨間問候
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("☀️ 早安！今天睡得如何？")
+                            Text("☀️ 早安！\(targetNightString) 晚上睡得如何？")
                                 .font(.system(size: 22, weight: .bold))
                                 .foregroundColor(SleepTheme.textPrimary)
                             
-                            Text("花 30 秒記錄醒來的身心狀態，協助建立個人專屬的規律作息。")
+                            Text("花 30 秒記錄昨晚睡眠身心狀態，協助建立個人專屬的規律作息。")
                                 .font(.system(size: 14))
                                 .foregroundColor(SleepTheme.textSecondary)
                         }
