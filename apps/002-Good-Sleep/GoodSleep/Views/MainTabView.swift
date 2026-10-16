@@ -31,7 +31,9 @@ struct MainTabView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: $selectedTab) {
-                TodayView(store: store)
+                TodayView(store: store, onNavigateToAlarm: {
+                    selectedTab = 2
+                })
                     .tabItem {
                         Image(systemName: "moon.fill")
                             .accessibilityLabel("今日")

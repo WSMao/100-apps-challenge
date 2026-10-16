@@ -3,8 +3,11 @@ import SwiftUI
 /// 今日主畫面：夜間倒數、晨間報告與快速打卡入口
 struct TodayView: View {
     @ObservedObject var store: SleepStore
+    var onNavigateToAlarm: (() -> Void)? = nil
+    
     @State private var showingCheckInSheet: Bool = false
     @State private var showingGoodNightModal: Bool = false
+    @State private var showingShortcutHelpSheet: Bool = false
     @State private var bedtimeNoteInput: String = ""
     @State private var noteSavedFeedback: Bool = false
     
@@ -55,6 +58,9 @@ struct TodayView: View {
             .navigationBarTitleDisplayMode(.large)
             .sheet(isPresented: $showingCheckInSheet) {
                 MorningCheckInSheet(store: store)
+            }
+            .sheet(isPresented: $showingShortcutHelpSheet) {
+                shortcutGuideSheet
             }
         }
     }
@@ -192,26 +198,52 @@ struct TodayView: View {
                         .fill(SleepTheme.lavender.opacity(0.2))
                         .frame(width: 56, height: 56)
                     
-                    Image(systemName: "moon.stars.fill")
+                    Image(systemName: store.isSleeping ? "bed.double.fill" : "moon.stars.fill")
                         .font(.system(size: 26))
                         .foregroundColor(SleepTheme.accent)
                 }
                 
-                Text("晚安儀式")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(SleepTheme.textPrimary)
-                
-                Text("放下螢幕與雜念，為優質睡眠按下開關。")
-                    .font(.system(size: 13))
-                    .foregroundColor(SleepTheme.textSecondary)
-                    .multilineTextAlignment(.center)
+                if store.isSleeping {
+                    Text("睡眠進行中")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(SleepTheme.textPrimary)
+                    
+                    Text("目前正在記錄您的睡眠狀態，放鬆身心享受好眠。")
+                        .font(.system(size: 13))
+                        .foregroundColor(SleepTheme.textSecondary)
+                        .multilineTextAlignment(.center)
+                } else {
+                    // 將【設定鬧鐘】置於頂部圖示下方
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showingGoodNightModal = false
+                        }
+                        onNavigateToAlarm?()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "alarm")
+                                .font(.system(size: 12))
+                            Text("設定鬧鐘")
+                                .font(.system(size: 13, weight: .medium))
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .semibold))
+                        }
+                        .foregroundColor(SleepTheme.accent)
+                        .padding(.vertical, 2)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
             .padding(.top, 4)
             
-            // 按鈕 1：開始睡眠
+            // 按鈕 1：開始睡眠 / 重新記錄入睡時間
             Button {
                 let note = bedtimeNoteInput.trimmingCharacters(in: .whitespacesAndNewlines)
                 store.startSleep(at: Date(), note: note)
+                
+                // 按照「鬧鐘排程頁面」的規劃設定運作 (若有勾選內建鬧鐘則運作內建，若有勾選系統鬧鐘則透過捷徑新增)
+                applyAlarmSettingsOnSleepStart()
+                
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 withAnimation(.easeInOut(duration: 0.25)) {
                     showingGoodNightModal = false
@@ -224,7 +256,7 @@ struct TodayView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(store.isSleeping ? "重新記錄入睡時間" : "開始睡眠")
                             .font(.system(size: 16, weight: .bold))
-                        Text(store.isSleeping && store.ongoingBedtime != nil ? "已於 \(timeFormatter.string(from: store.ongoingBedtime!)) 入睡（點擊重設為現在）" : "自動記錄當前為入睡時間")
+                        Text(store.isSleeping && store.ongoingBedtime != nil ? "已於 \(timeFormatter.string(from: store.ongoingBedtime!)) 入睡（點擊重設為現在）" : "依照排程自動設定鬧鐘並開始記錄")
                             .font(.system(size: 11, weight: .regular))
                             .opacity(0.85)
                     }
@@ -320,16 +352,28 @@ struct TodayView: View {
             .background(SleepTheme.surfaceSecondary.opacity(0.6))
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             
-            // 底部關閉按鈕
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showingGoodNightModal = false
+            // 進入睡眠進行中時，在最下層提供【取消本次睡眠】按鈕
+            if store.isSleeping {
+                Button {
+                    store.cancelSleep()
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        showingGoodNightModal = false
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 14))
+                        Text("取消本次睡眠")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .foregroundColor(SleepTheme.warning)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
+                    .background(SleepTheme.warning.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
-            } label: {
-                Text("稍後再說 / 關閉")
-                    .font(.system(size: 13))
-                    .foregroundColor(SleepTheme.textSecondary)
-                    .padding(.vertical, 4)
+                .buttonStyle(.plain)
             }
         }
         .padding(22)
@@ -339,15 +383,36 @@ struct TodayView: View {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .stroke(SleepTheme.border, lineWidth: 1)
         )
+        .overlay(alignment: .topTrailing) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showingGoodNightModal = false
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(SleepTheme.textSecondary)
+                    .frame(width: 30, height: 30)
+                    .background(SleepTheme.surfaceSecondary)
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(14)
+        }
         .shadow(color: Color.black.opacity(0.6), radius: 24, x: 0, y: 12)
     }
     
     private func morningReportCard(log: SleepLog) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("☀️ 今日晨間報告")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(SleepTheme.textPrimary)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("☀️ 今日晨間報告")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(SleepTheme.textPrimary)
+                    Text("\(targetNightFormatter.string(from: log.bedtime)) 晚上睡眠復盤")
+                        .font(.system(size: 11))
+                        .foregroundColor(SleepTheme.textTertiary)
+                }
                 
                 Spacer()
                 
@@ -425,12 +490,25 @@ struct TodayView: View {
     
     private var unrecordedCard: some View {
         VStack(spacing: 12) {
-            HStack {
+            HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(store.isSleeping ? "睡眠已進入後半程" : "今早尚未晨間復盤")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(SleepTheme.textPrimary)
-                    Text(store.isSleeping ? "醒來花 30 秒打卡完成記錄，評估今日睡眠品質。" : "醒來花 30 秒記錄狀態，給大腦一個正向啟動儀式。")
+                    HStack(spacing: 6) {
+                        Text(store.isSleeping ? "睡眠進行中" : "\(targetNightString) 晚上睡得如何？")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(SleepTheme.textPrimary)
+                        
+                        if !store.isSleeping {
+                            Text("尚未復盤")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(SleepTheme.warning)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1.5)
+                                .background(SleepTheme.warning.opacity(0.18))
+                                .clipShape(Capsule())
+                        }
+                    }
+                    
+                    Text(store.isSleeping ? "醒來花 30 秒打卡完成記錄，評估今日睡眠品質。" : "今早尚未晨間復盤，醒來花 30 秒記錄狀態，給大腦一個正向啟動儀式。")
                         .font(.system(size: 12))
                         .foregroundColor(SleepTheme.textSecondary)
                 }
@@ -451,6 +529,24 @@ struct TodayView: View {
         .padding(16)
         .background(SleepTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+    
+    private var targetNightDate: Date {
+        let calendar = Calendar.current
+        if let bedtime = store.ongoingBedtime {
+            return bedtime
+        }
+        return calendar.date(byAdding: .day, value: -1, to: Date()) ?? Date()
+    }
+    
+    private var targetNightString: String {
+        targetNightFormatter.string(from: targetNightDate)
+    }
+    
+    private var targetNightFormatter: DateFormatter {
+        let f = DateFormatter()
+        f.dateFormat = "M/d"
+        return f
     }
     
     private func metricBox(title: String, value: String, icon: String, color: Color) -> some View {
@@ -478,6 +574,215 @@ struct TodayView: View {
         let f = DateFormatter()
         f.dateFormat = "HH:mm"
         return f
+    }
+    
+    private let shortcutICloudURL = URL(string: "https://www.icloud.com/shortcuts/d6142096f8c44c07820f9b0cac2b34a9")!
+    private let appStoreShortcutsURL = URL(string: "https://apps.apple.com/app/id915279612")!
+    
+    private func applyAlarmSettingsOnSleepStart() {
+        var setting = store.alarmSetting
+        setting.isEnabled = true
+        store.saveAlarmSetting(setting)
+        
+        // 1. 若有勾選「內建鬧鐘」，排程 App 內建鬧鐘推播
+        if setting.useInternalAlarm {
+            NotificationManager.shared.scheduleWakeAlarm(setting: setting)
+        }
+        
+        // 2. 若有勾選「系統鬧鐘」，透過捷徑同步新增鬧鐘至系統時鐘
+        if setting.useSystemAlarm {
+            openClockAlarmWithShortcut()
+        }
+    }
+    
+    private func openClockAlarmWithShortcut() {
+        // 檢查使用者裝置是否安裝了「捷徑」App
+        if let checkUrl = URL(string: "shortcuts://"), !UIApplication.shared.canOpenURL(checkUrl) {
+            // 若未安裝捷徑 App，直接開啟 iCloud 捷徑安裝頁（iOS 會引導至 App Store 下載）
+            UIApplication.shared.open(shortcutICloudURL)
+            return
+        }
+        
+        // 組合 Shortcuts URL Scheme，傳送目標起床時間 (HH:mm)
+        let timeString = timeFormatter.string(from: store.alarmSetting.targetWakeTime)
+        let shortcutName = "GoodSleep鬧鐘"
+        guard let encodedName = shortcutName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let encodedTime = timeString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            return
+        }
+        
+        let urlString = "shortcuts://run-shortcut?name=\(encodedName)&input=text&text=\(encodedTime)"
+        if let url = URL(string: urlString) {
+            UIApplication.shared.open(url) { success in
+                if !success {
+                    // 若捷徑尚未安裝或呼叫失敗，直接開啟一鍵安裝 iCloud 頁面
+                    UIApplication.shared.open(shortcutICloudURL)
+                }
+            }
+        }
+    }
+    
+    // MARK: - 捷徑指引視圖
+    
+    private var shortcutGuideSheet: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // 頂部說明卡片
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 18))
+                                .foregroundColor(SleepTheme.accent)
+                            Text("一鍵取得「GoodSleep鬧鐘」官方捷徑")
+                                .font(.system(size: 17, weight: .bold))
+                                .foregroundColor(SleepTheme.textPrimary)
+                        }
+                        
+                        Text("透過 Apple 官方「捷徑」串接原生時鐘，享有 100% 準時響鈴與實體靜音開關穿透力，且設定完成後會自動秒回「好好睡覺」！")
+                            .font(.system(size: 13))
+                            .foregroundColor(SleepTheme.textSecondary)
+                            .lineSpacing(4)
+                    }
+                    .padding(16)
+                    .background(SleepTheme.surfaceSecondary)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    
+                    // 一鍵安裝主要按鈕
+                    Button {
+                        UIApplication.shared.open(shortcutICloudURL)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .font(.system(size: 18, weight: .bold))
+                            Text("一鍵取得官方捷徑（推薦）")
+                                .font(.system(size: 16, weight: .bold))
+                        }
+                        .foregroundColor(Color(hex: "0B0E14"))
+                        .padding(.vertical, 15)
+                        .frame(maxWidth: .infinity)
+                        .background(
+                            LinearGradient(
+                                colors: [SleepTheme.moonGlow, SleepTheme.accent],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .shadow(color: SleepTheme.accent.opacity(0.35), radius: 8, x: 0, y: 4)
+                    }
+                    
+                    // 官方捷徑特色
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("官方捷徑特色")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(SleepTheme.textPrimary)
+                        
+                        featureRow(icon: "checkmark.circle.fill", text: "已預先設定好動作，點擊「加入捷徑」立即完成。")
+                        featureRow(icon: "arrow.uturn.backward.circle.fill", text: "內建自動回跳：建立鬧鐘後 0.5 秒自動返回「好好睡覺」。")
+                        featureRow(icon: "shield.fill", text: "使用 Apple 官方原生安全機制，零耗電且保證響鈴。")
+                    }
+                    .padding(16)
+                    .background(SleepTheme.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(SleepTheme.border, lineWidth: 1)
+                    )
+                    
+                    // 備用手動指引
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("想要手動建立或檢查動作細節？")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(SleepTheme.textPrimary)
+                        
+                        stepRow(
+                            stepNumber: "1",
+                            title: "命名捷徑為「GoodSleep鬧鐘」",
+                            description: "在 iPhone「捷徑」App 中點擊「+」，將名稱改為「GoodSleep鬧鐘」。"
+                        )
+                        
+                        stepRow(
+                            stepNumber: "2",
+                            title: "加入「建立鬧鐘」動作",
+                            description: "時間設定為「捷徑輸入」，標籤設定為「GoodSleep 晨間喚醒」。"
+                        )
+                        
+                        stepRow(
+                            stepNumber: "3",
+                            title: "加入「打開 App」動作（選填）",
+                            description: "加入「打開 App」並選擇「好好睡覺」，即可實現設完鬧鐘自動跳回！"
+                        )
+                    }
+                    .padding(16)
+                    .background(SleepTheme.surfaceSecondary.opacity(0.6))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    
+                    // 底部未安裝檢查連結
+                    HStack {
+                        Spacer()
+                        Button {
+                            UIApplication.shared.open(appStoreShortcutsURL)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.down.app")
+                                    .font(.system(size: 11))
+                                Text("手機找不到「捷徑」App？前往 App Store 重新下載")
+                                    .font(.system(size: 11))
+                            }
+                            .foregroundColor(SleepTheme.textTertiary)
+                        }
+                        Spacer()
+                    }
+                    .padding(.top, 4)
+                }
+                .padding(20)
+            }
+            .background(SleepTheme.background.ignoresSafeArea())
+            .navigationTitle("設定鬧鐘捷徑")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") {
+                        showingShortcutHelpSheet = false
+                    }
+                    .foregroundColor(SleepTheme.accent)
+                }
+            }
+        }
+    }
+    
+    private func featureRow(icon: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundColor(SleepTheme.calmTeal)
+            Text(text)
+                .font(.system(size: 12))
+                .foregroundColor(SleepTheme.textSecondary)
+                .lineSpacing(2)
+        }
+    }
+    
+    private func stepRow(stepNumber: String, title: String, description: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(stepNumber)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(SleepTheme.accent)
+                .frame(width: 24, height: 24)
+                .background(SleepTheme.accent.opacity(0.15))
+                .clipShape(Circle())
+            
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(SleepTheme.textPrimary)
+                Text(description)
+                    .font(.system(size: 12))
+                    .foregroundColor(SleepTheme.textSecondary)
+                    .lineSpacing(2)
+            }
+        }
     }
 }
 
