@@ -32,25 +32,29 @@ struct MainTabView: View {
         TabView(selection: $selectedTab) {
             TodayView(store: store)
                 .tabItem {
-                    Label("今日", systemImage: "moon.fill")
+                    Image(systemName: "moon.fill")
+                        .accessibilityLabel("今日")
                 }
                 .tag(0)
             
             ChecklistView(store: store)
                 .tabItem {
-                    Label("避坑檢核", systemImage: "checklist")
+                    Image(systemName: "sparkles")
+                        .accessibilityLabel("睡眠引導與避坑")
                 }
                 .tag(1)
             
             AlarmView(store: store)
                 .tabItem {
-                    Label("智慧鬧鐘", systemImage: "alarm.fill")
+                    Image(systemName: "alarm.fill")
+                        .accessibilityLabel("智慧鬧鐘")
                 }
                 .tag(2)
             
             HistoryView(store: store)
                 .tabItem {
-                    Label("睡眠趨勢", systemImage: "chart.bar.xaxis")
+                    Image(systemName: "chart.bar.xaxis")
+                        .accessibilityLabel("睡眠趨勢")
                 }
                 .tag(3)
         }

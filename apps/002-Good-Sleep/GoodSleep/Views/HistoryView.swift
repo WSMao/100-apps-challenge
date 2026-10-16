@@ -151,10 +151,20 @@ struct HistoryView: View {
     // MARK: - 單筆歷史卡片 (支援外框高亮、點擊進入修改)
     private func historyCard(log: SleepLog, isHighlight: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(dateFormatter.string(from: log.date))
+            HStack(alignment: .center, spacing: 8) {
+                Text(dateFormatter.string(from: log.date) + " 晚")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(SleepTheme.textPrimary)
+                
+                if log.isLateNightBedtime {
+                    Text("熬夜晚睡")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(SleepTheme.warning)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(SleepTheme.warning.opacity(0.16))
+                        .clipShape(Capsule())
+                }
                 
                 Spacer()
                 
@@ -200,15 +210,36 @@ struct HistoryView: View {
                 }
             }
             
+            if !log.bedtimeNote.isEmpty {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "moon.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(SleepTheme.accent)
+                        .padding(.top, 2)
+                    Text("睡前：\(log.bedtimeNote)")
+                        .font(.system(size: 12))
+                        .foregroundColor(SleepTheme.textSecondary)
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(SleepTheme.surfaceSecondary)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+            
             if !log.note.isEmpty {
-                Text("“\(log.note)”")
-                    .font(.system(size: 12))
-                    .foregroundColor(SleepTheme.textSecondary)
-                    .italic()
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(SleepTheme.surfaceSecondary)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "sun.max.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(SleepTheme.calmTeal)
+                        .padding(.top, 2)
+                    Text("晨醒：\(log.note)")
+                        .font(.system(size: 12))
+                        .foregroundColor(SleepTheme.textSecondary)
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(SleepTheme.surfaceSecondary)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
         }
         .padding(14)

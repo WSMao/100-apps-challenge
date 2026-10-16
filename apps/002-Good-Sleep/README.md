@@ -91,3 +91,4 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 - **Apple Watch 獨立延伸 App (WatchOS / WatchKit)**：同步心率與手腕體溫，提供無聲觸覺震動喚醒。
 - **iOS 鎖定畫面小工具 (WidgetKit) 與靈動島 (Live Activities)**：即時掌握離目標就寢時間倒數。
 - **深度 HealthKit 雙向同步**：無縫將睡眠數據同步至 Apple Health 健康資料庫。
+- **咖啡因截止時間提醒**： 比如設定睡前多久不可再喝咖啡，然後截止日期前提醒用戶要把咖啡喝完。
