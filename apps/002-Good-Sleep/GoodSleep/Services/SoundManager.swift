@@ -1,19 +1,30 @@
 import Foundation
 import AVFoundation
 
-/// 助眠微音效與環境聲景管理器
+/// 助眠微音效與環境聲景管理器 (基於穩定高品質 AVAudioPlayer 與內建自然聲景合成)
 @MainActor
-final class SoundManager: ObservableObject {
+final class SoundManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     static let shared = SoundManager()
     
     @Published var isPlaying: Bool = false
     @Published var currentSound: SoundType? = nil
-    @Published var volume: Float = 0.6
+    @Published var volume: Float = 0.6 {
+        didSet {
+            soundPlayer?.volume = volume
+        }
+    }
     @Published var isAlarmRinging: Bool = false
     
-    private var audioEngine: AVAudioEngine?
-    private var noiseNode: AVAudioSourceNode?
+    // 定時器相關狀態
+    @Published var activeTimerOption: SleepTimerOption = .off
+    @Published var remainingTimerSeconds: Int = 0
+    private var countdownTimer: Timer?
+    
+    private var soundPlayer: AVAudioPlayer?
     private var alarmPlayer: AVAudioPlayer?
+    
+    // 記憶體中快取已合成的 WAV 音訊 Data，避免重複生成
+    private var audioDataCache: [SoundType: Data] = [:]
     
     enum SoundType: String, CaseIterable, Identifiable {
         case rain = "雨夜窗台"
@@ -42,63 +53,206 @@ final class SoundManager: ObservableObject {
         }
     }
     
-    init() {
-        // 延遲至真正播放音效時才在背景啟用 Session，避免主線程 UI 凍結警告 (Hang Risk)
-    }
-    
-    private func activateAudioSession() {
-        Task.detached(priority: .userInitiated) {
-            do {
-                let session = AVAudioSession.sharedInstance()
-                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-                try session.setActive(true)
-            } catch {
-                print("音訊 Session 啟用失敗: \(error.localizedDescription)")
+    enum SleepTimerOption: Equatable, Identifiable {
+        case off
+        case minutes(Int)
+        case endOfTrack
+        
+        var id: String {
+            switch self {
+            case .off: return "off"
+            case .minutes(let m): return "\(m)"
+            case .endOfTrack: return "end_of_track"
+            }
+        }
+        
+        var title: String {
+            switch self {
+            case .off: return "關閉計時"
+            case .minutes(let m): return "\(m) 分鐘"
+            case .endOfTrack: return "內容結束時停止"
             }
         }
     }
     
-    /// 切換播放/暫停助眠音效 (基於 CoreAudio 合成粉紅噪音/低頻濾波)
+    override init() {
+        super.init()
+    }
+    
+    var remainingTimerFormatted: String {
+        guard activeTimerOption != .off else { return "" }
+        if case .endOfTrack = activeTimerOption {
+            return "本輪結束"
+        }
+        let m = remainingTimerSeconds / 60
+        let s = remainingTimerSeconds % 60
+        return String(format: "%02d:%02d", m, s)
+    }
+    
+    private func setupAudioSession() {
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try session.setActive(true)
+        } catch {
+            print("音訊 Session 啟用失敗: \(error.localizedDescription)")
+        }
+    }
+    
+    /// 切換播放/暫停助眠音效
     func toggleSound(_ type: SoundType) {
         if isPlaying && currentSound == type {
-            stop()
+            togglePlayPause()
+        } else if !isPlaying && currentSound == type {
+            togglePlayPause()
         } else {
             play(type)
         }
     }
     
     func play(_ type: SoundType) {
-        stop()
+        // 若切換不同聲音，重置播放器
+        if let player = soundPlayer {
+            player.stop()
+        }
+        soundPlayer = nil
+        setupAudioSession()
+        
         currentSound = type
         isPlaying = true
-        activateAudioSession()
         
-        // 透過 AVAudioEngine 即時合成音訊，無需依賴龐大 mp3 外部資源
-        startNoiseEngine(type: type)
+        // 取得快取或即時合成聲景 WAV 音訊
+        let data: Data
+        if let cached = audioDataCache[type] {
+            data = cached
+        } else {
+            data = SoundGenerator.createWavData(for: type)
+            audioDataCache[type] = data
+        }
+        
+        do {
+            let player = try AVAudioPlayer(data: data)
+            player.delegate = self
+            if case .endOfTrack = activeTimerOption {
+                player.numberOfLoops = 0
+            } else {
+                player.numberOfLoops = -1 // 無限平滑循環播放
+            }
+            player.volume = volume
+            player.prepareToPlay()
+            player.play()
+            self.soundPlayer = player
+            
+            // 若原本已設定分鐘計時器，繼續倒數
+            if case .minutes = activeTimerOption, remainingTimerSeconds > 0 {
+                startCountdownTimer()
+            }
+        } catch {
+            print("助眠音效播放失敗: \(error.localizedDescription)")
+            self.isPlaying = false
+            self.currentSound = nil
+        }
     }
     
-    func stop() {
-        if let engine = audioEngine, engine.isRunning {
-            engine.stop()
-            engine.reset()
-        }
-        audioEngine = nil
-        noiseNode = nil
-        isPlaying = false
-        currentSound = nil
-        
-        Task.detached(priority: .background) {
-            do {
-                try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-            } catch {
-                print("音訊 Session 釋放失敗: \(error.localizedDescription)")
+    /// 播放 / 暫停切換
+    func togglePlayPause() {
+        guard currentSound != nil else { return }
+        if isPlaying {
+            soundPlayer?.pause()
+            isPlaying = false
+            countdownTimer?.invalidate()
+        } else {
+            soundPlayer?.play()
+            isPlaying = true
+            if case .minutes = activeTimerOption, remainingTimerSeconds > 0 {
+                startCountdownTimer()
             }
         }
     }
     
-    /// 開始播放晨間鬧鐘響鈴 (預設循環響鈴直到使用者關閉或貪睡)
+    /// 上一首
+    func playPrevious() {
+        guard let current = currentSound,
+              let index = SoundType.allCases.firstIndex(of: current) else {
+            if let first = SoundType.allCases.first { play(first) }
+            return
+        }
+        let prevIndex = (index - 1 + SoundType.allCases.count) % SoundType.allCases.count
+        play(SoundType.allCases[prevIndex])
+    }
+    
+    /// 下一首
+    func playNext() {
+        guard let current = currentSound,
+              let index = SoundType.allCases.firstIndex(of: current) else {
+            if let first = SoundType.allCases.first { play(first) }
+            return
+        }
+        let nextIndex = (index + 1) % SoundType.allCases.count
+        play(SoundType.allCases[nextIndex])
+    }
+    
+    /// 完全停止播放並隱藏迷你播放器
+    func stop() {
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        activeTimerOption = .off
+        remainingTimerSeconds = 0
+        
+        if let player = soundPlayer {
+            player.stop()
+        }
+        soundPlayer = nil
+        isPlaying = false
+        currentSound = nil
+    }
+    
+    /// 設定睡眠定時器
+    func setSleepTimer(_ option: SleepTimerOption) {
+        activeTimerOption = option
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        
+        switch option {
+        case .off:
+            remainingTimerSeconds = 0
+            soundPlayer?.numberOfLoops = -1
+        case .minutes(let minutes):
+            remainingTimerSeconds = minutes * 60
+            soundPlayer?.numberOfLoops = -1
+            if isPlaying {
+                startCountdownTimer()
+            }
+        case .endOfTrack:
+            remainingTimerSeconds = 0
+            soundPlayer?.numberOfLoops = 0 // 播放完本輪就停止
+        }
+    }
+    
+    private func startCountdownTimer() {
+        countdownTimer?.invalidate()
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                if self.remainingTimerSeconds > 0 {
+                    self.remainingTimerSeconds -= 1
+                } else {
+                    self.stop()
+                }
+            }
+        }
+    }
+    
+    // MARK: - AVAudioPlayerDelegate
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in
+            self.stop()
+        }
+    }
+    
+    /// 開始播放晨間鬧鐘響鈴
     func startAlarmMelody(loop: Bool = true) {
-        stop() // 停止白噪音
+        stop()
         isAlarmRinging = true
         
         do {
@@ -131,50 +285,166 @@ final class SoundManager: ObservableObject {
         alarmPlayer?.stop()
         alarmPlayer = nil
     }
-    
-    private func startNoiseEngine(type: SoundType) {
-        let engine = AVAudioEngine()
-        let sampleRate = 44100.0
-        
-        // 依據不同類型調整低頻係數
-        let factor: Float
-        switch type {
-        case .rain: factor = 0.08
-        case .ocean: factor = 0.05
-        case .wind: factor = 0.03
-        case .whiteNoise: factor = 0.12
-        }
-        
-        var lastOut: Float = 0.0
-        
-        let sourceNode = AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
-            let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            for frame in 0..<Int(frameCount) {
-                // 產生平滑低通白/粉紅噪音
-                let white = Float.random(in: -1.0...1.0)
-                lastOut = (lastOut + (0.02 * white)) / 1.02
-                let sample = (lastOut * factor) * self.volume
-                
-                for buffer in ablPointer {
-                    let buf: UnsafeMutableBufferPointer<Float> = UnsafeMutableBufferPointer(buffer)
-                    buf[frame] = sample
-                }
-            }
-            return noErr
-        }
-        
-        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2)!
-        engine.attach(sourceNode)
-        engine.connect(sourceNode, to: engine.mainMixerNode, format: format)
-        
-        do {
-            try engine.start()
-            self.audioEngine = engine
-            self.noiseNode = sourceNode
-        } catch {
-            print("音訊引擎啟動失敗: \(error.localizedDescription)")
-            self.isPlaying = false
-        }
-    }
 }
 
+// MARK: - 高品質立體聲助眠聲景生成器 (純 Swift 記憶體合成標準 16-bit PCM WAV)
+private enum SoundGenerator {
+    static func createWavData(for type: SoundManager.SoundType) -> Data {
+        let sampleRate: Double = 22050.0
+        let duration: Double = 5.0
+        let totalSamples = Int(sampleRate * duration)
+        
+        var left = [Float](repeating: 0.0, count: totalSamples)
+        var right = [Float](repeating: 0.0, count: totalSamples)
+        
+        switch type {
+        case .rain:
+            generateRain(left: &left, right: &right, total: totalSamples)
+        case .ocean:
+            generateOcean(left: &left, right: &right, total: totalSamples, sampleRate: sampleRate)
+        case .wind:
+            generateWind(left: &left, right: &right, total: totalSamples, sampleRate: sampleRate)
+        case .whiteNoise:
+            generateWhiteNoise(left: &left, right: &right, total: totalSamples)
+        }
+        
+        // 頭尾平滑餘弦交叉淡入淡出 (Crossfade 0.25 秒)，徹底消除循環邊界爆音
+        let fadeSamples = Int(sampleRate * 0.25)
+        for i in 0..<fadeSamples {
+            let t = Float(i) / Float(fadeSamples)
+            let fadeOut = 0.5 * (1.0 + cos(Float.pi * t))
+            let fadeIn = 1.0 - fadeOut
+            
+            let tailIdx = totalSamples - fadeSamples + i
+            let mergedL = left[tailIdx] * fadeOut + left[i] * fadeIn
+            let mergedR = right[tailIdx] * fadeOut + right[i] * fadeIn
+            
+            left[i] = mergedL
+            left[tailIdx] = mergedL
+            right[i] = mergedR
+            right[tailIdx] = mergedR
+        }
+        
+        return encodeWav(left: left, right: right, sampleRate: Int(sampleRate))
+    }
+    
+    // 雨夜窗台：粉紅噪音基底 + 輕微隨機雨滴脈衝
+    private static func generateRain(left: inout [Float], right: inout [Float], total: Int) {
+        var lastL: Float = 0.0
+        var lastR: Float = 0.0
+        
+        for i in 0..<total {
+            let whiteL = Float.random(in: -1.0...1.0)
+            let whiteR = Float.random(in: -1.0...1.0)
+            lastL = (lastL * 0.88) + (whiteL * 0.12)
+            lastR = (lastR * 0.88) + (whiteR * 0.12)
+            
+            var drop: Float = 0.0
+            if Int.random(in: 0...120) == 0 {
+                drop = Float.random(in: -0.15...0.15)
+            }
+            
+            left[i] = (lastL * 0.6 + drop) * 0.7
+            right[i] = (lastR * 0.6 - drop * 0.6) * 0.7
+        }
+    }
+    
+    // 寧靜潮汐：深層褐噪 + 4.5秒週期呼吸湧動
+    private static func generateOcean(left: inout [Float], right: inout [Float], total: Int, sampleRate: Double) {
+        var brownL: Float = 0.0
+        var brownR: Float = 0.0
+        let period = sampleRate * 4.5
+        
+        for i in 0..<total {
+            let whiteL = Float.random(in: -1.0...1.0)
+            let whiteR = Float.random(in: -1.0...1.0)
+            brownL = (brownL + (0.05 * whiteL)) / 1.05
+            brownR = (brownR + (0.05 * whiteR)) / 1.05
+            
+            let phase = Double(i) / period * 2.0 * .pi
+            let surge = Float(0.28 + 0.72 * pow(sin(phase), 2.0))
+            
+            left[i] = brownL * surge * 1.5
+            right[i] = brownR * surge * 1.5
+        }
+    }
+    
+    // 深山晚風：低頻雙重濾波 + 緩慢起伏的自然微風
+    private static func generateWind(left: inout [Float], right: inout [Float], total: Int, sampleRate: Double) {
+        var lowL: Float = 0.0
+        var lowR: Float = 0.0
+        let period = sampleRate * 5.0
+        
+        for i in 0..<total {
+            let whiteL = Float.random(in: -1.0...1.0)
+            let whiteR = Float.random(in: -1.0...1.0)
+            lowL = (lowL * 0.95) + (whiteL * 0.05)
+            lowR = (lowR * 0.95) + (whiteR * 0.05)
+            
+            let gust = Float(0.45 + 0.55 * (0.5 + 0.5 * sin(Double(i) / period * 2.0 * .pi)))
+            left[i] = lowL * gust * 2.2
+            right[i] = lowR * (0.85 + 0.15 * gust) * 2.2
+        }
+    }
+    
+    // 溫柔白噪：柔和全頻遮蔽聲，去除刺耳高頻
+    private static func generateWhiteNoise(left: inout [Float], right: inout [Float], total: Int) {
+        var smoothL: Float = 0.0
+        var smoothR: Float = 0.0
+        
+        for i in 0..<total {
+            let whiteL = Float.random(in: -1.0...1.0)
+            let whiteR = Float.random(in: -1.0...1.0)
+            smoothL = (smoothL * 0.72) + (whiteL * 0.28)
+            smoothR = (smoothR * 0.72) + (whiteR * 0.28)
+            
+            left[i] = smoothL * 0.32
+            right[i] = smoothR * 0.32
+        }
+    }
+    
+    // 將 Float PCM 樣本編碼為標準 44-byte RIFF/WAVE 二進位資料
+    private static func encodeWav(left: [Float], right: [Float], sampleRate: Int) -> Data {
+        let numChannels = 2
+        let bitsPerSample = 16
+        let totalSamples = left.count
+        let subchunk2Size = totalSamples * numChannels * 2
+        let chunkSize = 36 + subchunk2Size
+        let byteRate = sampleRate * numChannels * (bitsPerSample / 8)
+        let blockAlign = numChannels * (bitsPerSample / 8)
+        
+        var data = Data()
+        data.reserveCapacity(44 + subchunk2Size)
+        
+        // "RIFF"
+        data.append(contentsOf: [0x52, 0x49, 0x46, 0x46])
+        data.append(contentsOf: withUnsafeBytes(of: UInt32(chunkSize).littleEndian) { Array($0) })
+        // "WAVE"
+        data.append(contentsOf: [0x57, 0x41, 0x56, 0x45])
+        
+        // "fmt "
+        data.append(contentsOf: [0x66, 0x6D, 0x74, 0x20])
+        data.append(contentsOf: withUnsafeBytes(of: UInt32(16).littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: UInt16(1).littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: UInt16(numChannels).littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: UInt32(sampleRate).littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: UInt32(byteRate).littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: UInt16(blockAlign).littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: UInt16(bitsPerSample).littleEndian) { Array($0) })
+        
+        // "data"
+        data.append(contentsOf: [0x64, 0x61, 0x74, 0x61])
+        data.append(contentsOf: withUnsafeBytes(of: UInt32(subchunk2Size).littleEndian) { Array($0) })
+        
+        for i in 0..<totalSamples {
+            let leftClamped = max(-1.0, min(1.0, left[i]))
+            let rightClamped = max(-1.0, min(1.0, right[i]))
+            let leftInt = Int16(leftClamped * 32767.0)
+            let rightInt = Int16(rightClamped * 32767.0)
+            data.append(contentsOf: withUnsafeBytes(of: leftInt.littleEndian) { Array($0) })
+            data.append(contentsOf: withUnsafeBytes(of: rightInt.littleEndian) { Array($0) })
+        }
+        
+        return data
+    }
+}
