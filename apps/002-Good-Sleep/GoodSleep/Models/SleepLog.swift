@@ -11,7 +11,53 @@ struct SleepLog: Identifiable, Codable, Equatable {
     var isSnoozed: Bool              // 是否賴床
     var snoozeMinutes: Int           // 賴床時長 (分鐘)
     var note: String                 // 晨間微筆記 (做夢或醒來感受)
+    var bedtimeNote: String          // 睡前筆記 (睡前狀態、雜念或感恩)
     var completedChecklistCount: Int // 睡前完成的避坑項目數
+    
+    init(
+        id: UUID = UUID(),
+        date: Date,
+        bedtime: Date,
+        wakeTime: Date,
+        scheduledWakeTime: Date,
+        rating: SleepRating,
+        isSnoozed: Bool,
+        snoozeMinutes: Int,
+        note: String,
+        bedtimeNote: String = "",
+        completedChecklistCount: Int
+    ) {
+        self.id = id
+        self.date = date
+        self.bedtime = bedtime
+        self.wakeTime = wakeTime
+        self.scheduledWakeTime = scheduledWakeTime
+        self.rating = rating
+        self.isSnoozed = isSnoozed
+        self.snoozeMinutes = snoozeMinutes
+        self.note = note
+        self.bedtimeNote = bedtimeNote
+        self.completedChecklistCount = completedChecklistCount
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case id, date, bedtime, wakeTime, scheduledWakeTime, rating, isSnoozed, snoozeMinutes, note, bedtimeNote, completedChecklistCount
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        date = try container.decode(Date.self, forKey: .date)
+        bedtime = try container.decode(Date.self, forKey: .bedtime)
+        wakeTime = try container.decode(Date.self, forKey: .wakeTime)
+        scheduledWakeTime = try container.decodeIfPresent(Date.self, forKey: .scheduledWakeTime) ?? wakeTime
+        rating = try container.decode(SleepRating.self, forKey: .rating)
+        isSnoozed = try container.decodeIfPresent(Bool.self, forKey: .isSnoozed) ?? false
+        snoozeMinutes = try container.decodeIfPresent(Int.self, forKey: .snoozeMinutes) ?? 0
+        note = try container.decodeIfPresent(String.self, forKey: .note) ?? ""
+        bedtimeNote = try container.decodeIfPresent(String.self, forKey: .bedtimeNote) ?? ""
+        completedChecklistCount = try container.decodeIfPresent(Int.self, forKey: .completedChecklistCount) ?? 0
+    }
     
     // 實際睡眠總時長 (小時)
     var durationHours: Double {
@@ -48,32 +94,77 @@ struct SleepLog: Identifiable, Codable, Equatable {
         return max(10, min(100, baseScore))
     }
     
+    /// 是否為跨午夜熬夜晚睡 (凌晨 00:00 ~ 05:00 之間入睡)
+    var isLateNightBedtime: Bool {
+        let hour = Calendar.current.component(.hour, from: bedtime)
+        return hour >= 0 && hour < 5
+    }
+    
+    /// 跨日日期範圍顯示 (例：10/16 晚 ～ 10/17 晨 或 10/16 晚 (熬夜) ～ 10/17 晨)
+    var displayRangeTitle: String {
+        let f = DateFormatter()
+        f.dateFormat = "M/d"
+        let logicalNightStr = f.string(from: date)
+        let wakeDayStr = f.string(from: wakeTime)
+        
+        if isLateNightBedtime {
+            return "\(logicalNightStr) 晚 (熬夜) ～ \(wakeDayStr) 晨"
+        } else if logicalNightStr != wakeDayStr {
+            return "\(logicalNightStr) 晚 ～ \(wakeDayStr) 晨"
+        } else {
+            return "\(logicalNightStr) 晚 ～ 晨"
+        }
+    }
+    
     static var mockHistory: [SleepLog] {
         let calendar = Calendar.current
         let today = Date()
         
         return (1...5).compactMap { dayOffset -> SleepLog? in
-            guard let logDate = calendar.date(byAdding: .day, value: -dayOffset, to: today),
-                  let bed = calendar.date(byAdding: .hour, value: -8, to: logDate) else {
+            // 邏輯睡眠夜：過去幾天的夜晚 (例：dayOffset = 1 代表昨晚)
+            guard let logicalNight = calendar.date(byAdding: .day, value: -dayOffset, to: today) else {
                 return nil
             }
+            let nightStart = calendar.startOfDay(for: logicalNight)
+            
+            // 入睡時間：設在當晚 23:15 (其中一天設為熬夜 01:15 測試)
+            let isLateNightSample = (dayOffset == 2)
+            let bed: Date
+            if isLateNightSample {
+                // 熬夜：隔日凌晨 01:15
+                let nextMorning = calendar.date(byAdding: .day, value: 1, to: nightStart) ?? nightStart
+                bed = calendar.date(bySettingHour: 1, minute: 15, second: 0, of: nextMorning) ?? nextMorning
+            } else {
+                bed = calendar.date(bySettingHour: 23, minute: 15, second: 0, of: nightStart) ?? nightStart
+            }
+            
+            // 起床時間：隔日早晨 07:15
+            let wakeDay = calendar.date(byAdding: .day, value: 1, to: nightStart) ?? nightStart
+            let wake = calendar.date(bySettingHour: 7, minute: 15, second: 0, of: wakeDay) ?? wakeDay
             
             let ratings: [SleepRating] = [.refreshed, .good, .tired, .good, .refreshed]
             let rating = ratings[dayOffset % ratings.count]
             let isSnooze = dayOffset % 2 == 1
+            let sampleBedNotes = [
+                "今天讀了 15 分鐘書，心情平靜放鬆。",
+                "睡前泡了個熱水澡，身體微微發熱很想睡。",
+                "趕專案熬夜了一會兒，提醒自己明天一定要早點休息。",
+                "做了 4-7-8 呼吸 3 輪，呼吸順暢多了。",
+                "今天工作告一段落，沒有懸念，安心晚安。"
+            ]
             
             return SleepLog(
-                date: logDate,
+                date: nightStart,
                 bedtime: bed,
-                wakeTime: logDate,
-                scheduledWakeTime: logDate,
+                wakeTime: wake,
+                scheduledWakeTime: wake,
                 rating: rating,
                 isSnoozed: isSnooze,
                 snoozeMinutes: isSnooze ? 15 : 0,
                 note: isSnooze ? "鬧鐘響了按掉一次，有點累" : "自然醒，精神很好！",
+                bedtimeNote: sampleBedNotes[dayOffset % sampleBedNotes.count],
                 completedChecklistCount: 4
             )
         }
     }
 }
-

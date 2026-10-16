@@ -6,11 +6,20 @@ struct MorningCheckInSheet: View {
     @Environment(\.dismiss) private var dismiss
     
     @State private var selectedRating: SleepRating = .good
-    @State private var bedtime: Date = Calendar.current.date(byAdding: .hour, value: -8, to: Date()) ?? Date()
+    @State private var bedtime: Date
     @State private var wakeTime: Date = Date()
     @State private var isSnoozed: Bool = false
     @State private var snoozeMinutes: Int = 10
     @State private var note: String = ""
+    @State private var bedtimeNote: String = ""
+    
+    init(store: SleepStore) {
+        self.store = store
+        let defaultBed = Calendar.current.date(byAdding: .hour, value: -8, to: Date()) ?? Date()
+        _bedtime = State(initialValue: store.ongoingBedtime ?? defaultBed)
+        _bedtimeNote = State(initialValue: store.todayLog?.bedtimeNote ?? store.pendingBedtimeNote)
+        _note = State(initialValue: store.todayLog?.note ?? "")
+    }
     
     var body: some View {
         NavigationStack {
@@ -78,7 +87,7 @@ struct MorningCheckInSheet: View {
                             
                             VStack(spacing: 12) {
                                 DatePicker(
-                                    "昨晚入睡時間",
+                                    "就寢入睡時間",
                                     selection: $bedtime,
                                     displayedComponents: [.date, .hourAndMinute]
                                 )
@@ -139,13 +148,39 @@ struct MorningCheckInSheet: View {
                             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         }
                         
-                        // 4. 晨間微筆記
+                        // 4. 睡前筆記
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("4. 晨間筆記 (選填)")
+                            HStack {
+                                Text("4. 睡前筆記")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(SleepTheme.accent)
+                                Spacer()
+                                if !bedtimeNote.isEmpty {
+                                    Text("昨夜已記錄")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(SleepTheme.success)
+                                }
+                            }
+                            
+                            TextField("昨夜入睡前的心情、狀態或感恩事項...", text: $bedtimeNote, axis: .vertical)
+                                .lineLimit(2...4)
+                                .padding(14)
+                                .background(SleepTheme.surface)
+                                .foregroundColor(SleepTheme.textPrimary)
+                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .stroke(SleepTheme.border.opacity(0.4), lineWidth: 1)
+                                )
+                        }
+                        
+                        // 5. 晨間微筆記
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("5. 晨間微筆記 (選填)")
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundColor(SleepTheme.accent)
                             
-                            TextField("記下昨晚入睡速度、做夢內容或醒來感受...", text: $note, axis: .vertical)
+                            TextField("記下做夢內容、醒來身心狀態或開機感受...", text: $note, axis: .vertical)
                                 .lineLimit(3...5)
                                 .padding(14)
                                 .background(SleepTheme.surface)
@@ -165,7 +200,8 @@ struct MorningCheckInSheet: View {
                                 rating: selectedRating,
                                 isSnoozed: isSnoozed,
                                 snoozeMinutes: isSnoozed ? snoozeMinutes : 0,
-                                note: note
+                                note: note,
+                                bedtimeNote: bedtimeNote
                             )
                             dismiss()
                         } label: {

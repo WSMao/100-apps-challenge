@@ -13,6 +13,7 @@ struct EditSleepLogSheet: View {
     @State private var isSnoozed: Bool
     @State private var note: String
     @State private var showingDeleteAlert: Bool = false
+    @State private var bedtimeNote: String = ""
     
     var isEditing: Bool {
         originalLog != nil
@@ -28,6 +29,7 @@ struct EditSleepLogSheet: View {
         _wakeTime = State(initialValue: log.wakeTime)
         _isSnoozed = State(initialValue: log.isSnoozed)
         _note = State(initialValue: log.note)
+        _bedtimeNote = State(initialValue: log.bedtimeNote)
     }
     
     // 為指定日期新增睡眠記錄
@@ -37,13 +39,13 @@ struct EditSleepLogSheet: View {
         self.newLogDate = newLogDate
         
         let cal = Calendar.current
-        let targetDay = cal.startOfDay(for: newLogDate)
+        let targetNight = cal.startOfDay(for: newLogDate)
         
-        // 預設起床時間：該日 07:00
-        let defaultWake = cal.date(bySettingHour: 7, minute: 0, second: 0, of: targetDay) ?? targetDay
-        // 預設入睡時間：前一日 23:00
-        let prevDay = cal.date(byAdding: .day, value: -1, to: targetDay) ?? targetDay
-        let defaultBed = cal.date(bySettingHour: 23, minute: 0, second: 0, of: prevDay) ?? prevDay
+        // 預設入睡時間：該夜 23:00
+        let defaultBed = cal.date(bySettingHour: 23, minute: 0, second: 0, of: targetNight) ?? targetNight
+        // 預設起床時間：隔日早晨 07:00
+        let nextDay = cal.date(byAdding: .day, value: 1, to: targetNight) ?? targetNight
+        let defaultWake = cal.date(bySettingHour: 7, minute: 0, second: 0, of: nextDay) ?? nextDay
         
         _selectedRating = State(initialValue: .good)
         _bedtime = State(initialValue: defaultBed)
@@ -151,7 +153,25 @@ struct EditSleepLogSheet: View {
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         }
                         
-                        // 4. 晨間筆記
+                        // 4. 睡前筆記
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("睡前筆記")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(SleepTheme.accent)
+                            
+                            TextField("記下睡前身心感受、雜念或感恩事項...", text: $bedtimeNote, axis: .vertical)
+                                .lineLimit(2...4)
+                                .padding(12)
+                                .background(SleepTheme.surface)
+                                .foregroundColor(SleepTheme.textPrimary)
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .stroke(SleepTheme.border.opacity(0.4), lineWidth: 1)
+                                )
+                        }
+                        
+                        // 5. 晨間微筆記
                         VStack(alignment: .leading, spacing: 10) {
                             Text("晨間微筆記")
                                 .font(.system(size: 15, weight: .semibold))
@@ -251,15 +271,18 @@ struct EditSleepLogSheet: View {
             var updated = original
             updated.bedtime = bedtime
             updated.wakeTime = wakeTime
+            updated.date = SleepStore.logicalSleepDate(for: bedtime)
             updated.rating = selectedRating
             updated.isSnoozed = isSnoozed
             updated.snoozeMinutes = calculatedSnooze
             updated.note = note
+            updated.bedtimeNote = bedtimeNote
             store.updateSleepLog(updated)
-        } else if let date = newLogDate {
+        } else if let _ = newLogDate {
             let scheduledTime = store.alarmSetting.targetWakeTime
+            let logicalDate = SleepStore.logicalSleepDate(for: bedtime)
             let newLog = SleepLog(
-                date: date,
+                date: logicalDate,
                 bedtime: bedtime,
                 wakeTime: wakeTime,
                 scheduledWakeTime: scheduledTime,
@@ -267,6 +290,7 @@ struct EditSleepLogSheet: View {
                 isSnoozed: isSnoozed,
                 snoozeMinutes: calculatedSnooze,
                 note: note,
+                bedtimeNote: bedtimeNote,
                 completedChecklistCount: 0
             )
             store.addSleepLog(newLog)
