@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>「好好睡覺」需要排程喚醒鬧鐘，讓鬧鐘在螢幕鎖定、靜音或專注模式下仍能準時響起。</string>
+</dict>
+</plist>
+

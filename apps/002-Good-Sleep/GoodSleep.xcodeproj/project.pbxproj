@@ -15,6 +15,7 @@
 		1E9067EBE6074AC08013B843 /* SoundManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 366FC081E54D4B48B0BB249C /* SoundManager.swift */; };
 		3CC7A2ADA9C44BCFB29354A0 /* ChecklistItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5C3F071EAF24A239A3753BE /* ChecklistItem.swift */; };
 		47CADACB7CCA450CA6986A88 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0906944A55A487EB2FE2956 /* NotificationManager.swift */; };
+		C1D2E3F4A5B6C7D800000001 /* WakeAlarmService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1D2E3F4A5B6C7D800000002 /* WakeAlarmService.swift */; };
 		4E530610C23A45B58B5FC1A7 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17EC3BCE22A42B1822705C1 /* MainTabView.swift */; };
 		6CF72C39E9B74818A0D5D9DD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6BD7145275E94B78A91E615E /* Assets.xcassets */; };
 		A1A2A3B4C5D6E7F800000001 /* alarm_melody.caf in Resources */ = {isa = PBXBuildFile; fileRef = A1A2A3B4C5D6E7F800000002 /* alarm_melody.caf */; };
@@ -48,6 +49,7 @@
 		B3C24A757C3349839285457B /* SleepLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepLog.swift; sourceTree = "<group>"; };
 		B74E1AB829C24E23BF659BF1 /* AlarmView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmView.swift; sourceTree = "<group>"; };
 		C0906944A55A487EB2FE2956 /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
+		C1D2E3F4A5B6C7D800000002 /* WakeAlarmService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakeAlarmService.swift; sourceTree = "<group>"; };
 		C8E63F46103F4FD994DC78AF /* GoodSleep.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GoodSleep.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D0879DCA6AE242A08322FAA7 /* MorningCheckInSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MorningCheckInSheet.swift; sourceTree = "<group>"; };
 		DE4D7F653D3E42A3A8D67785 /* ChecklistView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChecklistView.swift; sourceTree = "<group>"; };
@@ -90,6 +92,7 @@
 			isa = PBXGroup;
 			children = (
 				C0906944A55A487EB2FE2956 /* NotificationManager.swift */,
+				C1D2E3F4A5B6C7D800000002 /* WakeAlarmService.swift */,
 				366FC081E54D4B48B0BB249C /* SoundManager.swift */,
 				596FBBE842BE4A20A33F79FD /* SleepStore.swift */,
 			);
@@ -236,6 +239,7 @@
 				D62579E9C70D4BD6A60A084E /* AlarmSetting.swift in Sources */,
 				A6A105DAF70E40F29470298D /* SleepLog.swift in Sources */,
 				47CADACB7CCA450CA6986A88 /* NotificationManager.swift in Sources */,
+				C1D2E3F4A5B6C7D800000001 /* WakeAlarmService.swift in Sources */,
 				1E9067EBE6074AC08013B843 /* SoundManager.swift in Sources */,
 				1D706876385946348377BC97 /* SleepStore.swift in Sources */,
 				F745071F0595411EA2EAE1CF /* TodayView.swift in Sources */,
@@ -314,6 +318,7 @@
 				DEVELOPMENT_TEAM = 8XCQHLWX64;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = GoodSleep/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "好好睡覺";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_UIBackgroundModes = "audio";
@@ -344,6 +349,7 @@
 				DEVELOPMENT_TEAM = 8XCQHLWX64;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = GoodSleep/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "好好睡覺";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_UIBackgroundModes = "audio";
