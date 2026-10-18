@@ -83,9 +83,9 @@ struct AlarmView: View {
                     icon: "app.badge.checkmark",
                     badgeColor: SleepTheme.accent,
                     features: [
-                        ("零跳轉體驗", "100% 留在 GoodSleep App 內，無需切換至任何外部 App，視覺體驗最沉浸、純淨。"),
-                        ("溫柔漸進喚醒", "早晨以「晨間清脆鐘琴」漸進由小而大響起，配合螢幕晨光喚醒大腦，醒來直接進行晨間復盤打卡。"),
-                        ("背景守護建議", "若睡前開啟白噪音伴眠，App 於背景維持運作，保證定時響鈴；若睡眠時手機開啟實體靜音鍵且未播放聲音，則受 iOS 系統通知靜音限制。")
+                        ("Apple 原生 AlarmKit 系統級喚醒", "於 iOS 26+ 採用 Apple 最新 AlarmKit 鬧鐘框架，由 iOS 系統底層守護排程，就算將 App 從背景滑掉或鎖定螢幕，依然準時在鎖屏全螢幕響起。"),
+                        ("突破靜音模式與專注勿擾", "具備系統鬧鐘同等級權限，即使手機切至靜音模式或開啟睡眠/勿擾模式，仍可強制發出「晨間清脆鐘琴」喚醒鈴聲。"),
+                        ("零跳轉沉浸體驗", "100% 留在 GoodSleep App 內完成設定，支援鎖屏直接點擊「起床打卡」或「賴床 5 分鐘」倒數。")
                     ]
                 )
             }
@@ -104,7 +104,7 @@ struct AlarmView: View {
             .alert("已排程 5 秒後模擬響鈴", isPresented: $showingTestAlert) {
                 Button("了解", role: .cancel) { }
             } message: {
-                Text("鬧鐘已排程於 5 秒後發出！\n您可現在將 App 退至背景或鎖定螢幕，測試晨間推播與鎖屏提醒效果。")
+                Text("鬧鐘已透過 AlarmKit 排程於 5 秒後發出！\n您可現在將 App 退至背景、滑掉或鎖定螢幕，測試系統級鎖屏全螢幕響鈴效果。")
             }
         }
     }

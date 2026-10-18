@@ -74,6 +74,7 @@ struct AlarmRingingView: View {
                     // 1. 關閉鬧鐘並打卡
                     Button {
                         soundManager.stopAlarmMelody()
+                        NotificationManager.shared.cancelWakeAlarm()
                         dismiss()
                         // 稍作延遲彈出晨間打卡視窗
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {

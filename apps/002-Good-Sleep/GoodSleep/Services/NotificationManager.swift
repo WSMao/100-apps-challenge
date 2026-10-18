@@ -28,6 +28,9 @@ final class NotificationManager: NSObject, ObservableObject {
                 self.isAuthorized = granted
             }
         }
+        Task { @MainActor in
+            _ = await WakeAlarmService.shared.requestAuthorizationIfNeeded()
+        }
     }
     
     /// 排程就寢前提醒
@@ -70,12 +73,39 @@ final class NotificationManager: NSObject, ObservableObject {
         }
     }
     
-    /// 排程晨間喚醒鬧鐘通知
+    /// 排程晨間喚醒鬧鐘（優先使用 iOS 26+ AlarmKit 系統級鬧鐘，舊版降級為本地通知）
     func scheduleWakeAlarm(setting: AlarmSetting) {
+        Task { @MainActor in
+            await WakeAlarmService.shared.scheduleWakeAlarm(setting: setting)
+        }
+    }
+    
+    /// 取消晨間喚醒鬧鐘
+    func cancelWakeAlarm() {
+        WakeAlarmService.shared.cancelWakeAlarm()
+    }
+    
+    /// 5 秒後測試鬧鐘（iOS 26+ 直接觸發 AlarmKit 系統鎖屏全螢幕鬧鐘）
+    func scheduleTestAlarmIn5Seconds() {
+        Task { @MainActor in
+            await WakeAlarmService.shared.scheduleTestAlarmIn5Seconds()
+        }
+    }
+    
+    /// 排程賴床 5 分鐘後再次響起
+    func scheduleSnoozeAlarm(minutes: Int = 5) {
+        Task { @MainActor in
+            await WakeAlarmService.shared.scheduleSnoozeAlarm(minutes: minutes)
+        }
+    }
+    
+    // MARK: - 本地通知備援方法 (Fallback for pre-iOS 26 or when AlarmKit permission is denied)
+    
+    func scheduleFallbackWakeNotification(setting: AlarmSetting) {
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: ["wake_alarm"])
         
-        guard setting.isEnabled else { return }
+        guard setting.isEnabled && setting.useInternalAlarm else { return }
         
         let calendar = Calendar.current
         let wakeComponents = calendar.dateComponents([.hour, .minute], from: setting.targetWakeTime)
@@ -97,14 +127,12 @@ final class NotificationManager: NSObject, ObservableObject {
         }
     }
     
-    /// 取消晨間喚醒鬧鐘通知
-    func cancelWakeAlarm() {
+    func cancelFallbackWakeNotifications() {
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: ["wake_alarm", "wake_alarm_test", "wake_alarm_snooze"])
     }
     
-    /// 5 秒後測試鬧鐘通知 (供使用者測試背景/鎖屏推播與客製化鈴聲)
-    func scheduleTestAlarmIn5Seconds() {
+    func scheduleFallbackTestNotificationIn5Seconds() {
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: ["wake_alarm_test"])
         
@@ -124,8 +152,7 @@ final class NotificationManager: NSObject, ObservableObject {
         }
     }
     
-    /// 排程賴床 5 分鐘後再次響起
-    func scheduleSnoozeAlarm(minutes: Int = 5) {
+    func scheduleFallbackSnoozeNotification(minutes: Int = 5) {
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: ["wake_alarm_snooze"])
         
