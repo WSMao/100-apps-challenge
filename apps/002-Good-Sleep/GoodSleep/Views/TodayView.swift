@@ -4,10 +4,10 @@ import SwiftUI
 struct TodayView: View {
     @ObservedObject var store: SleepStore
     var onNavigateToAlarm: (() -> Void)? = nil
+    var onOpenSleepStandby: (() -> Void)? = nil
     
     @State private var showingCheckInSheet: Bool = false
     @State private var showingGoodNightModal: Bool = false
-    @State private var showingShortcutHelpSheet: Bool = false
     @State private var bedtimeNoteInput: String = ""
     @State private var noteSavedFeedback: Bool = false
     
@@ -58,9 +58,6 @@ struct TodayView: View {
             .navigationBarTitleDisplayMode(.large)
             .sheet(isPresented: $showingCheckInSheet) {
                 MorningCheckInSheet(store: store)
-            }
-            .sheet(isPresented: $showingShortcutHelpSheet) {
-                shortcutGuideSheet
             }
         }
     }
@@ -139,7 +136,7 @@ struct TodayView: View {
         )
     }
     
-    /// 睡眠中即時橫幅
+    /// 睡眠中即時橫幅（點擊可返回全螢幕貓頭鷹待機畫面）
     private var sleepingStatusBanner: some View {
         HStack(spacing: 12) {
             ZStack {
@@ -153,9 +150,19 @@ struct TodayView: View {
             }
             
             VStack(alignment: .leading, spacing: 3) {
-                Text("正在睡眠記錄中")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(SleepTheme.textPrimary)
+                HStack(spacing: 6) {
+                    Text("正在睡眠記錄中")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(SleepTheme.textPrimary)
+                    
+                    Text("點擊進入待機動畫")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(SleepTheme.accent)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(SleepTheme.accent.opacity(0.14))
+                        .clipShape(Capsule())
+                }
                 
                 if let bedtime = store.ongoingBedtime {
                     Text("已於 \(timeFormatter.string(from: bedtime)) 開始入睡，祝你好夢！")
@@ -185,6 +192,10 @@ struct TodayView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(SleepTheme.calmTeal.opacity(0.4), lineWidth: 1)
         )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onOpenSleepStandby?()
+        }
     }
     
     // MARK: - 晚安彈出視窗
@@ -248,6 +259,7 @@ struct TodayView: View {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     showingGoodNightModal = false
                 }
+                onOpenSleepStandby?()
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: store.isSleeping ? "arrow.clockwise.circle.fill" : "bed.double.fill")
@@ -576,213 +588,11 @@ struct TodayView: View {
         return f
     }
     
-    private let shortcutICloudURL = URL(string: "https://www.icloud.com/shortcuts/d6142096f8c44c07820f9b0cac2b34a9")!
-    private let appStoreShortcutsURL = URL(string: "https://apps.apple.com/app/id915279612")!
-    
     private func applyAlarmSettingsOnSleepStart() {
         var setting = store.alarmSetting
         setting.isEnabled = true
         store.saveAlarmSetting(setting)
-        
-        // 1. 若有勾選「內建鬧鐘」，排程 App 內建鬧鐘推播
-        if setting.useInternalAlarm {
-            NotificationManager.shared.scheduleWakeAlarm(setting: setting)
-        }
-        
-        // 2. 若有勾選「系統鬧鐘」，透過捷徑同步新增鬧鐘至系統時鐘
-        if setting.useSystemAlarm {
-            openClockAlarmWithShortcut()
-        }
-    }
-    
-    private func openClockAlarmWithShortcut() {
-        // 檢查使用者裝置是否安裝了「捷徑」App
-        if let checkUrl = URL(string: "shortcuts://"), !UIApplication.shared.canOpenURL(checkUrl) {
-            // 若未安裝捷徑 App，直接開啟 iCloud 捷徑安裝頁（iOS 會引導至 App Store 下載）
-            UIApplication.shared.open(shortcutICloudURL)
-            return
-        }
-        
-        // 組合 Shortcuts URL Scheme，傳送目標起床時間 (HH:mm)
-        let timeString = timeFormatter.string(from: store.alarmSetting.targetWakeTime)
-        let shortcutName = "GoodSleep鬧鐘"
-        guard let encodedName = shortcutName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let encodedTime = timeString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
-            return
-        }
-        
-        let urlString = "shortcuts://run-shortcut?name=\(encodedName)&input=text&text=\(encodedTime)"
-        if let url = URL(string: urlString) {
-            UIApplication.shared.open(url) { success in
-                if !success {
-                    // 若捷徑尚未安裝或呼叫失敗，直接開啟一鍵安裝 iCloud 頁面
-                    UIApplication.shared.open(shortcutICloudURL)
-                }
-            }
-        }
-    }
-    
-    // MARK: - 捷徑指引視圖
-    
-    private var shortcutGuideSheet: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    // 頂部說明卡片
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "sparkles")
-                                .font(.system(size: 18))
-                                .foregroundColor(SleepTheme.accent)
-                            Text("一鍵取得「GoodSleep鬧鐘」官方捷徑")
-                                .font(.system(size: 17, weight: .bold))
-                                .foregroundColor(SleepTheme.textPrimary)
-                        }
-                        
-                        Text("透過 Apple 官方「捷徑」串接原生時鐘，享有 100% 準時響鈴與實體靜音開關穿透力，且設定完成後會自動秒回「好好睡覺」！")
-                            .font(.system(size: 13))
-                            .foregroundColor(SleepTheme.textSecondary)
-                            .lineSpacing(4)
-                    }
-                    .padding(16)
-                    .background(SleepTheme.surfaceSecondary)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    
-                    // 一鍵安裝主要按鈕
-                    Button {
-                        UIApplication.shared.open(shortcutICloudURL)
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "arrow.down.circle.fill")
-                                .font(.system(size: 18, weight: .bold))
-                            Text("一鍵取得官方捷徑（推薦）")
-                                .font(.system(size: 16, weight: .bold))
-                        }
-                        .foregroundColor(Color(hex: "0B0E14"))
-                        .padding(.vertical, 15)
-                        .frame(maxWidth: .infinity)
-                        .background(
-                            LinearGradient(
-                                colors: [SleepTheme.moonGlow, SleepTheme.accent],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .shadow(color: SleepTheme.accent.opacity(0.35), radius: 8, x: 0, y: 4)
-                    }
-                    
-                    // 官方捷徑特色
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("官方捷徑特色")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(SleepTheme.textPrimary)
-                        
-                        featureRow(icon: "checkmark.circle.fill", text: "已預先設定好動作，點擊「加入捷徑」立即完成。")
-                        featureRow(icon: "arrow.uturn.backward.circle.fill", text: "內建自動回跳：建立鬧鐘後 0.5 秒自動返回「好好睡覺」。")
-                        featureRow(icon: "shield.fill", text: "使用 Apple 官方原生安全機制，零耗電且保證響鈴。")
-                    }
-                    .padding(16)
-                    .background(SleepTheme.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(SleepTheme.border, lineWidth: 1)
-                    )
-                    
-                    // 備用手動指引
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("想要手動建立或檢查動作細節？")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(SleepTheme.textPrimary)
-                        
-                        stepRow(
-                            stepNumber: "1",
-                            title: "命名捷徑為「GoodSleep鬧鐘」",
-                            description: "在 iPhone「捷徑」App 中點擊「+」，將名稱改為「GoodSleep鬧鐘」。"
-                        )
-                        
-                        stepRow(
-                            stepNumber: "2",
-                            title: "加入「建立鬧鐘」動作",
-                            description: "時間設定為「捷徑輸入」，標籤設定為「GoodSleep 晨間喚醒」。"
-                        )
-                        
-                        stepRow(
-                            stepNumber: "3",
-                            title: "加入「打開 App」動作（選填）",
-                            description: "加入「打開 App」並選擇「好好睡覺」，即可實現設完鬧鐘自動跳回！"
-                        )
-                    }
-                    .padding(16)
-                    .background(SleepTheme.surfaceSecondary.opacity(0.6))
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    
-                    // 底部未安裝檢查連結
-                    HStack {
-                        Spacer()
-                        Button {
-                            UIApplication.shared.open(appStoreShortcutsURL)
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "arrow.down.app")
-                                    .font(.system(size: 11))
-                                Text("手機找不到「捷徑」App？前往 App Store 重新下載")
-                                    .font(.system(size: 11))
-                            }
-                            .foregroundColor(SleepTheme.textTertiary)
-                        }
-                        Spacer()
-                    }
-                    .padding(.top, 4)
-                }
-                .padding(20)
-            }
-            .background(SleepTheme.background.ignoresSafeArea())
-            .navigationTitle("設定鬧鐘捷徑")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") {
-                        showingShortcutHelpSheet = false
-                    }
-                    .foregroundColor(SleepTheme.accent)
-                }
-            }
-        }
-    }
-    
-    private func featureRow(icon: String, text: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 14))
-                .foregroundColor(SleepTheme.calmTeal)
-            Text(text)
-                .font(.system(size: 12))
-                .foregroundColor(SleepTheme.textSecondary)
-                .lineSpacing(2)
-        }
-    }
-    
-    private func stepRow(stepNumber: String, title: String, description: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text(stepNumber)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundColor(SleepTheme.accent)
-                .frame(width: 24, height: 24)
-                .background(SleepTheme.accent.opacity(0.15))
-                .clipShape(Circle())
-            
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(SleepTheme.textPrimary)
-                Text(description)
-                    .font(.system(size: 12))
-                    .foregroundColor(SleepTheme.textSecondary)
-                    .lineSpacing(2)
-            }
-        }
+        NotificationManager.shared.scheduleWakeAlarm(setting: setting)
     }
 }
 

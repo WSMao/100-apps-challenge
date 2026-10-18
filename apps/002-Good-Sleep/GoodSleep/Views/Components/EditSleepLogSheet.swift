@@ -5,6 +5,8 @@ struct EditSleepLogSheet: View {
     @ObservedObject var store: SleepStore
     let originalLog: SleepLog?
     let newLogDate: Date?
+    var isMorningCheckInMode: Bool = false
+    var onSaved: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     
     @State private var selectedRating: SleepRating
@@ -20,10 +22,12 @@ struct EditSleepLogSheet: View {
     }
     
     // 編輯既有記錄
-    init(store: SleepStore, log: SleepLog) {
+    init(store: SleepStore, log: SleepLog, onSaved: (() -> Void)? = nil) {
         self.store = store
         self.originalLog = log
         self.newLogDate = nil
+        self.isMorningCheckInMode = false
+        self.onSaved = onSaved
         _selectedRating = State(initialValue: log.rating)
         _bedtime = State(initialValue: log.bedtime)
         _wakeTime = State(initialValue: log.wakeTime)
@@ -33,10 +37,12 @@ struct EditSleepLogSheet: View {
     }
     
     // 為指定日期新增睡眠記錄
-    init(store: SleepStore, newLogDate: Date) {
+    init(store: SleepStore, newLogDate: Date, onSaved: (() -> Void)? = nil) {
         self.store = store
         self.originalLog = nil
         self.newLogDate = newLogDate
+        self.isMorningCheckInMode = false
+        self.onSaved = onSaved
         
         let cal = Calendar.current
         let targetNight = cal.startOfDay(for: newLogDate)
@@ -53,6 +59,28 @@ struct EditSleepLogSheet: View {
         _isSnoozed = State(initialValue: false)
         _note = State(initialValue: "")
         _bedtimeNote = State(initialValue: "")
+    }
+    
+    // 鬧鐘停止後【起床打卡】專用：開啟「編輯睡眠記錄」畫面並自動帶入當次入睡時間與睡前筆記
+    init(store: SleepStore, morningCheckInAt wakeUpTime: Date = Date(), onSaved: (() -> Void)? = nil) {
+        self.store = store
+        self.originalLog = store.todayLog
+        self.newLogDate = nil
+        self.isMorningCheckInMode = true
+        self.onSaved = onSaved
+        
+        let defaultBed = Calendar.current.date(byAdding: .hour, value: -8, to: wakeUpTime) ?? wakeUpTime
+        let initialBedtime = store.ongoingBedtime ?? store.todayLog?.bedtime ?? defaultBed
+        let initialBedtimeNote = !store.pendingBedtimeNote.isEmpty
+            ? store.pendingBedtimeNote
+            : (store.todayLog?.bedtimeNote ?? "")
+        
+        _selectedRating = State(initialValue: store.todayLog?.rating ?? .good)
+        _bedtime = State(initialValue: initialBedtime)
+        _wakeTime = State(initialValue: wakeUpTime)
+        _isSnoozed = State(initialValue: store.todayLog?.isSnoozed ?? false)
+        _note = State(initialValue: store.todayLog?.note ?? "")
+        _bedtimeNote = State(initialValue: initialBedtimeNote)
     }
     
     var body: some View {
@@ -225,7 +253,7 @@ struct EditSleepLogSheet: View {
                     .padding(20)
                 }
             }
-            .navigationTitle(isEditing ? "編輯睡眠記錄" : "新增睡眠記錄")
+            .navigationTitle((isEditing || isMorningCheckInMode) ? "編輯睡眠記錄" : "新增睡眠記錄")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -268,6 +296,21 @@ struct EditSleepLogSheet: View {
     private func saveAction() {
         let calculatedSnooze = calculateSnoozeMinutes()
         
+        if isMorningCheckInMode {
+            store.recordMorningWakeUp(
+                bedtime: bedtime,
+                wakeTime: wakeTime,
+                rating: selectedRating,
+                isSnoozed: isSnoozed,
+                snoozeMinutes: calculatedSnooze,
+                note: note,
+                bedtimeNote: bedtimeNote
+            )
+            onSaved?()
+            dismiss()
+            return
+        }
+        
         if let original = originalLog {
             var updated = original
             updated.bedtime = bedtime
@@ -296,6 +339,7 @@ struct EditSleepLogSheet: View {
             )
             store.addSleepLog(newLog)
         }
+        onSaved?()
         dismiss()
     }
     

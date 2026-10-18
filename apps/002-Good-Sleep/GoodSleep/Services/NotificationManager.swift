@@ -6,11 +6,48 @@ import UserNotifications
 final class NotificationManager: NSObject, ObservableObject {
     static let shared = NotificationManager()
     
+    static let categoryWithSnooze = "WAKE_ALARM_WITH_SNOOZE"
+    static let categoryNoSnooze = "WAKE_ALARM_NO_SNOOZE"
+    static let actionSnooze = "SNOOZE_ACTION"
+    static let actionStop = "STOP_ACTION"
+    
     @Published var isAuthorized: Bool = false
     
     override init() {
         super.init()
+        registerNotificationCategories()
         checkAuthorization()
+    }
+    
+    private func registerNotificationCategories() {
+        let snoozeAction = UNNotificationAction(
+            identifier: Self.actionSnooze,
+            title: "稍後提醒",
+            options: []
+        )
+        let stopAction = UNNotificationAction(
+            identifier: Self.actionStop,
+            title: "起床打卡",
+            options: [.foreground]
+        )
+        
+        let withSnoozeCategory = UNNotificationCategory(
+            identifier: Self.categoryWithSnooze,
+            actions: [snoozeAction, stopAction],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+        let noSnoozeCategory = UNNotificationCategory(
+            identifier: Self.categoryNoSnooze,
+            actions: [stopAction],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+        
+        UNUserNotificationCenter.current().setNotificationCategories([
+            withSnoozeCategory,
+            noSnoozeCategory
+        ])
     }
     
     func checkAuthorization() {
@@ -80,44 +117,77 @@ final class NotificationManager: NSObject, ObservableObject {
         }
     }
     
-    /// 取消晨間喚醒鬧鐘
+    /// 停止當次正在響鈴的鬧鐘（保留每日循環鬧鐘排程）
+    func stopAlertingAlarm() {
+        WakeAlarmService.shared.stopAlertingAlarm()
+    }
+    
+    /// 取消所有晨間喚醒鬧鐘
     func cancelWakeAlarm() {
         WakeAlarmService.shared.cancelWakeAlarm()
     }
     
     /// 5 秒後測試鬧鐘（iOS 26+ 直接觸發 AlarmKit 系統鎖屏全螢幕鬧鐘）
-    func scheduleTestAlarmIn5Seconds() {
+    func scheduleTestAlarmIn5Seconds(setting: AlarmSetting? = nil) {
         Task { @MainActor in
-            await WakeAlarmService.shared.scheduleTestAlarmIn5Seconds()
+            await WakeAlarmService.shared.scheduleTestAlarmIn5Seconds(
+                isSnoozeEnabled: setting?.isSnoozeEnabled ?? true,
+                snoozeMinutes: setting?.snoozeDurationMinutes ?? 5,
+                soundFileName: setting?.selectedSoundFileName ?? BuiltInRingtone.morningChime.fileName,
+                isGentleFadeInEnabled: setting?.isGentleFadeInEnabled ?? true
+            )
         }
     }
     
-    /// 排程賴床 5 分鐘後再次響起
-    func scheduleSnoozeAlarm(minutes: Int = 5) {
+    /// 排程稍後提醒鬧鐘
+    func scheduleSnoozeAlarm(
+        minutes: Int = 5,
+        isSnoozeEnabled: Bool = true,
+        soundFileName: String? = nil,
+        isGentleFadeInEnabled: Bool? = nil
+    ) {
+        let storedSetting = Self.loadStoredAlarmSetting()
+        let resolvedSound = soundFileName ?? storedSetting.selectedSoundFileName
+        let resolvedFadeIn = isGentleFadeInEnabled ?? storedSetting.isGentleFadeInEnabled
+        
         Task { @MainActor in
-            await WakeAlarmService.shared.scheduleSnoozeAlarm(minutes: minutes)
+            await WakeAlarmService.shared.scheduleSnoozeAlarm(
+                minutes: minutes,
+                isSnoozeEnabled: isSnoozeEnabled,
+                soundFileName: resolvedSound,
+                isGentleFadeInEnabled: resolvedFadeIn
+            )
         }
     }
     
-    // MARK: - 本地通知備援方法 (Fallback for pre-iOS 26 or when AlarmKit permission is denied)
+    // MARK: - 鎖屏起床通知與本地通知備援方法 (同時支援 AlarmKit 鎖屏伴隨通知，讓使用者停止鬧鐘後可點選通知進入 App 打卡)
     
-    func scheduleFallbackWakeNotification(setting: AlarmSetting) {
+    func scheduleFallbackWakeNotification(setting: AlarmSetting, isCompanionToAlarmKit: Bool = false) {
+        RingtoneLibraryManager.synthesizeBuiltInRingtonesIfNeeded()
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: ["wake_alarm"])
         
-        guard setting.isEnabled && setting.useInternalAlarm else { return }
+        guard setting.isEnabled else { return }
         
         let calendar = Calendar.current
         let wakeComponents = calendar.dateComponents([.hour, .minute], from: setting.targetWakeTime)
         
         let content = UNMutableNotificationContent()
         content.title = "☀️ 早安！美好的一天開始了"
-        content.body = "該起床伸展囉！點擊完成晨間打卡，記錄今日睡眠品質。"
-        // 使用客製化晨間清脆鐘琴鈴聲
-        content.sound = UNNotificationSound(named: UNNotificationSoundName("alarm_melody.caf"))
+        content.body = "停止鬧鐘後，點擊此通知即可進入「好好睡覺」完成起床打卡與睡眠記錄。"
+        // 若搭配 AlarmKit 系統鬧鐘，由 AlarmKit 負責播放大聲鬧鈴；若為備援模式則由通知播放鈴聲
+        content.sound = isCompanionToAlarmKit ? nil : UNNotificationSound(named: UNNotificationSoundName(setting.selectedSoundFileName))
         content.interruptionLevel = .timeSensitive
+        content.categoryIdentifier = setting.isSnoozeEnabled ? Self.categoryWithSnooze : Self.categoryNoSnooze
+        content.userInfo = [
+            "snoozeMinutes": setting.snoozeDurationMinutes,
+            "isSnoozeEnabled": setting.isSnoozeEnabled,
+            "soundFileName": setting.selectedSoundFileName,
+            "isGentleFadeInEnabled": setting.isGentleFadeInEnabled,
+            "isCompanionToAlarmKit": isCompanionToAlarmKit
+        ]
         
-        let trigger = UNCalendarNotificationTrigger(dateMatching: wakeComponents, repeats: true)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: wakeComponents, repeats: setting.isRepeatingAlarm)
         let request = UNNotificationRequest(identifier: "wake_alarm", content: content, trigger: trigger)
         
         center.add(request) { error in
@@ -129,18 +199,63 @@ final class NotificationManager: NSObject, ObservableObject {
     
     func cancelFallbackWakeNotifications() {
         let center = UNUserNotificationCenter.current()
-        center.removePendingNotificationRequests(withIdentifiers: ["wake_alarm", "wake_alarm_test", "wake_alarm_snooze"])
+        center.removePendingNotificationRequests(withIdentifiers: ["wake_alarm", "wake_alarm_test", "wake_alarm_snooze", "wake_alarm_checkin"])
     }
     
-    func scheduleFallbackTestNotificationIn5Seconds() {
+    func clearDeliveredWakeNotifications() {
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(withIdentifiers: ["wake_alarm", "wake_alarm_test", "wake_alarm_snooze", "wake_alarm_checkin"])
+    }
+    
+    /// 當使用者在鎖屏透過 iOS AlarmKit 滑動停止鬧鐘後，確保鎖屏上立即有一則可點擊的「起床打卡」通知
+    func postImmediateWakeCheckInNotification() {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: ["wake_alarm_checkin"])
+        
+        let content = UNMutableNotificationContent()
+        content.title = "☀️ 早安！準備好記錄昨晚的睡眠了嗎？"
+        content.body = "點選此通知進入「好好睡覺」，進行起床打卡並編輯睡眠記錄。"
+        content.sound = nil
+        content.interruptionLevel = .timeSensitive
+        content.categoryIdentifier = Self.categoryNoSnooze
+        content.userInfo = [
+            "isCheckInPrompt": true,
+            "isCompanionToAlarmKit": true
+        ]
+        
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.2, repeats: false)
+        let request = UNNotificationRequest(identifier: "wake_alarm_checkin", content: content, trigger: trigger)
+        center.add(request) { error in
+            if let error = error {
+                print("發送鎖屏起床打卡通知失敗: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    func scheduleFallbackTestNotificationIn5Seconds(
+        isSnoozeEnabled: Bool = true,
+        snoozeMinutes: Int = 5,
+        soundFileName: String = BuiltInRingtone.morningChime.fileName,
+        isGentleFadeInEnabled: Bool = true,
+        isCompanionToAlarmKit: Bool = false
+    ) {
+        RingtoneLibraryManager.synthesizeBuiltInRingtonesIfNeeded()
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: ["wake_alarm_test"])
         
         let content = UNMutableNotificationContent()
-        content.title = "☀️ [測試] 鬧鐘響起！"
-        content.body = "這是一條 5 秒測試喚醒鬧鐘！請點擊進入完成晨間打卡。"
-        content.sound = UNNotificationSound(named: UNNotificationSoundName("alarm_melody.caf"))
+        content.title = "☀️ [測試] 早安起床打卡通知"
+        content.body = "停止鬧鐘後，點擊此通知即可進入完成起床打卡並編輯睡眠記錄。"
+        content.sound = isCompanionToAlarmKit ? nil : UNNotificationSound(named: UNNotificationSoundName(soundFileName))
         content.interruptionLevel = .timeSensitive
+        content.categoryIdentifier = isSnoozeEnabled ? Self.categoryWithSnooze : Self.categoryNoSnooze
+        content.userInfo = [
+            "snoozeMinutes": snoozeMinutes,
+            "isSnoozeEnabled": isSnoozeEnabled,
+            "soundFileName": soundFileName,
+            "isGentleFadeInEnabled": isGentleFadeInEnabled,
+            "isCompanionToAlarmKit": isCompanionToAlarmKit
+        ]
         
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false)
         let request = UNNotificationRequest(identifier: "wake_alarm_test", content: content, trigger: trigger)
@@ -152,24 +267,46 @@ final class NotificationManager: NSObject, ObservableObject {
         }
     }
     
-    func scheduleFallbackSnoozeNotification(minutes: Int = 5) {
+    func scheduleFallbackSnoozeNotification(
+        minutes: Int = 5,
+        isSnoozeEnabled: Bool = true,
+        soundFileName: String = BuiltInRingtone.morningChime.fileName,
+        isGentleFadeInEnabled: Bool = true,
+        isCompanionToAlarmKit: Bool = false
+    ) {
+        RingtoneLibraryManager.synthesizeBuiltInRingtonesIfNeeded()
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: ["wake_alarm_snooze"])
         
         let content = UNMutableNotificationContent()
-        content.title = "⏰ 賴床時間到囉！"
-        content.body = "已經多賴了 \(minutes) 分鐘，深呼吸準備迎接今天吧！"
-        content.sound = UNNotificationSound(named: UNNotificationSoundName("alarm_melody.caf"))
+        content.title = "⏰ 稍後提醒時間到囉！"
+        content.body = "已經多休息了 \(minutes) 分鐘，點擊此通知進入完成起床打卡吧！"
+        content.sound = isCompanionToAlarmKit ? nil : UNNotificationSound(named: UNNotificationSoundName(soundFileName))
         content.interruptionLevel = .timeSensitive
+        content.categoryIdentifier = isSnoozeEnabled ? Self.categoryWithSnooze : Self.categoryNoSnooze
+        content.userInfo = [
+            "snoozeMinutes": minutes,
+            "isSnoozeEnabled": isSnoozeEnabled,
+            "soundFileName": soundFileName,
+            "isGentleFadeInEnabled": isGentleFadeInEnabled,
+            "isCompanionToAlarmKit": isCompanionToAlarmKit
+        ]
         
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: TimeInterval(minutes * 60), repeats: false)
         let request = UNNotificationRequest(identifier: "wake_alarm_snooze", content: content, trigger: trigger)
         
         center.add(request) { error in
             if let error = error {
-                print("賴床鬧鐘排程失敗: \(error.localizedDescription)")
+                print("稍後提醒鬧鐘排程失敗: \(error.localizedDescription)")
             }
         }
     }
+    
+    private static func loadStoredAlarmSetting() -> AlarmSetting {
+        if let data = UserDefaults.standard.data(forKey: "goodsleep.alarm.v1"),
+           let setting = try? JSONDecoder().decode(AlarmSetting.self, from: data) {
+            return setting
+        }
+        return .default
+    }
 }
-

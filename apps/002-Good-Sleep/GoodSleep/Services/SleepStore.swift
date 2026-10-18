@@ -25,6 +25,9 @@ final class SleepStore: ObservableObject {
     init() {
         loadData()
         checkAndResetDailyChecklist()
+        if alarmSetting.isEnabled && (alarmSetting.isRepeatingAlarm || isSleeping) {
+            NotificationManager.shared.scheduleWakeAlarm(setting: alarmSetting)
+        }
     }
     
     // MARK: - 資料載入與儲存
@@ -70,9 +73,14 @@ final class SleepStore: ObservableObject {
         if let data = try? JSONEncoder().encode(setting) {
             UserDefaults.standard.set(data, forKey: alarmKey)
         }
-        // 排程通知
+        // 排程入睡前提醒
         NotificationManager.shared.scheduleBedtimeReminder(setting: setting)
-        NotificationManager.shared.scheduleWakeAlarm(setting: setting)
+        // 若總開關開啟，立即根據設定更新鬧鐘（開啟循環鬧鐘則每日重複；未開啟循環鬧鐘則排程下一次單次響鈴，支援稍後提醒設定）
+        if setting.isEnabled {
+            NotificationManager.shared.scheduleWakeAlarm(setting: setting)
+        } else {
+            NotificationManager.shared.cancelWakeAlarm()
+        }
     }
     
     private func saveHistory() {
@@ -185,10 +193,14 @@ final class SleepStore: ObservableObject {
         UserDefaults.standard.removeObject(forKey: pendingBedtimeNoteKey)
     }
     
-    /// 取消本次睡眠：清除正在睡眠狀態並取消對應鬧鐘推播
+    /// 取消本次睡眠：清除正在睡眠狀態並取消單次鬧鐘（若開啟循環鬧鐘則維持每日鬧鐘）
     func cancelSleep() {
         clearSleepingState()
-        NotificationManager.shared.cancelWakeAlarm()
+        if alarmSetting.isEnabled && alarmSetting.isRepeatingAlarm {
+            NotificationManager.shared.scheduleWakeAlarm(setting: alarmSetting)
+        } else {
+            NotificationManager.shared.cancelWakeAlarm()
+        }
     }
     
     func recordMorningWakeUp(

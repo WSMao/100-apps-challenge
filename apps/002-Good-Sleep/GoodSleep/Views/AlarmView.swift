@@ -1,9 +1,11 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
-/// 智慧鬧鐘與睡眠排程設定視圖 (支援三項自適應時間推算與雙軌並行鬧鐘架構)
+/// 智慧鬧鐘與睡眠排程設定視圖 (支援三項自適應時間推算與 AlarmKit 系統級鬧鐘)
 struct AlarmView: View {
     @ObservedObject var store: SleepStore
     @ObservedObject private var soundManager = SoundManager.shared
+    @ObservedObject private var ringtoneLibrary = RingtoneLibraryManager.shared
     
     @State private var setting: AlarmSetting
     @State private var durationMinutes: Int
@@ -23,11 +25,10 @@ struct AlarmView: View {
     // 彈窗狀態
     @State private var showingDurationSheet: Bool = false
     @State private var showingRingtoneSheet: Bool = false
-    @State private var showingInternalAlarmInfo: Bool = false
-    @State private var showingSystemAlarmInfo: Bool = false
     @State private var showingTestAlert: Bool = false
-    
-    private let shortcutICloudURL = URL(string: "https://www.icloud.com/shortcuts/d6142096f8c44c07820f9b0cac2b34a9")!
+    @State private var showingFileImporter: Bool = false
+    @State private var importErrorMessage: String? = nil
+    @State private var showingImportErrorAlert: Bool = false
     
     enum TimeField: Equatable {
         case duration
@@ -50,16 +51,16 @@ struct AlarmView: View {
                 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        // 鬧鐘主開關
+                        // 鬧鐘排程總開關
                         masterToggleCard
                         
                         // 區塊 1：三合一自適應作息區塊（預計睡眠時長、目標就寢時間、目標喚醒時間）
                         unifiedScheduleSection
                         
-                        // 區塊 2：雙軌鬧鐘模式（可複選：內建鬧鐘、系統鬧鐘）
-                        dualTrackAlarmSection
+                        // 區塊 2：鬧鐘進階設定（循環鬧鐘、稍後提醒、設定鬧鈴）
+                        alarmOptionsSection
                         
-                        // 區塊 3：入睡推播提醒設定
+                        // 區塊 3：入睡前提醒設定
                         reminderSection
                     }
                     .padding(.horizontal, 20)
@@ -69,57 +70,37 @@ struct AlarmView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .onChange(of: setting) { newSetting in
-                store.saveAlarmSetting(newSetting)
+                if store.alarmSetting != newSetting {
+                    store.saveAlarmSetting(newSetting)
+                }
+            }
+            .onChange(of: store.alarmSetting) { updatedSetting in
+                if setting != updatedSetting {
+                    setting = updatedSetting
+                }
             }
             .sheet(isPresented: $showingDurationSheet) {
                 durationPickerSheet
             }
-            .sheet(isPresented: $showingRingtoneSheet) {
+            .sheet(isPresented: $showingRingtoneSheet, onDismiss: {
+                soundManager.stopRingtonePreview()
+            }) {
                 ringtoneSettingSheet
-            }
-            .sheet(isPresented: $showingInternalAlarmInfo) {
-                alarmInfoSheet(
-                    title: "【內建鬧鐘】運作說明",
-                    icon: "app.badge.checkmark",
-                    badgeColor: SleepTheme.accent,
-                    features: [
-                        ("Apple 原生 AlarmKit 系統級喚醒", "於 iOS 26+ 採用 Apple 最新 AlarmKit 鬧鐘框架，由 iOS 系統底層守護排程，就算將 App 從背景滑掉或鎖定螢幕，依然準時在鎖屏全螢幕響起。"),
-                        ("突破靜音模式與專注勿擾", "具備系統鬧鐘同等級權限，即使手機切至靜音模式或開啟睡眠/勿擾模式，仍可強制發出「晨間清脆鐘琴」喚醒鈴聲。"),
-                        ("零跳轉沉浸體驗", "100% 留在 GoodSleep App 內完成設定，支援鎖屏直接點擊「起床打卡」或「賴床 5 分鐘」倒數。")
-                    ]
-                )
-            }
-            .sheet(isPresented: $showingSystemAlarmInfo) {
-                alarmInfoSheet(
-                    title: "【系統鬧鐘】運作說明",
-                    icon: "clock.badge.checkmark.fill",
-                    badgeColor: SleepTheme.calmTeal,
-                    features: [
-                        ("100% 絕對響鈴", "透過 Apple 官方「捷徑」將目標時間同步至 iOS 原生「時鐘」App，享有最高系統硬體級響鈴優先權。"),
-                        ("穿透靜音開關與勿擾", "即使手機撥至實體靜音開關、開啟睡眠專注模式或螢幕鎖定休眠，依然保證以全音量準時響鈴。"),
-                        ("零額外耗電與自動秒回", "依賴 iOS 晶片定時唤醒機制，完全不消耗手機多餘電量。且透過官方預設捷徑，設定時於 0.5 秒內全自動跳回「好好睡覺」！")
-                    ]
-                )
             }
             .alert("已排程 5 秒後模擬響鈴", isPresented: $showingTestAlert) {
                 Button("了解", role: .cancel) { }
             } message: {
-                Text("鬧鐘已透過 AlarmKit 排程於 5 秒後發出！\n您可現在將 App 退至背景、滑掉或鎖定螢幕，測試系統級鎖屏全螢幕響鈴效果。")
+                Text("鬧鐘已使用「\(setting.selectedRingtoneTitle)」排程於 5 秒後發出！\n您可現在將 App 退至背景或鎖定螢幕，測試系統級鎖屏循環響鈴效果。")
             }
         }
     }
     
-    // MARK: - 總開關卡片
+    // MARK: - 鬧鐘排程總開關卡片
     private var masterToggleCard: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("鬧鐘與睡眠排程總開關")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(SleepTheme.textPrimary)
-                Text(setting.isEnabled ? "排程啟用中，將於設定時間守護作息" : "排程已關閉")
-                    .font(.system(size: 12))
-                    .foregroundColor(setting.isEnabled ? SleepTheme.accent : SleepTheme.textTertiary)
-            }
+            Text("鬧鐘排程總開關")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(SleepTheme.textPrimary)
             Spacer()
             Toggle("", isOn: $setting.isEnabled)
                 .tint(SleepTheme.accent)
@@ -384,145 +365,125 @@ struct AlarmView: View {
         }
     }
     
-    // MARK: - 區塊 2：雙軌鬧鐘模式區塊 (可複選)
-    private var dualTrackAlarmSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("鬧鐘喚醒模式 (可複選)")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(SleepTheme.textSecondary)
-                Spacer()
-                Text("雙軌並行")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(SleepTheme.accent)
+    // MARK: - 區塊 2：鬧鐘選項區塊（循環鬧鐘、稍後提醒、設定鬧鈴）
+    private var alarmOptionsSection: some View {
+        VStack(spacing: 0) {
+            // 1. 循環鬧鐘開關
+            Toggle(isOn: $setting.isRepeatingAlarm) {
+                Text("循環鬧鐘")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(SleepTheme.textPrimary)
             }
+            .tint(SleepTheme.accent)
+            .padding(16)
             
-            VStack(spacing: 0) {
-                // 選項 1：內建鬧鐘
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 12) {
-                        Button {
-                            setting.useInternalAlarm.toggle()
-                        } label: {
-                            Image(systemName: setting.useInternalAlarm ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 20))
-                                .foregroundColor(setting.useInternalAlarm ? SleepTheme.accent : SleepTheme.textTertiary)
-                        }
-                        .buttonStyle(.plain)
-                        
-                        Text("內建鬧鐘")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(SleepTheme.textPrimary)
-                        
-                        Spacer()
-                        
-                        // 說明按鈕 i
-                        Button {
-                            showingInternalAlarmInfo = true
-                        } label: {
-                            Image(systemName: "info.circle")
-                                .font(.system(size: 17))
-                                .foregroundColor(SleepTheme.textSecondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    
-                    // 底下小字：設定鬧鈴（調整前後間距）
-                    Button {
-                        showingRingtoneSheet = true
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "music.note")
-                                .font(.system(size: 11))
-                            Text("設定鬧鈴：晨間清脆鐘琴 ▾")
-                                .font(.system(size: 12, weight: .medium))
-                        }
-                        .foregroundColor(SleepTheme.accent)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 4)
-                    .padding(.bottom, 2)
-                    .padding(.leading, 32)
+            Divider()
+                .background(SleepTheme.border)
+                .padding(.horizontal, 16)
+            
+            // 2. 稍後提醒開關與快速時間設定 (1~30 分鐘滑桿)
+            VStack(alignment: .leading, spacing: 12) {
+                Toggle(isOn: $setting.isSnoozeEnabled) {
+                    Text("稍後提醒")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(SleepTheme.textPrimary)
                 }
-                .padding(16)
+                .tint(SleepTheme.accent)
                 
-                Divider()
-                    .background(SleepTheme.border)
-                    .padding(.horizontal, 16)
-                
-                // 選項 2：系統鬧鐘
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 12) {
-                        Button {
-                            setting.useSystemAlarm.toggle()
-                        } label: {
-                            Image(systemName: setting.useSystemAlarm ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 20))
-                                .foregroundColor(setting.useSystemAlarm ? SleepTheme.calmTeal : SleepTheme.textTertiary)
-                        }
-                        .buttonStyle(.plain)
-                        
-                        Text("系統鬧鐘")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(SleepTheme.textPrimary)
-                        
-                        Spacer()
-                        
-                        // 說明按鈕 i
-                        Button {
-                            showingSystemAlarmInfo = true
-                        } label: {
-                            Image(systemName: "info.circle")
-                                .font(.system(size: 17))
-                                .foregroundColor(SleepTheme.textSecondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
+                if setting.isSnoozeEnabled {
+                    Divider().background(SleepTheme.border)
                     
-                    // 當勾選系統鬧鐘時，顯示官方捷徑安裝連結
-                    if setting.useSystemAlarm {
-                        Button {
-                            UIApplication.shared.open(shortcutICloudURL)
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "sparkles")
-                                    .font(.system(size: 11))
-                                Text("尚未安裝「GoodSleep 鬧鐘捷徑」？點此獲取")
-                                    .font(.system(size: 11, weight: .medium))
-                            }
-                            .foregroundColor(SleepTheme.calmTeal)
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("間隔時間")
+                                .font(.system(size: 14))
+                                .foregroundColor(SleepTheme.textSecondary)
+                            Spacer()
+                            Text("\(setting.snoozeDurationMinutes) 分鐘")
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                                .foregroundColor(SleepTheme.accent)
                         }
-                        .buttonStyle(.plain)
-                        .padding(.top, 2)
-                        .padding(.leading, 32)
+                        
+                        // 快速拖曳滑桿 (1 ~ 30 分鐘)
+                        Slider(
+                            value: Binding(
+                                get: { Double(setting.snoozeDurationMinutes) },
+                                set: { newVal in
+                                    let rounded = Int(newVal.rounded())
+                                    if setting.snoozeDurationMinutes != rounded {
+                                        setting.snoozeDurationMinutes = rounded
+                                    }
+                                }
+                            ),
+                            in: 1...30,
+                            step: 1
+                        )
+                        .tint(SleepTheme.accent)
                     }
                 }
-                .padding(16)
             }
-            .background(SleepTheme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .padding(16)
+            
+            Divider()
+                .background(SleepTheme.border)
+                .padding(.horizontal, 16)
+            
+            // 3. 設定鬧鈴按鈕
+            Button {
+                showingRingtoneSheet = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "music.note")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(SleepTheme.accent)
+                        .frame(width: 22)
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("設定鬧鈴")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(SleepTheme.textPrimary)
+                        if setting.isGentleFadeInEnabled {
+                            Text("15 秒漸進喚醒 • 無縫重複播放")
+                                .font(.system(size: 11))
+                                .foregroundColor(SleepTheme.textTertiary)
+                        }
+                    }
+                    
+                    Spacer()
+                    
+                    HStack(spacing: 6) {
+                        Text(setting.selectedRingtoneTitle)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(SleepTheme.accent)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(SleepTheme.textTertiary)
+                    }
+                }
+                .padding(16)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
+        .background(SleepTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
     
-    // MARK: - 區塊 3：入睡推播提醒
+    // MARK: - 區塊 3：入睡前提醒
     private var reminderSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Toggle(isOn: $setting.isReminderEnabled) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("入睡就寢提醒")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(SleepTheme.textPrimary)
-                    Text("提前推播通知，預留放鬆洗漱與遠離藍光時間")
-                        .font(.system(size: 12))
-                        .foregroundColor(SleepTheme.textTertiary)
-                }
+                Text("入睡前提醒")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(SleepTheme.textPrimary)
             }
             .tint(SleepTheme.accent)
             
             if setting.isReminderEnabled {
                 Divider().background(SleepTheme.border)
                 
-                Stepper(value: $setting.bedtimeReminderMinutes, in: 15...60, step: 15) {
+                Stepper(value: $setting.bedtimeReminderMinutes, in: 5...60, step: 5) {
                     HStack {
                         Text("提前時間：")
                             .font(.system(size: 14))
@@ -668,165 +629,405 @@ struct AlarmView: View {
         .buttonStyle(.plain)
     }
     
-    // MARK: - 設定鬧鈴彈窗
+    // MARK: - 設定鬧鈴彈窗（內建 5 款無縫循環 .caf 鈴聲 + 自訂音樂匯入轉檔 + 15 秒漸進喚醒）
     private var ringtoneSettingSheet: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Image(systemName: "music.note.list")
-                            .font(.system(size: 16))
-                            .foregroundColor(SleepTheme.accent)
-                        Text("喚醒鬧鈴")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(SleepTheme.textPrimary)
-                    }
-                    
-                    Text("以低刺激、溫柔純淨的鐘琴頻率由弱至強漸進響起，保護清晨甦醒時的脆弱神經，避免被刺耳急促的傳統警報聲驚嚇。")
-                        .font(.system(size: 13))
-                        .foregroundColor(SleepTheme.textSecondary)
-                        .lineSpacing(3)
-                }
-                .padding(16)
-                .background(SleepTheme.surfaceSecondary)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                
-                // 鈴聲選項
-                VStack(spacing: 12) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("晨間清脆鐘琴")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundColor(SleepTheme.textPrimary)
-                            Text("官方舒緩音訊 • 專為自然喚醒設計")
-                                .font(.system(size: 11))
-                                .foregroundColor(SleepTheme.textTertiary)
-                        }
-                        Spacer()
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(SleepTheme.accent)
-                    }
-                    .padding(16)
-                    .background(SleepTheme.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    
-                    // 試聽按鈕
-                    Button {
-                        if soundManager.isAlarmRinging {
-                            soundManager.stopAlarmMelody()
-                        } else {
-                            soundManager.startAlarmMelody(loop: false)
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: soundManager.isAlarmRinging ? "stop.fill" : "play.fill")
-                            Text(soundManager.isAlarmRinging ? "停止試聽" : "試聽喚醒鈴聲")
-                        }
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(Color(hex: "0B0E14"))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(SleepTheme.accent)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    
-                    // 5 秒後模擬響鈴按鈕
-                    Button {
-                        NotificationManager.shared.scheduleTestAlarmIn5Seconds()
-                        showingTestAlert = true
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "timer")
-                            Text("5 秒後模擬響鈴 (測試推播與鎖屏提醒)")
-                        }
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(SleepTheme.calmTeal)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(SleepTheme.surfaceSecondary)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                }
-                
-                Spacer()
-            }
-            .padding(20)
-            .background(SleepTheme.background.ignoresSafeArea())
-            .navigationTitle("內建鬧鈴設定")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") {
-                        if soundManager.isAlarmRinging {
-                            soundManager.stopAlarmMelody()
-                        }
-                        showingRingtoneSheet = false
-                    }
-                    .foregroundColor(SleepTheme.accent)
-                }
-            }
-        }
-    }
-    
-    // MARK: - 鬧鐘說明通用彈窗
-    private func alarmInfoSheet(title: String, icon: String, badgeColor: Color, features: [(String, String)]) -> some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    HStack(spacing: 10) {
-                        Image(systemName: icon)
-                            .font(.system(size: 22))
-                            .foregroundColor(badgeColor)
-                        Text(title)
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundColor(SleepTheme.textPrimary)
-                    }
-                    .padding(.top, 10)
-                    
-                    VStack(alignment: .leading, spacing: 14) {
-                        ForEach(features, id: \.0) { item in
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(spacing: 6) {
-                                    Circle()
-                                        .fill(badgeColor)
-                                        .frame(width: 6, height: 6)
-                                    Text(item.0)
-                                        .font(.system(size: 14, weight: .semibold))
+                    // 1. 漸進式溫和喚醒與重複循環說明卡片
+                    VStack(alignment: .leading, spacing: 12) {
+                        Toggle(isOn: $setting.isGentleFadeInEnabled) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "speaker.wave.2.bubble.fill")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(SleepTheme.accent)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("漸進式溫和喚醒 (Fade-in)")
+                                        .font(.system(size: 15, weight: .bold))
                                         .foregroundColor(SleepTheme.textPrimary)
+                                    Text("15 秒內音量由 8% 平滑爬升至 100%，並持續重複循環播放")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(SleepTheme.textSecondary)
                                 }
-                                Text(item.1)
-                                    .font(.system(size: 13))
-                                    .foregroundColor(SleepTheme.textSecondary)
-                                    .lineSpacing(3)
-                                    .padding(.leading, 12)
-                            }
-                            if item.0 != features.last?.0 {
-                                Divider().background(SleepTheme.border)
                             }
                         }
+                        .tint(SleepTheme.accent)
                     }
                     .padding(16)
                     .background(SleepTheme.surface)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(SleepTheme.border.opacity(0.6), lineWidth: 1)
+                    )
                     
-                    Spacer()
+                    // 2. 官方內建舒緩喚醒鈴聲（5 款無縫循環 .caf）
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Label("內建舒緩喚醒鈴聲", systemImage: "music.quarternote.3")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(SleepTheme.textSecondary)
+                            Spacer()
+                            Text("Apple 原生 .caf 無縫循環")
+                                .font(.system(size: 11))
+                                .foregroundColor(SleepTheme.calmTeal)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(SleepTheme.calmTeal.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+                        
+                        VStack(spacing: 8) {
+                            ForEach(BuiltInRingtone.allCases) { item in
+                                let isSelected = (setting.selectedRingtoneID == item.id)
+                                let isPreviewing = (soundManager.previewingRingtoneID == item.id)
+                                
+                                HStack(spacing: 12) {
+                                    // 左側選取區域
+                                    Button {
+                                        selectBuiltInRingtone(item)
+                                    } label: {
+                                        HStack(spacing: 12) {
+                                            ZStack {
+                                                Circle()
+                                                    .fill(isSelected ? SleepTheme.accent.opacity(0.18) : SleepTheme.surfaceSecondary)
+                                                    .frame(width: 38, height: 38)
+                                                Image(systemName: item.icon)
+                                                    .font(.system(size: 15, weight: .semibold))
+                                                    .foregroundColor(isSelected ? SleepTheme.accent : SleepTheme.textSecondary)
+                                            }
+                                            
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                HStack(spacing: 6) {
+                                                    Text(item.title)
+                                                        .font(.system(size: 15, weight: .semibold))
+                                                        .foregroundColor(isSelected ? SleepTheme.accent : SleepTheme.textPrimary)
+                                                    if isSelected {
+                                                        Image(systemName: "checkmark.circle.fill")
+                                                            .font(.system(size: 13))
+                                                            .foregroundColor(SleepTheme.accent)
+                                                    }
+                                                }
+                                                Text(item.subtitle)
+                                                    .font(.system(size: 11))
+                                                    .foregroundColor(SleepTheme.textTertiary)
+                                                    .lineLimit(1)
+                                            }
+                                            Spacer()
+                                        }
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    
+                                    // 右側獨立試聽/停止按鈕
+                                    Button {
+                                        selectBuiltInRingtone(item, togglePreview: false)
+                                        soundManager.toggleRingtonePreview(
+                                            id: item.id,
+                                            fileName: item.fileName,
+                                            gentleFadeIn: setting.isGentleFadeInEnabled
+                                        )
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: isPreviewing ? "stop.fill" : "play.fill")
+                                                .font(.system(size: 11, weight: .bold))
+                                            Text(isPreviewing ? "停止" : "試聽")
+                                                .font(.system(size: 12, weight: .semibold))
+                                        }
+                                        .foregroundColor(isPreviewing ? Color(hex: "0B0E14") : SleepTheme.accent)
+                                        .padding(.horizontal, 11)
+                                        .padding(.vertical, 7)
+                                        .background(isPreviewing ? SleepTheme.accent : SleepTheme.accent.opacity(0.14))
+                                        .clipShape(Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                .padding(12)
+                                .background(isSelected ? SleepTheme.accent.opacity(0.08) : SleepTheme.surface)
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .stroke(isSelected ? SleepTheme.accent.opacity(0.45) : SleepTheme.border.opacity(0.5), lineWidth: 1)
+                                )
+                            }
+                        }
+                    }
+                    
+                    // 3. 使用者自訂匯入音樂區塊
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Label("我的自訂音樂", systemImage: "folder.fill.badge.plus")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(SleepTheme.textSecondary)
+                            Spacer()
+                            Text("支援 MP3 / M4A / WAV / CAF")
+                                .font(.system(size: 11))
+                                .foregroundColor(SleepTheme.textTertiary)
+                        }
+                        
+                        // 匯入音樂按鈕
+                        Button {
+                            soundManager.stopRingtonePreview()
+                            showingFileImporter = true
+                        } label: {
+                            HStack(spacing: 8) {
+                                if ringtoneLibrary.isImporting {
+                                    ProgressView()
+                                        .tint(Color(hex: "0B0E14"))
+                                    Text("正在轉檔為無縫循環 .caf 格式...")
+                                } else {
+                                    Image(systemName: "plus.circle.fill")
+                                        .font(.system(size: 16, weight: .bold))
+                                    Text("從「檔案 / iCloud」匯入自訂音樂")
+                                }
+                            }
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(Color(hex: "0B0E14"))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 13)
+                            .background(
+                                LinearGradient(
+                                    colors: [SleepTheme.moonGlow, SleepTheme.accent],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(ringtoneLibrary.isImporting)
+                        
+                        // 已匯入的自訂音樂清單
+                        if ringtoneLibrary.customRingtones.isEmpty {
+                            HStack(spacing: 10) {
+                                Image(systemName: "waveform.badge.plus")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(SleepTheme.textTertiary)
+                                Text("尚未加入自訂音樂。您可將喜歡的輕音樂、環境音或「語音備忘錄」存至手機「檔案」App，一鍵匯入即可作為鎖屏循環鬧鈴。")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(SleepTheme.textSecondary)
+                                    .lineSpacing(3)
+                            }
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(SleepTheme.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        } else {
+                            VStack(spacing: 8) {
+                                ForEach(ringtoneLibrary.customRingtones) { customItem in
+                                    let isSelected = (setting.selectedRingtoneID == customItem.id)
+                                    let isPreviewing = (soundManager.previewingRingtoneID == customItem.id)
+                                    
+                                    HStack(spacing: 12) {
+                                        Button {
+                                            selectCustomRingtone(customItem)
+                                        } label: {
+                                            HStack(spacing: 12) {
+                                                ZStack {
+                                                    Circle()
+                                                        .fill(isSelected ? SleepTheme.calmTeal.opacity(0.20) : SleepTheme.surfaceSecondary)
+                                                        .frame(width: 38, height: 38)
+                                                    Image(systemName: "music.note")
+                                                        .font(.system(size: 15, weight: .semibold))
+                                                        .foregroundColor(isSelected ? SleepTheme.calmTeal : SleepTheme.textSecondary)
+                                                }
+                                                
+                                                VStack(alignment: .leading, spacing: 3) {
+                                                    HStack(spacing: 6) {
+                                                        Text(customItem.displayName)
+                                                            .font(.system(size: 14, weight: .semibold))
+                                                            .foregroundColor(isSelected ? SleepTheme.accent : SleepTheme.textPrimary)
+                                                            .lineLimit(1)
+                                                        if isSelected {
+                                                            Image(systemName: "checkmark.circle.fill")
+                                                                .font(.system(size: 13))
+                                                                .foregroundColor(SleepTheme.accent)
+                                                        }
+                                                    }
+                                                    Text("自訂 .caf 循環音軌 • \(Int(customItem.durationSeconds.rounded())) 秒片段")
+                                                        .font(.system(size: 11))
+                                                        .foregroundColor(SleepTheme.textTertiary)
+                                                }
+                                                Spacer()
+                                            }
+                                            .contentShape(Rectangle())
+                                        }
+                                        .buttonStyle(.plain)
+                                        
+                                        // 試聽按鈕
+                                        Button {
+                                            selectCustomRingtone(customItem, togglePreview: false)
+                                            soundManager.toggleRingtonePreview(
+                                                id: customItem.id,
+                                                fileName: customItem.fileName,
+                                                gentleFadeIn: setting.isGentleFadeInEnabled
+                                            )
+                                        } label: {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: isPreviewing ? "stop.fill" : "play.fill")
+                                                    .font(.system(size: 11, weight: .bold))
+                                                Text(isPreviewing ? "停止" : "試聽")
+                                                    .font(.system(size: 12, weight: .semibold))
+                                            }
+                                            .foregroundColor(isPreviewing ? Color(hex: "0B0E14") : SleepTheme.accent)
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 7)
+                                            .background(isPreviewing ? SleepTheme.accent : SleepTheme.accent.opacity(0.14))
+                                            .clipShape(Capsule())
+                                        }
+                                        .buttonStyle(.plain)
+                                        
+                                        // 刪除按鈕
+                                        Button {
+                                            deleteCustomRingtone(customItem)
+                                        } label: {
+                                            Image(systemName: "trash")
+                                                .font(.system(size: 13, weight: .medium))
+                                                .foregroundColor(SleepTheme.warning)
+                                                .frame(width: 30, height: 30)
+                                                .background(SleepTheme.warning.opacity(0.12))
+                                                .clipShape(Circle())
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                    .padding(12)
+                                    .background(isSelected ? SleepTheme.accent.opacity(0.08) : SleepTheme.surface)
+                                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                            .stroke(isSelected ? SleepTheme.accent.opacity(0.45) : SleepTheme.border.opacity(0.5), lineWidth: 1)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    
+                    // 4. 5 秒後模擬響鈴按鈕（測試系統鎖屏與當前選定鈴聲）
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button {
+                            soundManager.stopRingtonePreview()
+                            NotificationManager.shared.scheduleTestAlarmIn5Seconds(setting: setting)
+                            showingTestAlert = true
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "timer")
+                                Text("5 秒後模擬響鈴（測試「\(setting.selectedRingtoneTitle)」鎖屏提醒）")
+                                    .lineLimit(1)
+                            }
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(SleepTheme.calmTeal)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 13)
+                            .background(SleepTheme.surfaceSecondary)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(SleepTheme.calmTeal.opacity(0.3), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        
+                        Text("💡 所有內建與匯入音樂皆自動轉為 Apple Core Audio (.caf) 無縫循環格式並儲存於系統鬧鈴沙盒，即使鎖定螢幕或開啟靜音模式都能重複播放。")
+                            .font(.system(size: 11))
+                            .foregroundColor(SleepTheme.textTertiary)
+                            .lineSpacing(2)
+                            .padding(.horizontal, 4)
+                    }
                 }
                 .padding(20)
             }
             .background(SleepTheme.background.ignoresSafeArea())
-            .navigationTitle("鬧鐘機制說明")
+            .navigationTitle("設定鬧鈴與自訂音樂")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("了解") {
-                        showingInternalAlarmInfo = false
-                        showingSystemAlarmInfo = false
+                    Button("完成") {
+                        soundManager.stopRingtonePreview()
+                        showingRingtoneSheet = false
                     }
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundColor(SleepTheme.accent)
                 }
             }
+            .fileImporter(
+                isPresented: $showingFileImporter,
+                allowedContentTypes: [.audio, .mp3, .mpeg4Audio, .wav, .aiff],
+                allowsMultipleSelection: false
+            ) { result in
+                handleFileImportResult(result)
+            }
+            .alert("匯入音樂失敗", isPresented: $showingImportErrorAlert) {
+                Button("確定", role: .cancel) { }
+            } message: {
+                Text(importErrorMessage ?? "無法處理所選的音訊檔案。")
+            }
+        }
+    }
+    
+    // MARK: - 鈴聲選取、匯入與刪除輔助方法
+    
+    private func selectBuiltInRingtone(_ item: BuiltInRingtone, togglePreview: Bool = true) {
+        #if canImport(UIKit)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        #endif
+        setting.selectedRingtoneID = item.id
+        setting.selectedSoundFileName = item.fileName
+        setting.selectedRingtoneTitle = item.title
+        if togglePreview {
+            soundManager.toggleRingtonePreview(
+                id: item.id,
+                fileName: item.fileName,
+                gentleFadeIn: setting.isGentleFadeInEnabled
+            )
+        }
+    }
+    
+    private func selectCustomRingtone(_ item: CustomRingtoneItem, togglePreview: Bool = true) {
+        #if canImport(UIKit)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        #endif
+        setting.selectedRingtoneID = item.id
+        setting.selectedSoundFileName = item.fileName
+        setting.selectedRingtoneTitle = item.displayName
+        if togglePreview {
+            soundManager.toggleRingtonePreview(
+                id: item.id,
+                fileName: item.fileName,
+                gentleFadeIn: setting.isGentleFadeInEnabled
+            )
+        }
+    }
+    
+    private func deleteCustomRingtone(_ item: CustomRingtoneItem) {
+        if soundManager.previewingRingtoneID == item.id {
+            soundManager.stopRingtonePreview()
+        }
+        ringtoneLibrary.deleteCustomRingtone(item)
+        // 若刪除的剛好是當前選用的鈴聲，自動切回預設「晨間清脆鐘琴」
+        if setting.selectedRingtoneID == item.id {
+            let fallback = BuiltInRingtone.morningChime
+            setting.selectedRingtoneID = fallback.id
+            setting.selectedSoundFileName = fallback.fileName
+            setting.selectedRingtoneTitle = fallback.title
+        }
+    }
+    
+    private func handleFileImportResult(_ result: Result<[URL], any Error>) {
+        switch result {
+        case .success(let urls):
+            guard let firstURL = urls.first else { return }
+            Task { @MainActor in
+                do {
+                    let importedItem = try await ringtoneLibrary.importCustomAudio(from: firstURL)
+                    selectCustomRingtone(importedItem, togglePreview: true)
+                } catch {
+                    importErrorMessage = error.localizedDescription
+                    showingImportErrorAlert = true
+                }
+            }
+        case .failure(let error):
+            importErrorMessage = error.localizedDescription
+            showingImportErrorAlert = true
         }
     }
     
@@ -853,33 +1054,6 @@ struct AlarmView: View {
             setting.targetBedtime = AlarmSetting.calculateBedtime(wakeTime: setting.targetWakeTime, durationMinutes: durationMinutes)
         case .wakeTime:
             setting.targetWakeTime = AlarmSetting.calculateWakeTime(bedtime: setting.targetBedtime, durationMinutes: durationMinutes)
-        }
-    }
-    
-    // MARK: - 呼叫系統捷徑
-    private func triggerSystemAlarmShortcut() {
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        
-        // 檢查捷徑 App
-        if let checkUrl = URL(string: "shortcuts://"), !UIApplication.shared.canOpenURL(checkUrl) {
-            UIApplication.shared.open(shortcutICloudURL)
-            return
-        }
-        
-        let timeString = timeFormatter.string(from: setting.targetWakeTime)
-        let shortcutName = "GoodSleep鬧鐘"
-        guard let encodedName = shortcutName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let encodedTime = timeString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
-            return
-        }
-        
-        let urlString = "shortcuts://run-shortcut?name=\(encodedName)&input=text&text=\(encodedTime)"
-        if let url = URL(string: urlString) {
-            UIApplication.shared.open(url) { success in
-                if !success {
-                    UIApplication.shared.open(shortcutICloudURL)
-                }
-            }
         }
     }
     

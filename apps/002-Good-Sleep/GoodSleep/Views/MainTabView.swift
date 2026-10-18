@@ -5,6 +5,7 @@ struct MainTabView: View {
     @StateObject private var store = SleepStore()
     @ObservedObject private var soundManager = SoundManager.shared
     @State private var selectedTab: Int = 0
+    @State private var isShowingSleepStandby: Bool = false
     
     init() {
         #if canImport(UIKit)
@@ -31,9 +32,17 @@ struct MainTabView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: $selectedTab) {
-                TodayView(store: store, onNavigateToAlarm: {
-                    selectedTab = 2
-                })
+                TodayView(
+                    store: store,
+                    onNavigateToAlarm: {
+                        selectedTab = 2
+                    },
+                    onOpenSleepStandby: {
+                        withAnimation(.easeInOut(duration: 0.35)) {
+                            isShowingSleepStandby = true
+                        }
+                    }
+                )
                     .tabItem {
                         Image(systemName: "moon.fill")
                             .accessibilityLabel("今日")
@@ -63,14 +72,44 @@ struct MainTabView: View {
             }
             
             // 全域助眠聲景迷你播放器 (白噪音播放中常駐顯示於 TabBar 上方，停止時自動隱藏)
-            if soundManager.currentSound != nil {
+            if soundManager.currentSound != nil && !(isShowingSleepStandby && store.isSleeping) {
                 MiniPlayerBar(soundManager: soundManager)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 54)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+            
+            // 全螢幕「睡覺貓頭鷹」睡眠待機畫面
+            if isShowingSleepStandby && store.isSleeping {
+                SleepStandbyView(
+                    store: store,
+                    onMinimize: {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            isShowingSleepStandby = false
+                        }
+                    },
+                    onNavigateToGuidanceTab: {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            isShowingSleepStandby = false
+                            selectedTab = 1
+                        }
+                    }
+                )
+                .transition(.opacity)
+                .zIndex(60)
+            }
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: soundManager.currentSound != nil)
+        .onAppear {
+            if store.isSleeping {
+                isShowingSleepStandby = true
+            }
+        }
+        .onChange(of: store.isSleeping) { _, newValue in
+            withAnimation(.easeInOut(duration: 0.35)) {
+                isShowingSleepStandby = newValue
+            }
+        }
         .preferredColorScheme(.dark)
         .fullScreenCover(isPresented: $soundManager.isAlarmRinging) {
             AlarmRingingView(store: store)

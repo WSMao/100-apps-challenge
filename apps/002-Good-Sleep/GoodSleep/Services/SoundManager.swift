@@ -14,11 +14,14 @@ final class SoundManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
     @Published var isAlarmRinging: Bool = false
+    @Published var isShowingWakeUpPrompt: Bool = false
+    @Published var previewingRingtoneID: String? = nil
     
     // 定時器相關狀態
     @Published var activeTimerOption: SleepTimerOption = .off
     @Published var remainingTimerSeconds: Int = 0
     private var countdownTimer: Timer?
+    private var fadeInTimer: Timer?
     
     private var soundPlayer: AVAudioPlayer?
     private var alarmPlayer: AVAudioPlayer?
@@ -77,6 +80,7 @@ final class SoundManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     
     override init() {
         super.init()
+        _ = RingtoneLibraryManager.shared
     }
     
     var remainingTimerFormatted: String {
@@ -111,6 +115,7 @@ final class SoundManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
     
     func play(_ type: SoundType) {
+        stopRingtonePreview()
         // 若切換不同聲音，重置播放器
         if let player = soundPlayer {
             player.stop()
@@ -246,14 +251,83 @@ final class SoundManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     // MARK: - AVAudioPlayerDelegate
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor in
-            self.stop()
+            if player === self.alarmPlayer {
+                self.previewingRingtoneID = nil
+            } else {
+                self.stop()
+            }
         }
     }
     
-    /// 開始播放晨間鬧鐘響鈴
-    func startAlarmMelody(loop: Bool = true) {
+    // MARK: - 喚醒鬧鈴播放、重複循環與 15 秒漸進喚醒 (Fade-in)
+    
+    /// 在「設定鬧鈴」面板中試聽指定鈴聲（支援無限重複播放與漸進喚醒預覽，不觸發全螢幕響鈴視窗）
+    func toggleRingtonePreview(id: String, fileName: String, gentleFadeIn: Bool) {
+        if previewingRingtoneID == id {
+            stopRingtonePreview()
+        } else {
+            stop()
+            stopRingtonePreview()
+            previewingRingtoneID = id
+            playAlarmAudioFile(fileName: fileName, loop: true, gentleFadeIn: gentleFadeIn)
+        }
+    }
+    
+    /// 停止鈴聲試聽
+    func stopRingtonePreview() {
+        guard previewingRingtoneID != nil else { return }
+        previewingRingtoneID = nil
+        fadeInTimer?.invalidate()
+        fadeInTimer = nil
+        alarmPlayer?.stop()
+        alarmPlayer = nil
+    }
+    
+    /// 開始播放晨間鬧鐘響鈴（觸發全螢幕響鈴視窗並無限重複播放）
+    func startAlarmMelody(
+        fileName: String? = nil,
+        loop: Bool = true,
+        gentleFadeIn: Bool? = nil
+    ) {
         stop()
+        stopRingtonePreview()
+        isShowingWakeUpPrompt = false
         isAlarmRinging = true
+        
+        let currentSetting = Self.loadStoredAlarmSetting()
+        let targetFileName = fileName ?? currentSetting.selectedSoundFileName
+        let useFadeIn = gentleFadeIn ?? currentSetting.isGentleFadeInEnabled
+        
+        playAlarmAudioFile(fileName: targetFileName, loop: loop, gentleFadeIn: useFadeIn)
+    }
+    
+    /// 僅停止鬧鐘鈴聲音訊（保留全螢幕視窗以顯示「起床打卡 / 略過」畫面）
+    func stopAlarmAudioOnly() {
+        previewingRingtoneID = nil
+        fadeInTimer?.invalidate()
+        fadeInTimer = nil
+        alarmPlayer?.stop()
+        alarmPlayer = nil
+    }
+    
+    /// 「滑動來停止」後切換至晨間喚醒打卡提示畫面（含【起床打卡】與【略過】）
+    func transitionToWakeUpPrompt() {
+        stopAlarmAudioOnly()
+        isShowingWakeUpPrompt = true
+        if !isAlarmRinging {
+            isAlarmRinging = true
+        }
+    }
+    
+    /// 完全停止鬧鐘響鈴並關閉全螢幕視窗
+    func stopAlarmMelody() {
+        stopAlarmAudioOnly()
+        isShowingWakeUpPrompt = false
+        isAlarmRinging = false
+    }
+    
+    private func playAlarmAudioFile(fileName: String, loop: Bool, gentleFadeIn: Bool) {
+        RingtoneLibraryManager.synthesizeBuiltInRingtonesIfNeeded()
         
         do {
             let session = AVAudioSession.sharedInstance()
@@ -263,27 +337,50 @@ final class SoundManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             print("鬧鐘 Session 啟用失敗: \(error.localizedDescription)")
         }
         
-        let url = Bundle.main.url(forResource: "alarm_melody", withExtension: "caf") ??
-                  Bundle.main.url(forResource: "alarm_melody", withExtension: "wav")
+        guard let soundURL = RingtoneLibraryManager.resolveSoundURL(fileName: fileName) else {
+            return
+        }
         
-        if let soundURL = url {
-            do {
-                alarmPlayer = try AVAudioPlayer(contentsOf: soundURL)
-                alarmPlayer?.numberOfLoops = loop ? -1 : 0
-                alarmPlayer?.volume = 1.0
-                alarmPlayer?.prepareToPlay()
-                alarmPlayer?.play()
-            } catch {
-                print("鬧鐘播放器建立失敗: \(error.localizedDescription)")
+        do {
+            let player = try AVAudioPlayer(contentsOf: soundURL)
+            player.delegate = self
+            player.numberOfLoops = loop ? -1 : 0 // -1 代表無限平滑重複播放
+            player.volume = gentleFadeIn ? 0.08 : 1.0
+            player.prepareToPlay()
+            player.play()
+            self.alarmPlayer = player
+            
+            fadeInTimer?.invalidate()
+            if gentleFadeIn {
+                // 15 秒漸進式溫和喚醒：每 0.25 秒遞增一次（共 60 步，從 8% 平滑爬升至 100%）
+                let stepIncrement: Float = (1.0 - 0.08) / 60.0
+                fadeInTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        guard let self = self, let activePlayer = self.alarmPlayer, activePlayer.isPlaying else {
+                            self?.fadeInTimer?.invalidate()
+                            self?.fadeInTimer = nil
+                            return
+                        }
+                        let nextVol = min(1.0, activePlayer.volume + stepIncrement)
+                        activePlayer.volume = nextVol
+                        if nextVol >= 1.0 {
+                            self.fadeInTimer?.invalidate()
+                            self.fadeInTimer = nil
+                        }
+                    }
+                }
             }
+        } catch {
+            print("鬧鐘播放器建立失敗: \(error.localizedDescription)")
         }
     }
     
-    /// 停止鬧鐘響鈴
-    func stopAlarmMelody() {
-        isAlarmRinging = false
-        alarmPlayer?.stop()
-        alarmPlayer = nil
+    private static func loadStoredAlarmSetting() -> AlarmSetting {
+        if let data = UserDefaults.standard.data(forKey: "goodsleep.alarm.v1"),
+           let setting = try? JSONDecoder().decode(AlarmSetting.self, from: data) {
+            return setting
+        }
+        return .default
     }
 }
 
