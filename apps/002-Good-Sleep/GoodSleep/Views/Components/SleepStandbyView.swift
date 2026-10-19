@@ -18,6 +18,7 @@ struct SleepStandbyView: View {
     @State private var showingQuickGuidanceSheet: Bool = false
     @State private var showingInstantNoteModal: Bool = false
     @State private var showingMorningCheckInSheet: Bool = false
+    @State private var selectedGuidanceCategory: GuidanceCategory = .whiteNoise
     
     // 即時紀錄輸入框狀態
     @State private var noteText: String = ""
@@ -28,12 +29,15 @@ struct SleepStandbyView: View {
     @State private var isPressingCancel: Bool = false
     @State private var cancelHoldTask: Task<Void, Never>? = nil
     
-    // 5 分鐘 (300 秒) 無觸控自動調至最暗計時狀態
-    private let autoDimTimeoutSeconds: Int = 300
-    @State private var remainingDimSeconds: Int = 300
-    @State private var isScreenDimmed: Bool = false
-    @State private var savedBrightness: CGFloat = 0.5
-    @State private var autoDimTask: Task<Void, Never>? = nil
+    // 5 分鐘 (300 秒) 無觸控自動鎖屏計時狀態
+    private let autoLockTimeoutSeconds: Int = 300
+    @State private var remainingLockSeconds: Int = 300
+    @State private var autoLockTask: Task<Void, Never>? = nil
+    
+    // 5 分鐘無觸控溫柔「晚安」彈出與漸暗鎖屏狀態
+    @State private var isShowingGoodNightFarewell: Bool = false
+    @State private var farewellBlackoutOpacity: Double = 0.0
+    @State private var farewellScale: CGFloat = 0.88
     
     var body: some View {
         ZStack {
@@ -98,14 +102,7 @@ struct SleepStandbyView: View {
                             )
                         )
                 } else {
-                    // 未展開時保留底部空間與極簡祝眠語
-                    Text("放下手機，跟隨貓頭鷹的 4-4 呼吸節奏安穩入眠")
-                        .font(.system(size: 12))
-                        .foregroundColor(SleepTheme.textTertiary.opacity(0.75))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
-                        .padding(.bottom, 36)
-                        .transition(.opacity)
+                    Spacer(minLength: 32)
                 }
             }
             
@@ -115,20 +112,14 @@ struct SleepStandbyView: View {
                     .zIndex(50)
             }
             
-            // 7. 5 分鐘無觸控後的「極暗護眼遮罩」：點擊觸控螢幕時立即恢復原本亮度
-            if isScreenDimmed {
-                dimmedScreenOverlay
-                    .zIndex(100)
-                    .transition(.opacity)
-            }
+            // 7. 5 分鐘無觸控溫柔晚安與漸暗鎖屏遮罩
+            goodNightFarewellOverlay
         }
-        // 偵測畫面上的任何觸控操作：若未進入最暗狀態，任何觸控皆重置 5 分鐘倒數計時
+        // 偵測畫面上的任何觸控操作：重置 5 分鐘自動鎖屏倒數計時並保持螢幕常亮
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in
-                    if !isScreenDimmed {
-                        remainingDimSeconds = autoDimTimeoutSeconds
-                    }
+                    resetAutoLockTimer()
                 }
         )
         .preferredColorScheme(.dark)
@@ -143,23 +134,25 @@ struct SleepStandbyView: View {
         .onAppear {
             #if canImport(UIKit)
             UIApplication.shared.isIdleTimerDisabled = true
-            if let screen = currentScreen {
-                savedBrightness = max(0.15, screen.brightness)
-            }
             #endif
-            startAutoDimCountdown()
+            startAutoLockCountdown()
         }
         .onDisappear {
             stopCancelHoldTimer()
-            stopAutoDimCountdown()
-            restoreScreenBrightness(resetCountdown: false)
+            stopAutoLockCountdown()
+            isShowingGoodNightFarewell = false
+            farewellBlackoutOpacity = 0.0
             #if canImport(UIKit)
             UIApplication.shared.isIdleTimerDisabled = false
             #endif
         }
         .onChange(of: soundManager.isAlarmRinging) { _, isRinging in
             if isRinging {
-                restoreScreenBrightness(resetCountdown: true)
+                if isShowingGoodNightFarewell {
+                    dismissFarewellAndWake()
+                } else {
+                    resetAutoLockTimer()
+                }
             }
         }
     }
@@ -275,17 +268,6 @@ struct SleepStandbyView: View {
                 Capsule()
                     .stroke(SleepTheme.calmTeal.opacity(0.28), lineWidth: 1)
             )
-            
-            // 5 分鐘無觸控自動調至最暗計時顯示
-            HStack(spacing: 5) {
-                Image(systemName: "sun.min.fill")
-                    .font(.system(size: 11))
-                Text("無觸控自動最暗 \(dimCountdownFormatted)")
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .monospacedDigit()
-            }
-            .foregroundColor(SleepTheme.textTertiary)
-            .padding(.top, 2)
         }
     }
     
@@ -507,7 +489,7 @@ struct SleepStandbyView: View {
                         Image(systemName: "square.and.pencil")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundColor(SleepTheme.accent)
-                        Text("睡前即時紀錄")
+                        Text("即時紀錄")
                             .font(.system(size: 17, weight: .bold))
                             .foregroundColor(SleepTheme.textPrimary)
                     }
@@ -601,7 +583,7 @@ struct SleepStandbyView: View {
         }
     }
     
-    // MARK: - 「引導睡眠」快速面板 Sheet
+    // MARK: - 「睡眠引導」面板 Sheet (可切換白噪音 / 冥想引導)
     
     private var quickGuidanceSheet: some View {
         NavigationStack {
@@ -609,107 +591,47 @@ struct SleepStandbyView: View {
                 SleepTheme.background.ignoresSafeArea()
                 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        // 1. 助眠白噪音快速選擇
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Label("助眠微音效（低頻白噪音）", systemImage: "waveform")
-                                    .font(.system(size: 15, weight: .bold))
-                                    .foregroundColor(SleepTheme.textPrimary)
-                                
-                                Spacer()
-                                
-                                if soundManager.isPlaying {
-                                    Button("停止播放") {
-                                        soundManager.stop()
+                    VStack(alignment: .leading, spacing: 18) {
+                        // 1. 子分類切換器 (白噪音 / 冥想引導)
+                        HStack(spacing: 8) {
+                            ForEach(GuidanceCategory.allCases) { category in
+                                let isSelected = selectedGuidanceCategory == category
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        selectedGuidanceCategory = category
                                     }
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(SleepTheme.warning)
-                                }
-                            }
-                            
-                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                                ForEach(SoundManager.SoundType.allCases) { sound in
-                                    let isCurrent = (soundManager.currentSound == sound && soundManager.isPlaying)
-                                    Button {
-                                        soundManager.toggleSound(sound)
-                                    } label: {
-                                        HStack(spacing: 10) {
-                                            Image(systemName: sound.icon)
-                                                .font(.system(size: 16))
-                                                .foregroundColor(isCurrent ? SleepTheme.accent : SleepTheme.textSecondary)
-                                            
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(sound.rawValue)
-                                                    .font(.system(size: 13, weight: .semibold))
-                                                    .foregroundColor(isCurrent ? SleepTheme.accent : SleepTheme.textPrimary)
-                                                Text(isCurrent ? "播放中..." : "點擊播放")
-                                                    .font(.system(size: 10))
-                                                    .foregroundColor(isCurrent ? SleepTheme.success : SleepTheme.textTertiary)
-                                            }
-                                            Spacer()
-                                        }
-                                        .padding(12)
-                                        .background(isCurrent ? SleepTheme.accent.opacity(0.14) : SleepTheme.surface)
-                                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                .stroke(isCurrent ? SleepTheme.accent.opacity(0.45) : SleepTheme.border.opacity(0.5), lineWidth: 1)
-                                        )
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: category.icon)
+                                            .font(.system(size: 12))
+                                        Text(category.rawValue)
+                                            .font(.system(size: 13, weight: .semibold))
                                     }
-                                    .buttonStyle(.plain)
+                                    .foregroundColor(isSelected ? SleepTheme.background : SleepTheme.textSecondary)
+                                    .padding(.vertical, 8)
+                                    .frame(maxWidth: .infinity)
+                                    .background(isSelected ? SleepTheme.accent : SleepTheme.surfaceSecondary)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                                 }
+                                .buttonStyle(.plain)
                             }
                         }
                         
-                        // 2. 睡前身心放鬆引導提示
-                        VStack(alignment: .leading, spacing: 10) {
-                            Label("漸進式肌肉放鬆與調息", systemImage: "figure.mind.and.body")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(SleepTheme.textPrimary)
-                            
-                            Text("1. 放鬆眉心與下顎，舌尖輕抵上顎。\n2. 雙肩自然下沉，想像全身重量深深陷入床墊。\n3. 跟隨待機畫面上貓頭鷹的「吸氣 4 秒、吐氣 4 秒」節律平緩呼吸。")
-                                .font(.system(size: 13))
-                                .foregroundColor(SleepTheme.textSecondary)
-                                .lineSpacing(5)
-                                .padding(14)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(SleepTheme.surface)
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        }
-                        
-                        // 3. 前往完整睡前引導與避坑頁面按鈕
-                        if let onNavigateToGuidanceTab {
-                            Button {
-                                showingQuickGuidanceSheet = false
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                                    onNavigateToGuidanceTab()
-                                }
-                            } label: {
-                                HStack {
-                                    Image(systemName: "sparkles")
-                                    Text("查看完整「睡眠引導與好睡清單」專區")
-                                    Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 12, weight: .semibold))
-                                }
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(SleepTheme.accent)
-                                .padding(14)
-                                .background(SleepTheme.accent.opacity(0.12))
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            }
-                            .buttonStyle(.plain)
+                        // 2. 依選中分類呈現內容 (白噪音 vs 冥想引導)，其餘雜項皆移除
+                        if selectedGuidanceCategory == .whiteNoise {
+                            whiteNoiseSection
+                        } else {
+                            meditationSection
                         }
                     }
                     .padding(20)
                 }
             }
-            .navigationTitle("引導睡眠")
+            .navigationTitle("睡眠引導")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("返回待機") {
+                    Button("完成") {
                         showingQuickGuidanceSheet = false
                     }
                     .foregroundColor(SleepTheme.accent)
@@ -718,124 +640,266 @@ struct SleepStandbyView: View {
         }
     }
     
-    // MARK: - 5 分鐘無觸控自動調至最暗 & 觸控恢復亮度
-    
-    private var dimCountdownFormatted: String {
-        let minutes = max(0, remainingDimSeconds) / 60
-        let seconds = max(0, remainingDimSeconds) % 60
-        return String(format: "%02d:%02d", minutes, seconds)
-    }
-    
-    /// 5 分鐘無觸控後的極暗護眼遮罩（搭配硬體背光調至 0.0，點擊螢幕任意處立即恢復亮度）
-    private var dimmedScreenOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.92)
-                .ignoresSafeArea()
-            
-            VStack {
+    // 白噪音細分子區塊
+    private var whiteNoiseSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Text("🌙 助眠微音效 (低頻白噪音)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(SleepTheme.textSecondary)
+                
                 Spacer()
-                HStack(spacing: 6) {
-                    Image(systemName: "hand.tap")
-                        .font(.system(size: 11))
-                    Text("螢幕已調至最暗 • 點擊觸控螢幕恢復亮度")
-                        .font(.system(size: 12, weight: .medium))
+                
+                // 定時按鈕 (5 / 15 / 30 分鐘 / 結束時停止)
+                SleepTimerMenu()
+                
+                if soundManager.isPlaying {
+                    Button("停止播放") {
+                        soundManager.stop()
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(SleepTheme.warning)
                 }
-                .foregroundColor(SleepTheme.textTertiary.opacity(0.35))
-                .padding(.bottom, 42)
+            }
+            
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                ForEach(SoundManager.SoundType.allCases) { sound in
+                    let isCurrent = (soundManager.currentSound == sound && soundManager.isPlaying)
+                    Button {
+                        soundManager.toggleSound(sound)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: sound.icon)
+                                .font(.system(size: 16))
+                                .foregroundColor(isCurrent ? SleepTheme.accent : SleepTheme.textSecondary)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(sound.rawValue)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(isCurrent ? SleepTheme.accent : SleepTheme.textPrimary)
+                                Text(isCurrent ? "播放中..." : "點擊播放")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(isCurrent ? SleepTheme.success : SleepTheme.textTertiary)
+                            }
+                            Spacer()
+                        }
+                        .padding(12)
+                        .background(isCurrent ? SleepTheme.accent.opacity(0.14) : SleepTheme.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(isCurrent ? SleepTheme.accent.opacity(0.45) : SleepTheme.border.opacity(0.5), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            #if canImport(UIKit)
-            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-            #endif
-            restoreScreenBrightness(resetCountdown: true)
-        }
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onEnded { _ in
-                    #if canImport(UIKit)
-                    UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-                    #endif
-                    restoreScreenBrightness(resetCountdown: true)
-                }
-        )
     }
     
-    private func startAutoDimCountdown() {
-        stopAutoDimCountdown()
-        remainingDimSeconds = autoDimTimeoutSeconds
-        autoDimTask = Task { @MainActor in
+    // 冥想引導細分子區塊 (含 4-7-8 呼吸練習器與身體掃描)
+    private var meditationSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("🧘 睡前放鬆與身心調息")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(SleepTheme.textSecondary)
+                
+                Spacer()
+                
+                if soundManager.isPlaying || soundManager.activeTimerOption != .off {
+                    SleepTimerMenu()
+                }
+            }
+            
+            // 4-7-8 呼吸練習器
+            BreathingCard()
+            
+            // 漸進式身體掃描指南卡片
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .foregroundColor(SleepTheme.accent)
+                        .font(.system(size: 12))
+                    Text("漸進式身體掃描（Body Scan）")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(SleepTheme.textPrimary)
+                }
+                
+                Text("從前額、咬合肌、雙肩到雙腳，隨呼氣將各部位重力完全交託給床墊。思緒浮現時不加評判，像看待夜空微雲般溫和目送它飄過。")
+                    .font(.system(size: 12))
+                    .foregroundColor(SleepTheme.textSecondary)
+                    .lineSpacing(3)
+            }
+            .padding(14)
+            .background(SleepTheme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+    }
+    
+    // MARK: - 5 分鐘無觸控自動鎖屏 (Auto-Lock) 與溫柔晚安道別
+    
+    @ViewBuilder
+    private var goodNightFarewellOverlay: some View {
+        if isShowingGoodNightFarewell {
+            ZStack {
+                // 底層微暗半透明背景
+                Color.black.opacity(0.88)
+                    .ignoresSafeArea()
+                
+                // 溫柔晚安卡片內容
+                VStack(spacing: 18) {
+                    // 月亮與柔和月光微光暈
+                    ZStack {
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [SleepTheme.accent.opacity(0.35), Color.clear],
+                                    center: .center,
+                                    startRadius: 8,
+                                    endRadius: 58
+                                )
+                            )
+                            .frame(width: 120, height: 120)
+                        
+                        Image(systemName: "moon.stars.fill")
+                            .font(.system(size: 44))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [SleepTheme.moonGlow, SleepTheme.accent],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .shadow(color: SleepTheme.accent.opacity(0.45), radius: 18, x: 0, y: 0)
+                    }
+                    
+                    VStack(spacing: 8) {
+                        Text("晚安")
+                            .font(.system(size: 32, weight: .bold, design: .rounded))
+                            .foregroundColor(SleepTheme.textPrimary)
+                            .tracking(3)
+                        
+                        Text("願你有個安穩香甜的美夢")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(SleepTheme.textSecondary.opacity(0.9))
+                    }
+                }
+                .scaleEffect(farewellScale)
+                .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                
+                // 漸暗全黑遮罩 (平滑漸層變暗至純黑，讓螢幕自然熄滅進入鎖屏)
+                Color.black.opacity(farewellBlackoutOpacity)
+                    .ignoresSafeArea()
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                dismissFarewellAndWake()
+            }
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onEnded { _ in
+                        dismissFarewellAndWake()
+                    }
+            )
+            .transition(.opacity)
+            .zIndex(200)
+        }
+    }
+    
+    private func triggerGoodNightAndLock() {
+        guard !isShowingGoodNightFarewell else { return }
+        
+        #if canImport(UIKit)
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+        #endif
+        
+        withAnimation(.easeOut(duration: 0.7)) {
+            isShowingGoodNightFarewell = true
+            farewellScale = 1.0
+            farewellBlackoutOpacity = 0.0
+        }
+        
+        // 1.4 秒後開始溫柔漸暗至全黑
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1400))
+            guard isShowingGoodNightFarewell else { return }
+            
+            withAnimation(.easeInOut(duration: 1.8)) {
+                farewellBlackoutOpacity = 1.0
+            }
+            
+            // 漸暗完成後解除螢幕常亮，交由 iOS 系統自然進入鎖屏休眠
+            try? await Task.sleep(for: .milliseconds(1800))
+            guard isShowingGoodNightFarewell else { return }
+            
+            #if canImport(UIKit)
+            UIApplication.shared.isIdleTimerDisabled = false
+            #endif
+        }
+    }
+    
+    private func dismissFarewellAndWake() {
+        #if canImport(UIKit)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        #endif
+        
+        withAnimation(.easeOut(duration: 0.25)) {
+            isShowingGoodNightFarewell = false
+            farewellBlackoutOpacity = 0.0
+            farewellScale = 0.88
+        }
+        resetAutoLockTimer()
+    }
+    
+    private func startAutoLockCountdown() {
+        stopAutoLockCountdown()
+        remainingLockSeconds = autoLockTimeoutSeconds
+        #if canImport(UIKit)
+        UIApplication.shared.isIdleTimerDisabled = true
+        #endif
+        
+        autoLockTask = Task { @MainActor in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { break }
                 
-                // 若正在操作子彈窗（引導睡眠、即時紀錄、早起打卡），暫停倒數並維持 5 分鐘
-                if showingQuickGuidanceSheet || showingInstantNoteModal || showingMorningCheckInSheet {
-                    remainingDimSeconds = autoDimTimeoutSeconds
+                // 若正在操作子彈窗（引導睡眠、即時紀錄、早起打卡）或已在晚安道別中，暫停倒數
+                if showingQuickGuidanceSheet || showingInstantNoteModal || showingMorningCheckInSheet || isShowingGoodNightFarewell {
+                    remainingLockSeconds = autoLockTimeoutSeconds
                     continue
                 }
                 
-                if !isScreenDimmed {
-                    if remainingDimSeconds > 1 {
-                        remainingDimSeconds -= 1
-                    } else {
-                        remainingDimSeconds = 0
-                        dimScreenToMinimum()
-                    }
+                if remainingLockSeconds > 1 {
+                    remainingLockSeconds -= 1
+                } else {
+                    remainingLockSeconds = 0
+                    // 5 分鐘時間一到，溫柔彈出「晚安」，漸暗後進入鎖屏
+                    triggerGoodNightAndLock()
+                    break
                 }
             }
         }
     }
     
-    private func stopAutoDimCountdown() {
-        autoDimTask?.cancel()
-        autoDimTask = nil
-    }
-    
-    private func dimScreenToMinimum() {
-        guard !isScreenDimmed else { return }
+    private func resetAutoLockTimer() {
+        if isShowingGoodNightFarewell {
+            dismissFarewellAndWake()
+            return
+        }
+        remainingLockSeconds = autoLockTimeoutSeconds
         #if canImport(UIKit)
-        if let screen = currentScreen {
-            // 記錄調暗前的螢幕亮度，避免記錄到 0
-            if screen.brightness > 0.02 {
-                savedBrightness = screen.brightness
-            }
-            // 將系統螢幕硬體背光調到最暗
-            screen.brightness = 0.0
-        }
+        UIApplication.shared.isIdleTimerDisabled = true
         #endif
-        withAnimation(.easeInOut(duration: 1.0)) {
-            isScreenDimmed = true
-            isMenuExpanded = false
+        if autoLockTask == nil {
+            startAutoLockCountdown()
         }
     }
     
-    private func restoreScreenBrightness(resetCountdown: Bool) {
-        #if canImport(UIKit)
-        if let screen = currentScreen, isScreenDimmed {
-            screen.brightness = savedBrightness
-        }
-        #endif
-        if isScreenDimmed {
-            withAnimation(.easeOut(duration: 0.3)) {
-                isScreenDimmed = false
-            }
-        }
-        if resetCountdown {
-            remainingDimSeconds = autoDimTimeoutSeconds
-        }
+    private func stopAutoLockCountdown() {
+        autoLockTask?.cancel()
+        autoLockTask = nil
     }
-    
-    #if canImport(UIKit)
-    private var currentScreen: UIScreen? {
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        if let activeScene = scenes.first(where: { $0.activationState == .foregroundActive }) {
-            return activeScene.screen
-        }
-        return scenes.first?.screen
-    }
-    #endif
     
     private var timeFormatter: DateFormatter {
         let f = DateFormatter()

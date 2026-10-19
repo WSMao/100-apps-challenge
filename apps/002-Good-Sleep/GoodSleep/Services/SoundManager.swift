@@ -20,6 +20,7 @@ final class SoundManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     // 定時器相關狀態
     @Published var activeTimerOption: SleepTimerOption = .off
     @Published var remainingTimerSeconds: Int = 0
+    private var timerTargetDate: Date? = nil
     private var countdownTimer: Timer?
     private var fadeInTimer: Timer?
     
@@ -150,6 +151,9 @@ final class SoundManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             
             // 若原本已設定分鐘計時器，繼續倒數
             if case .minutes = activeTimerOption, remainingTimerSeconds > 0 {
+                if timerTargetDate == nil {
+                    timerTargetDate = Date().addingTimeInterval(TimeInterval(remainingTimerSeconds))
+                }
                 startCountdownTimer()
             }
         } catch {
@@ -166,10 +170,12 @@ final class SoundManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             soundPlayer?.pause()
             isPlaying = false
             countdownTimer?.invalidate()
+            timerTargetDate = nil
         } else {
             soundPlayer?.play()
             isPlaying = true
             if case .minutes = activeTimerOption, remainingTimerSeconds > 0 {
+                timerTargetDate = Date().addingTimeInterval(TimeInterval(remainingTimerSeconds))
                 startCountdownTimer()
             }
         }
@@ -201,6 +207,7 @@ final class SoundManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     func stop() {
         countdownTimer?.invalidate()
         countdownTimer = nil
+        timerTargetDate = nil
         activeTimerOption = .off
         remainingTimerSeconds = 0
         
@@ -217,6 +224,7 @@ final class SoundManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         activeTimerOption = option
         countdownTimer?.invalidate()
         countdownTimer = nil
+        timerTargetDate = nil
         
         switch option {
         case .off:
@@ -224,6 +232,7 @@ final class SoundManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             soundPlayer?.numberOfLoops = -1
         case .minutes(let minutes):
             remainingTimerSeconds = minutes * 60
+            timerTargetDate = Date().addingTimeInterval(TimeInterval(minutes * 60))
             soundPlayer?.numberOfLoops = -1
             if isPlaying {
                 startCountdownTimer()
@@ -239,7 +248,15 @@ final class SoundManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
-                if self.remainingTimerSeconds > 0 {
+                if let target = self.timerTargetDate {
+                    let diff = Int(target.timeIntervalSinceNow)
+                    if diff > 0 {
+                        self.remainingTimerSeconds = diff
+                    } else {
+                        self.remainingTimerSeconds = 0
+                        self.stop()
+                    }
+                } else if self.remainingTimerSeconds > 0 {
                     self.remainingTimerSeconds -= 1
                 } else {
                     self.stop()

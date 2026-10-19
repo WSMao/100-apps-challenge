@@ -4,6 +4,10 @@
 <dict>
 	<key>NSAlarmKitUsageDescription</key>
 	<string>「好好睡覺」需要排程喚醒鬧鐘，讓鬧鐘在螢幕鎖定、靜音或專注模式下仍能準時響起。</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 </dict>
 </plist>
 

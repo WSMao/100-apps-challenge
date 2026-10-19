@@ -137,16 +137,33 @@ final class SleepStore: ObservableObject {
         }
     }
     
-    // MARK: - 晨間起床打卡與報告記錄
+    // MARK: - 昨夜睡眠目標日 (Day T - 1)
+    /// 例如今日為 19 號，昨晚入睡日即為 18 號
+    var targetLastNightDate: Date {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        return calendar.date(byAdding: .day, value: -1, to: today) ?? today
+    }
+    
+    // MARK: - 昨夜晨間報告記錄（以昨晚入睡的睡眠記錄為主，例如今日為 19 號，以 18 號的記錄為準）
     var todayLog: SleepLog? {
         let calendar = Calendar.current
-        // 優先尋找今天醒來 (wakeTime 在今日) 的晨間報告
+        let yesterday = targetLastNightDate
+        
+        // 1. 優先尋找昨夜 (例如 18 號) 入睡的記錄
+        if let log = sleepHistory.first(where: { calendar.startOfDay(for: $0.date) == yesterday }) {
+            return log
+        }
+        // 2. 次之尋找今晨醒來 (wakeTime 在今日) 的記錄
         if let log = sleepHistory.first(where: { calendar.isDateInToday($0.wakeTime) }) {
             return log
         }
-        // 其次尋找當前邏輯睡眠日的記錄
+        // 3. 再次比對當前邏輯睡眠日的記錄
         let logicalToday = SleepStore.logicalSleepDate(for: Date())
-        return sleepHistory.first { calendar.startOfDay(for: $0.date) == logicalToday }
+        if let log = sleepHistory.first(where: { calendar.startOfDay(for: $0.date) == logicalToday }) {
+            return log
+        }
+        return nil
     }
     
     // MARK: - 睡前晚安與即時睡眠追蹤
@@ -214,11 +231,24 @@ final class SleepStore: ObservableObject {
     ) {
         let finalBedtimeNote = !bedtimeNote.isEmpty ? bedtimeNote : pendingBedtimeNote
         let logicalDate = SleepStore.logicalSleepDate(for: bedtime)
+        
+        let cal = Calendar.current
+        let targetBedHour = cal.component(.hour, from: alarmSetting.targetBedtime)
+        let targetBedMin = cal.component(.minute, from: alarmSetting.targetBedtime)
+        let scheduledBed: Date
+        if targetBedHour >= 12 {
+            scheduledBed = cal.date(bySettingHour: targetBedHour, minute: targetBedMin, second: 0, of: logicalDate) ?? logicalDate
+        } else {
+            let nextDay = cal.date(byAdding: .day, value: 1, to: logicalDate) ?? logicalDate
+            scheduledBed = cal.date(bySettingHour: targetBedHour, minute: targetBedMin, second: 0, of: nextDay) ?? nextDay
+        }
+        
         let newLog = SleepLog(
             date: logicalDate,
             bedtime: bedtime,
             wakeTime: wakeTime,
             scheduledWakeTime: alarmSetting.targetWakeTime,
+            scheduledBedtime: scheduledBed,
             rating: rating,
             isSnoozed: isSnoozed,
             snoozeMinutes: snoozeMinutes,

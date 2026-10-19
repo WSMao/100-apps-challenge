@@ -69,15 +69,31 @@ struct EditSleepLogSheet: View {
         self.isMorningCheckInMode = true
         self.onSaved = onSaved
         
-        let defaultBed = Calendar.current.date(byAdding: .hour, value: -8, to: wakeUpTime) ?? wakeUpTime
+        let cal = Calendar.current
+        let yesterdayNight = store.targetLastNightDate
+        let today = cal.startOfDay(for: wakeUpTime)
+        
+        // 預設昨晚目標入睡時間 (例如 18 號 23:00)
+        let targetBedHour = cal.component(.hour, from: store.alarmSetting.targetBedtime)
+        let targetBedMin = cal.component(.minute, from: store.alarmSetting.targetBedtime)
+        let defaultBed = cal.date(bySettingHour: targetBedHour, minute: targetBedMin, second: 0, of: yesterdayNight) ?? yesterdayNight
+        
+        // 預設今晨醒來時間 (若當前為早晨則為 wakeUpTime，若為午後/晚間打卡則預設今晨目標起床時間，例如 19 號 07:00)
+        let isMorningNow = cal.component(.hour, from: wakeUpTime) < 12
+        let targetWakeHour = cal.component(.hour, from: store.alarmSetting.targetWakeTime)
+        let targetWakeMin = cal.component(.minute, from: store.alarmSetting.targetWakeTime)
+        let scheduledWakeToday = cal.date(bySettingHour: targetWakeHour, minute: targetWakeMin, second: 0, of: today) ?? wakeUpTime
+        let defaultWake = isMorningNow ? wakeUpTime : scheduledWakeToday
+        
         let initialBedtime = store.ongoingBedtime ?? store.todayLog?.bedtime ?? defaultBed
+        let initialWakeTime = store.todayLog?.wakeTime ?? defaultWake
         let initialBedtimeNote = !store.pendingBedtimeNote.isEmpty
             ? store.pendingBedtimeNote
             : (store.todayLog?.bedtimeNote ?? "")
         
         _selectedRating = State(initialValue: store.todayLog?.rating ?? .good)
         _bedtime = State(initialValue: initialBedtime)
-        _wakeTime = State(initialValue: wakeUpTime)
+        _wakeTime = State(initialValue: initialWakeTime)
         _isSnoozed = State(initialValue: store.todayLog?.isSnoozed ?? false)
         _note = State(initialValue: store.todayLog?.note ?? "")
         _bedtimeNote = State(initialValue: initialBedtimeNote)
@@ -90,9 +106,21 @@ struct EditSleepLogSheet: View {
                 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
-                        // 0. 日期標籤 (新增記錄時提示所選日期)
-                        if let targetDate = newLogDate {
-                            HStack {
+                        // 0. 日期標籤 (提示當前記錄日期)
+                        if isMorningCheckInMode {
+                            HStack(spacing: 6) {
+                                Image(systemName: "moon.stars.fill")
+                                    .foregroundColor(SleepTheme.accent)
+                                Text("昨晚睡眠：\(dateDisplayFormatter.string(from: store.targetLastNightDate))")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(SleepTheme.textSecondary)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(SleepTheme.surfaceSecondary)
+                            .clipShape(Capsule())
+                        } else if let targetDate = newLogDate {
+                            HStack(spacing: 6) {
                                 Image(systemName: "calendar.badge.plus")
                                     .foregroundColor(SleepTheme.calmTeal)
                                 Text("補登日期：\(dateDisplayFormatter.string(from: targetDate))")
@@ -277,24 +305,8 @@ struct EditSleepLogSheet: View {
         }
     }
     
-    /// 自動換算醒來時間與預定鬧鐘時間的差距 (分鐘)
-    private func calculateSnoozeMinutes() -> Int {
-        guard isSnoozed else { return 0 }
-        let cal = Calendar.current
-        let targetAlarm = originalLog?.scheduledWakeTime ?? store.alarmSetting.targetWakeTime
-        let alarmHour = cal.component(.hour, from: targetAlarm)
-        let alarmMinute = cal.component(.minute, from: targetAlarm)
-        
-        if let scheduledOnDay = cal.date(bySettingHour: alarmHour, minute: alarmMinute, second: 0, of: wakeTime) {
-            let diffSeconds = wakeTime.timeIntervalSince(scheduledOnDay)
-            let minutes = Int(round(diffSeconds / 60.0))
-            return max(5, minutes)
-        }
-        return 10
-    }
-    
     private func saveAction() {
-        let calculatedSnooze = calculateSnoozeMinutes()
+        let finalSnoozeMinutes = isSnoozed ? (originalLog?.snoozeMinutes ?? 15) : 0
         
         if isMorningCheckInMode {
             store.recordMorningWakeUp(
@@ -302,7 +314,7 @@ struct EditSleepLogSheet: View {
                 wakeTime: wakeTime,
                 rating: selectedRating,
                 isSnoozed: isSnoozed,
-                snoozeMinutes: calculatedSnooze,
+                snoozeMinutes: finalSnoozeMinutes,
                 note: note,
                 bedtimeNote: bedtimeNote
             )
@@ -318,21 +330,34 @@ struct EditSleepLogSheet: View {
             updated.date = SleepStore.logicalSleepDate(for: bedtime)
             updated.rating = selectedRating
             updated.isSnoozed = isSnoozed
-            updated.snoozeMinutes = calculatedSnooze
+            updated.snoozeMinutes = finalSnoozeMinutes
             updated.note = note
             updated.bedtimeNote = bedtimeNote
             store.updateSleepLog(updated)
         } else if let _ = newLogDate {
             let scheduledTime = store.alarmSetting.targetWakeTime
             let logicalDate = SleepStore.logicalSleepDate(for: bedtime)
+            
+            let cal = Calendar.current
+            let targetBedHour = cal.component(.hour, from: store.alarmSetting.targetBedtime)
+            let targetBedMin = cal.component(.minute, from: store.alarmSetting.targetBedtime)
+            let scheduledBed: Date
+            if targetBedHour >= 12 {
+                scheduledBed = cal.date(bySettingHour: targetBedHour, minute: targetBedMin, second: 0, of: logicalDate) ?? logicalDate
+            } else {
+                let nextDay = cal.date(byAdding: .day, value: 1, to: logicalDate) ?? logicalDate
+                scheduledBed = cal.date(bySettingHour: targetBedHour, minute: targetBedMin, second: 0, of: nextDay) ?? nextDay
+            }
+            
             let newLog = SleepLog(
                 date: logicalDate,
                 bedtime: bedtime,
                 wakeTime: wakeTime,
                 scheduledWakeTime: scheduledTime,
+                scheduledBedtime: scheduledBed,
                 rating: selectedRating,
                 isSnoozed: isSnoozed,
-                snoozeMinutes: calculatedSnooze,
+                snoozeMinutes: finalSnoozeMinutes,
                 note: note,
                 bedtimeNote: bedtimeNote,
                 completedChecklistCount: 0

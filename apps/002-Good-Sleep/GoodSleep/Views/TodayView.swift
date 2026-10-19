@@ -57,7 +57,7 @@ struct TodayView: View {
             .navigationTitle("好好睡覺")
             .navigationBarTitleDisplayMode(.large)
             .sheet(isPresented: $showingCheckInSheet) {
-                MorningCheckInSheet(store: store)
+                EditSleepLogSheet(store: store, morningCheckInAt: Date())
             }
         }
     }
@@ -68,7 +68,7 @@ struct TodayView: View {
         VStack(spacing: 16) {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("今晚目標就寢")
+                    Text("今晚就寢目標")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(SleepTheme.textSecondary)
                     
@@ -115,7 +115,7 @@ struct TodayView: View {
                     Image(systemName: "alarm.fill")
                         .font(.system(size: 13))
                         .foregroundColor(SleepTheme.accent)
-                    Text("預設明早 \(timeFormatter.string(from: store.alarmSetting.targetWakeTime)) 喚醒")
+                    Text("喚醒時間 \(timeFormatter.string(from: store.alarmSetting.targetWakeTime))")
                         .font(.system(size: 13))
                         .foregroundColor(SleepTheme.textSecondary)
                 }
@@ -415,38 +415,88 @@ struct TodayView: View {
     }
     
     private func morningReportCard(log: SleepLog) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        Button {
+            showingCheckInSheet = true
+        } label: {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "zzz")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(SleepTheme.calmTeal)
+                            Text("睡眠報告")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(SleepTheme.textPrimary)
+                        }
+                        HStack(spacing: 6) {
+                            Text("\(targetNightFormatter.string(from: log.date)) 晚間")
+                                .font(.system(size: 11))
+                                .foregroundColor(SleepTheme.textTertiary)
+                            
+                            if log.isLateNight(fallbackTarget: store.alarmSetting.targetBedtime) {
+                                Text("熬夜晚睡")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(SleepTheme.warning)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 1.5)
+                                    .background(SleepTheme.warning.opacity(0.16))
+                                    .clipShape(Capsule())
+                            }
+                            
+                            if log.isSnoozed {
+                                Text("賴床")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(SleepTheme.lavender)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 1.5)
+                                    .background(SleepTheme.lavender.opacity(0.16))
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+                    
+                    Spacer()
+                    
+                    HStack(spacing: 8) {
+                        Text(log.rating.emoji)
+                            .font(.system(size: 24))
+                        Image(systemName: "pencil")
+                            .font(.system(size: 12))
+                            .foregroundColor(SleepTheme.textTertiary)
+                    }
+                }
+            
+            // 入睡至起床時間段與時長（參考數據列表顯示方式：xx:xx → xx:xx 與時長）
             HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("☀️ 今日晨間報告")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(SleepTheme.textPrimary)
-                    Text("\(targetNightFormatter.string(from: log.bedtime)) 晚上睡眠復盤")
-                        .font(.system(size: 11))
-                        .foregroundColor(SleepTheme.textTertiary)
+                HStack(spacing: 6) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 13))
+                        .foregroundColor(SleepTheme.calmTeal)
+                    Text("\(timeFormatter.string(from: log.bedtime)) → \(timeFormatter.string(from: log.wakeTime))")
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundColor(SleepTheme.textSecondary)
                 }
                 
                 Spacer()
                 
-                Text(log.rating.emoji)
-                    .font(.system(size: 24))
+                Text(log.durationFormatted)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundColor(SleepTheme.success)
             }
-            
-            HStack(spacing: 12) {
-                // 睡眠時長
-                metricBox(title: "實際時長", value: log.durationFormatted, icon: "clock.fill", color: SleepTheme.calmTeal)
-                // 睡眠品質分
-                metricBox(title: "品質健康分", value: "\(log.calculatedScore) 分", icon: "sparkles", color: SleepTheme.accent)
-            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(SleepTheme.surfaceSecondary)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             
             if log.isSnoozed {
                 HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
+                    Image(systemName: "moon.zzz.fill")
                         .font(.system(size: 12))
-                        .foregroundColor(SleepTheme.warning)
-                    Text("今晨賴床了 \(log.snoozeMinutes) 分鐘，稍微拖慢了大腦開機速度")
+                        .foregroundColor(SleepTheme.lavender)
+                    Text("今晨有賴床，稍微拖慢了大腦開機速度")
                         .font(.system(size: 12))
-                        .foregroundColor(SleepTheme.warning)
+                        .foregroundColor(SleepTheme.textSecondary)
                 }
                 .padding(.top, 4)
             }
@@ -494,33 +544,23 @@ struct TodayView: View {
                 .background(SleepTheme.surfaceSecondary)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
+            }
+            .padding(18)
+            .background(SleepTheme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
-        .padding(18)
-        .background(SleepTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .buttonStyle(.plain)
     }
     
     private var unrecordedCard: some View {
         VStack(spacing: 12) {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text(store.isSleeping ? "睡眠進行中" : "\(targetNightString) 晚上睡得如何？")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(SleepTheme.textPrimary)
-                        
-                        if !store.isSleeping {
-                            Text("尚未復盤")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(SleepTheme.warning)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 1.5)
-                                .background(SleepTheme.warning.opacity(0.18))
-                                .clipShape(Capsule())
-                        }
-                    }
+                    Text(store.isSleeping ? "睡眠進行中" : "昨晚睡得如何？")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(SleepTheme.textPrimary)
                     
-                    Text(store.isSleeping ? "醒來花 30 秒打卡完成記錄，評估今日睡眠品質。" : "今早尚未晨間復盤，醒來花 30 秒記錄狀態，給大腦一個正向啟動儀式。")
+                    Text(store.isSleeping ? "醒來花 30 秒打卡完成記錄，評估今日睡眠品質。" : "花 30 秒覆盤，紀錄睡眠狀態吧")
                         .font(.system(size: 12))
                         .foregroundColor(SleepTheme.textSecondary)
                 }
@@ -544,11 +584,10 @@ struct TodayView: View {
     }
     
     private var targetNightDate: Date {
-        let calendar = Calendar.current
         if let bedtime = store.ongoingBedtime {
             return bedtime
         }
-        return calendar.date(byAdding: .day, value: -1, to: Date()) ?? Date()
+        return store.targetLastNightDate
     }
     
     private var targetNightString: String {

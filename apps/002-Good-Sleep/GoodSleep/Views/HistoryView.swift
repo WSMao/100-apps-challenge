@@ -151,18 +151,28 @@ struct HistoryView: View {
     // MARK: - 單筆歷史卡片 (支援外框高亮、點擊進入修改)
     private func historyCard(log: SleepLog, isHighlight: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 8) {
+            HStack(alignment: .center, spacing: 6) {
                 Text(dateFormatter.string(from: log.date) + " 晚")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(SleepTheme.textPrimary)
                 
-                if log.isLateNightBedtime {
+                if log.isLateNight(fallbackTarget: store.alarmSetting.targetBedtime) {
                     Text("熬夜晚睡")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(SleepTheme.warning)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(SleepTheme.warning.opacity(0.16))
+                        .clipShape(Capsule())
+                }
+                
+                if log.isSnoozed {
+                    Text("賴床")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(SleepTheme.lavender)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(SleepTheme.lavender.opacity(0.16))
                         .clipShape(Capsule())
                 }
                 
@@ -197,17 +207,6 @@ struct HistoryView: View {
                 Text(log.durationFormatted)
                     .font(.system(size: 13, weight: .bold))
                     .foregroundColor(SleepTheme.success)
-            }
-            
-            if log.isSnoozed {
-                HStack(spacing: 4) {
-                    Image(systemName: "alarm")
-                        .font(.system(size: 11))
-                        .foregroundColor(SleepTheme.warning)
-                    Text("賴床 \(log.snoozeMinutes) 分鐘")
-                        .font(.system(size: 11))
-                        .foregroundColor(SleepTheme.warning)
-                }
             }
             
             if !log.bedtimeNote.isEmpty {
