@@ -7,6 +7,7 @@ struct SleepLog: Identifiable, Codable, Equatable {
     var bedtime: Date                // 昨晚入睡時間
     var wakeTime: Date               // 晨間醒來時間
     var scheduledWakeTime: Date      // 預設鬧鐘時間
+    var scheduledBedtime: Date?      // 預設就寢目標時間 (比對熬夜晚睡用)
     var rating: SleepRating          // 起床自評狀態貼圖
     var isSnoozed: Bool              // 是否賴床
     var snoozeMinutes: Int           // 賴床時長 (分鐘)
@@ -20,9 +21,10 @@ struct SleepLog: Identifiable, Codable, Equatable {
         bedtime: Date,
         wakeTime: Date,
         scheduledWakeTime: Date,
+        scheduledBedtime: Date? = nil,
         rating: SleepRating,
         isSnoozed: Bool,
-        snoozeMinutes: Int,
+        snoozeMinutes: Int = 0,
         note: String,
         bedtimeNote: String = "",
         completedChecklistCount: Int
@@ -32,6 +34,7 @@ struct SleepLog: Identifiable, Codable, Equatable {
         self.bedtime = bedtime
         self.wakeTime = wakeTime
         self.scheduledWakeTime = scheduledWakeTime
+        self.scheduledBedtime = scheduledBedtime
         self.rating = rating
         self.isSnoozed = isSnoozed
         self.snoozeMinutes = snoozeMinutes
@@ -41,7 +44,7 @@ struct SleepLog: Identifiable, Codable, Equatable {
     }
     
     enum CodingKeys: String, CodingKey {
-        case id, date, bedtime, wakeTime, scheduledWakeTime, rating, isSnoozed, snoozeMinutes, note, bedtimeNote, completedChecklistCount
+        case id, date, bedtime, wakeTime, scheduledWakeTime, scheduledBedtime, rating, isSnoozed, snoozeMinutes, note, bedtimeNote, completedChecklistCount
     }
     
     init(from decoder: Decoder) throws {
@@ -51,6 +54,7 @@ struct SleepLog: Identifiable, Codable, Equatable {
         bedtime = try container.decode(Date.self, forKey: .bedtime)
         wakeTime = try container.decode(Date.self, forKey: .wakeTime)
         scheduledWakeTime = try container.decodeIfPresent(Date.self, forKey: .scheduledWakeTime) ?? wakeTime
+        scheduledBedtime = try container.decodeIfPresent(Date.self, forKey: .scheduledBedtime)
         rating = try container.decode(SleepRating.self, forKey: .rating)
         isSnoozed = try container.decodeIfPresent(Bool.self, forKey: .isSnoozed) ?? false
         snoozeMinutes = try container.decodeIfPresent(Int.self, forKey: .snoozeMinutes) ?? 0
@@ -94,10 +98,37 @@ struct SleepLog: Identifiable, Codable, Equatable {
         return max(10, min(100, baseScore))
     }
     
-    /// 是否為跨午夜熬夜晚睡 (凌晨 00:00 ~ 05:00 之間入睡)
+    /// 取得該睡眠夜對應的「就寢目標」完整時間
+    func effectiveScheduledBedtime(fallbackTarget: Date? = nil) -> Date {
+        if let scheduled = scheduledBedtime {
+            return scheduled
+        }
+        let cal = Calendar.current
+        let night = cal.startOfDay(for: date)
+        
+        let targetTime = fallbackTarget ?? (cal.date(bySettingHour: 23, minute: 0, second: 0, of: night) ?? night)
+        let targetHour = cal.component(.hour, from: targetTime)
+        let targetMinute = cal.component(.minute, from: targetTime)
+        
+        if targetHour >= 12 {
+            return cal.date(bySettingHour: targetHour, minute: targetMinute, second: 0, of: night) ?? night
+        } else {
+            // 就寢目標為跨午夜（例：凌晨 00:30）
+            let nextDay = cal.date(byAdding: .day, value: 1, to: night) ?? night
+            return cal.date(bySettingHour: targetHour, minute: targetMinute, second: 0, of: nextDay) ?? nextDay
+        }
+    }
+    
+    /// 是否比「就寢目標」晚 30 分鐘以上 (判定為熬夜晚睡)
+    func isLateNight(fallbackTarget: Date? = nil) -> Bool {
+        let target = effectiveScheduledBedtime(fallbackTarget: fallbackTarget)
+        // 晚於就寢目標 30 分鐘 (1800 秒)
+        return bedtime.timeIntervalSince(target) > 30 * 60
+    }
+    
+    /// 是否為跨午夜或超過就寢目標 30 分鐘的熬夜晚睡
     var isLateNightBedtime: Bool {
-        let hour = Calendar.current.component(.hour, from: bedtime)
-        return hour >= 0 && hour < 5
+        isLateNight()
     }
     
     /// 跨日日期範圍顯示 (例：10/16 晚 ～ 10/17 晨 或 10/16 晚 (熬夜) ～ 10/17 晨)
@@ -127,14 +158,18 @@ struct SleepLog: Identifiable, Codable, Equatable {
             }
             let nightStart = calendar.startOfDay(for: logicalNight)
             
+            // 就寢目標：設為當晚 23:00
+            let scheduledBed = calendar.date(bySettingHour: 23, minute: 0, second: 0, of: nightStart) ?? nightStart
+            
             // 入睡時間：設在當晚 23:15 (其中一天設為熬夜 01:15 測試)
             let isLateNightSample = (dayOffset == 2)
             let bed: Date
             if isLateNightSample {
-                // 熬夜：隔日凌晨 01:15
+                // 熬夜：隔日凌晨 01:15 (比 23:00 晚超過 30 分鐘)
                 let nextMorning = calendar.date(byAdding: .day, value: 1, to: nightStart) ?? nightStart
                 bed = calendar.date(bySettingHour: 1, minute: 15, second: 0, of: nextMorning) ?? nextMorning
             } else {
+                // 正常入睡：23:15 (比 23:00 晚 15 分鐘，小於 30 分鐘不判定熬夜)
                 bed = calendar.date(bySettingHour: 23, minute: 15, second: 0, of: nightStart) ?? nightStart
             }
             
@@ -158,6 +193,7 @@ struct SleepLog: Identifiable, Codable, Equatable {
                 bedtime: bed,
                 wakeTime: wake,
                 scheduledWakeTime: wake,
+                scheduledBedtime: scheduledBed,
                 rating: rating,
                 isSnoozed: isSnooze,
                 snoozeMinutes: isSnooze ? 15 : 0,

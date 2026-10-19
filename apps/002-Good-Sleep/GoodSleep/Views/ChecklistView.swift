@@ -1,5 +1,20 @@
 import SwiftUI
 
+/// 「睡眠引導」子分類（白噪音 vs 冥想引導）
+enum GuidanceCategory: String, CaseIterable, Identifiable {
+    case whiteNoise = "白噪音"
+    case meditation = "冥想引導"
+    
+    var id: String { rawValue }
+    
+    var icon: String {
+        switch self {
+        case .whiteNoise: return "waveform"
+        case .meditation: return "figure.mind.and.body"
+        }
+    }
+}
+
 /// 睡前主題專區：睡眠引導、好睡清單與科學入睡
 struct ChecklistView: View {
     @ObservedObject var store: SleepStore
@@ -78,20 +93,6 @@ struct ChecklistView: View {
             case .sleepGuidance: return "助眠白噪音與冥想呼吸引導"
             case .sleepChecklist: return "5 項睡前黃金避坑檢核清單"
             case .scienceSleep: return "史丹佛醫學與咖啡因代謝研究"
-            }
-        }
-    }
-    
-    enum GuidanceCategory: String, CaseIterable, Identifiable {
-        case whiteNoise = "白噪音"
-        case meditation = "冥想引導"
-        
-        var id: String { rawValue }
-        
-        var icon: String {
-            switch self {
-            case .whiteNoise: return "waveform"
-            case .meditation: return "figure.mind.and.body"
             }
         }
     }
@@ -315,11 +316,16 @@ struct ChecklistView: View {
     // 白噪音細分子區塊
     private var whiteNoiseSubcategoryView: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
+            HStack(spacing: 8) {
                 Text("🌙 助眠微音效 (低頻白噪音)")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(SleepTheme.textSecondary)
+                
                 Spacer()
+                
+                // 定時按鈕 (5 / 15 / 30 分鐘 / 結束時停止)
+                SleepTimerMenu()
+                
                 if soundManager.isPlaying {
                     Button("停止播放") {
                         soundManager.stop()
@@ -367,9 +373,17 @@ struct ChecklistView: View {
     // 冥想引導細分子區塊 (含 4-7-8 呼吸互動器與漸進式放鬆)
     private var meditationSubcategoryView: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("🧘 睡前放鬆與身心調息")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(SleepTheme.textSecondary)
+            HStack {
+                Text("🧘 睡前放鬆與身心調息")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(SleepTheme.textSecondary)
+                
+                Spacer()
+                
+                if soundManager.isPlaying || soundManager.activeTimerOption != .off {
+                    SleepTimerMenu()
+                }
+            }
             
             // 4-7-8 呼吸練習器
             BreathingCard()
@@ -762,7 +776,7 @@ struct ScienceArticle: Identifiable, Equatable {
 }
 
 // MARK: - 互動式 4-7-8 呼吸小卡片
-private struct BreathingCard: View {
+struct BreathingCard: View {
     @State private var isActive: Bool = false
     @State private var phase: Phase = .ready
     @State private var secondsRemaining: Int = 4
@@ -911,3 +925,100 @@ private struct BreathingCard: View {
         timer = nil
     }
 }
+
+// MARK: - 助眠聲景定時關閉選單按鈕 (5 / 15 / 30 分鐘 / 內容結束時停止)
+struct SleepTimerMenu: View {
+    @ObservedObject var soundManager = SoundManager.shared
+    
+    var body: some View {
+        Menu {
+            Section("定時關閉助眠聲景") {
+                Button {
+                    soundManager.setSleepTimer(.minutes(5))
+                    #if canImport(UIKit)
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    #endif
+                } label: {
+                    timerMenuItemLabel(title: "5 分鐘", isSelected: soundManager.activeTimerOption == .minutes(5))
+                }
+                
+                Button {
+                    soundManager.setSleepTimer(.minutes(15))
+                    #if canImport(UIKit)
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    #endif
+                } label: {
+                    timerMenuItemLabel(title: "15 分鐘", isSelected: soundManager.activeTimerOption == .minutes(15))
+                }
+                
+                Button {
+                    soundManager.setSleepTimer(.minutes(30))
+                    #if canImport(UIKit)
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    #endif
+                } label: {
+                    timerMenuItemLabel(title: "30 分鐘", isSelected: soundManager.activeTimerOption == .minutes(30))
+                }
+                
+                Button {
+                    soundManager.setSleepTimer(.endOfTrack)
+                    #if canImport(UIKit)
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    #endif
+                } label: {
+                    timerMenuItemLabel(title: "內容結束時停止播放", isSelected: soundManager.activeTimerOption == .endOfTrack)
+                }
+            }
+            
+            if soundManager.activeTimerOption != .off {
+                Section {
+                    Button(role: .destructive) {
+                        soundManager.setSleepTimer(.off)
+                        #if canImport(UIKit)
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        #endif
+                    } label: {
+                        Label("關閉定時器", systemImage: "timer.slash")
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: soundManager.activeTimerOption != .off ? "timer.circle.fill" : "timer")
+                    .font(.system(size: 11, weight: .semibold))
+                
+                Text(buttonTitle)
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundColor(soundManager.activeTimerOption != .off ? SleepTheme.accent : SleepTheme.textSecondary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(soundManager.activeTimerOption != .off ? SleepTheme.accent.opacity(0.18) : SleepTheme.surfaceSecondary)
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(soundManager.activeTimerOption != .off ? SleepTheme.accent.opacity(0.4) : Color.clear, lineWidth: 1)
+            )
+        }
+    }
+    
+    private var buttonTitle: String {
+        if soundManager.activeTimerOption == .off {
+            return "定時"
+        }
+        if soundManager.isPlaying && !soundManager.remainingTimerFormatted.isEmpty {
+            return soundManager.remainingTimerFormatted
+        }
+        return soundManager.activeTimerOption.title
+    }
+    
+    @ViewBuilder
+    private func timerMenuItemLabel(title: String, isSelected: Bool) -> some View {
+        if isSelected {
+            Label(title, systemImage: "checkmark")
+        } else {
+            Text(title)
+        }
+    }
+}
+
