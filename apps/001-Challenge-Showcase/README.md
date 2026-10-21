@@ -114,5 +114,6 @@ pnpm preview
 
 | Agent 名稱 | 目前階段 | 最近完成 | 下一步 | 備註（問題） |
 | :--- | :--- | :--- | :--- | :--- |
+| Antigravity | 功能優化 | 動態自檔案路徑解析子專案真實資料夾目錄，修復「在 GitHub 查看原始檔案」404 連結問題 | 推進後續子應用開發與展示整合 | 通過 Vite 打包測試與 GitHub URL 驗證 |
 | Antigravity | 功能優化 | 支援多圖截圖輪播與燈箱放大預覽 (ImagePreviewModal)、手機直式 9:19.5 擬真框與氛圍柔光、default.svg 預設封面、資源精準隔離 | 推進後續子應用開發與展示整合 | 通過 Vite 打包測試與本機驗證 |
 | Antigravity | MVP 完成 | 001 Showcase 整合 Supabase 全網統計：實作即時愛心與瀏覽人次持久化 RPC 架構、支援免設定 LocalStorage 平滑降級機制 | 待使用者填入 Supabase 專案金鑰並執行 SQL 建立 app_stats 表格 | 專案建置正常，開發伺服器運行於 http://localhost:5173 |
