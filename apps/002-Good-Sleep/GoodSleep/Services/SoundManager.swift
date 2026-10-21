@@ -405,7 +405,7 @@ final class SoundManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 private enum SoundGenerator {
     static func createWavData(for type: SoundManager.SoundType) -> Data {
         let sampleRate: Double = 22050.0
-        let duration: Double = 5.0
+        let duration: Double = 60.0 // 擴展為 60 秒完整長度立體聲聲景
         let totalSamples = Int(sampleRate * duration)
         
         var left = [Float](repeating: 0.0, count: totalSamples)
@@ -413,17 +413,17 @@ private enum SoundGenerator {
         
         switch type {
         case .rain:
-            generateRain(left: &left, right: &right, total: totalSamples)
+            generateRain(left: &left, right: &right, total: totalSamples, sampleRate: sampleRate)
         case .ocean:
             generateOcean(left: &left, right: &right, total: totalSamples, sampleRate: sampleRate)
         case .wind:
             generateWind(left: &left, right: &right, total: totalSamples, sampleRate: sampleRate)
         case .whiteNoise:
-            generateWhiteNoise(left: &left, right: &right, total: totalSamples)
+            generateWhiteNoise(left: &left, right: &right, total: totalSamples, sampleRate: sampleRate)
         }
         
-        // 頭尾平滑餘弦交叉淡入淡出 (Crossfade 0.25 秒)，徹底消除循環邊界爆音
-        let fadeSamples = Int(sampleRate * 0.25)
+        // 頭尾平滑餘弦交叉淡入淡出 (Crossfade 2.0 秒)，徹底消除循環邊界爆音與重複感
+        let fadeSamples = Int(sampleRate * 2.0)
         for i in 0..<fadeSamples {
             let t = Float(i) / Float(fadeSamples)
             let fadeOut = 0.5 * (1.0 + cos(Float.pi * t))
@@ -442,78 +442,103 @@ private enum SoundGenerator {
         return encodeWav(left: left, right: right, sampleRate: Int(sampleRate))
     }
     
-    // 雨夜窗台：粉紅噪音基底 + 輕微隨機雨滴脈衝
-    private static func generateRain(left: inout [Float], right: inout [Float], total: Int) {
+    // 雨夜窗台：粉紅噪音基底 + 隨機雨滴輕擊 + 緩慢雨勢變化
+    private static func generateRain(left: inout [Float], right: inout [Float], total: Int, sampleRate: Double) {
         var lastL: Float = 0.0
         var lastR: Float = 0.0
+        let swellPeriod = sampleRate * 28.0
         
         for i in 0..<total {
             let whiteL = Float.random(in: -1.0...1.0)
             let whiteR = Float.random(in: -1.0...1.0)
-            lastL = (lastL * 0.88) + (whiteL * 0.12)
-            lastR = (lastR * 0.88) + (whiteR * 0.12)
+            lastL = (lastL * 0.86) + (whiteL * 0.14)
+            lastR = (lastR * 0.86) + (whiteR * 0.14)
             
-            var drop: Float = 0.0
-            if Int.random(in: 0...120) == 0 {
-                drop = Float.random(in: -0.15...0.15)
+            // 雨勢微動態起伏
+            let intensity = Float(0.75 + 0.25 * sin(Double(i) / swellPeriod * 2.0 * .pi))
+            
+            var dropL: Float = 0.0
+            var dropR: Float = 0.0
+            if Int.random(in: 0...90) == 0 {
+                let dropVal = Float.random(in: -0.16...0.16)
+                dropL = dropVal
+                dropR = dropVal * Float.random(in: 0.6...1.2)
             }
             
-            left[i] = (lastL * 0.6 + drop) * 0.7
-            right[i] = (lastR * 0.6 - drop * 0.6) * 0.7
+            left[i] = ((lastL * 0.65) * intensity + dropL) * 0.72
+            right[i] = ((lastR * 0.65) * intensity + dropR) * 0.72
         }
     }
     
-    // 寧靜潮汐：深層褐噪 + 4.5秒週期呼吸湧動
+    // 寧靜潮汐：深層褐噪 + 多重諧波潮湧起伏 (自然大浪與碎波)
     private static func generateOcean(left: inout [Float], right: inout [Float], total: Int, sampleRate: Double) {
         var brownL: Float = 0.0
         var brownR: Float = 0.0
-        let period = sampleRate * 4.5
+        let period1 = sampleRate * 9.5   // 主要潮浪週期 ~9.5秒
+        let period2 = sampleRate * 14.8  // 次要深層暗湧 ~14.8秒
+        let period3 = sampleRate * 24.0  // 長週期潮汐呼吸 ~24秒
         
         for i in 0..<total {
             let whiteL = Float.random(in: -1.0...1.0)
             let whiteR = Float.random(in: -1.0...1.0)
-            brownL = (brownL + (0.05 * whiteL)) / 1.05
-            brownR = (brownR + (0.05 * whiteR)) / 1.05
+            brownL = (brownL + (0.045 * whiteL)) / 1.045
+            brownR = (brownR + (0.045 * whiteR)) / 1.045
             
-            let phase = Double(i) / period * 2.0 * .pi
-            let surge = Float(0.28 + 0.72 * pow(sin(phase), 2.0))
+            let phase1 = Double(i) / period1 * 2.0 * .pi
+            let phase2 = Double(i) / period2 * 2.0 * .pi
+            let phase3 = Double(i) / period3 * 2.0 * .pi
             
-            left[i] = brownL * surge * 1.5
-            right[i] = brownR * surge * 1.5
+            let wave1 = pow(sin(phase1), 2.0)
+            let wave2 = 0.5 * (1.0 + sin(phase2))
+            let wave3 = 0.5 * (1.0 + sin(phase3))
+            
+            let surge = Float(0.25 + 0.45 * wave1 + 0.20 * wave2 + 0.10 * wave3)
+            
+            left[i] = brownL * surge * 1.6
+            right[i] = brownR * surge * (0.92 + 0.08 * Float(wave2)) * 1.6
         }
     }
     
-    // 深山晚風：低頻雙重濾波 + 緩慢起伏的自然微風
+    // 深山晚風：低頻雙重濾波 + 緩慢多層次山谷微風起伏
     private static func generateWind(left: inout [Float], right: inout [Float], total: Int, sampleRate: Double) {
         var lowL: Float = 0.0
         var lowR: Float = 0.0
-        let period = sampleRate * 5.0
+        let period1 = sampleRate * 12.0
+        let period2 = sampleRate * 21.0
+        let period3 = sampleRate * 37.0
         
         for i in 0..<total {
             let whiteL = Float.random(in: -1.0...1.0)
             let whiteR = Float.random(in: -1.0...1.0)
-            lowL = (lowL * 0.95) + (whiteL * 0.05)
-            lowR = (lowR * 0.95) + (whiteR * 0.05)
+            lowL = (lowL * 0.94) + (whiteL * 0.06)
+            lowR = (lowR * 0.94) + (whiteR * 0.06)
             
-            let gust = Float(0.45 + 0.55 * (0.5 + 0.5 * sin(Double(i) / period * 2.0 * .pi)))
-            left[i] = lowL * gust * 2.2
-            right[i] = lowR * (0.85 + 0.15 * gust) * 2.2
+            let gust1 = 0.5 + 0.5 * sin(Double(i) / period1 * 2.0 * .pi)
+            let gust2 = 0.5 + 0.5 * sin(Double(i) / period2 * 2.0 * .pi)
+            let gust3 = 0.5 + 0.5 * sin(Double(i) / period3 * 2.0 * .pi)
+            
+            let totalGust = Float(0.35 + 0.35 * gust1 + 0.20 * gust2 + 0.10 * gust3)
+            left[i] = lowL * totalGust * 2.3
+            right[i] = lowR * (0.8 + 0.2 * totalGust) * 2.3
         }
     }
     
-    // 溫柔白噪：柔和全頻遮蔽聲，去除刺耳高頻
-    private static func generateWhiteNoise(left: inout [Float], right: inout [Float], total: Int) {
+    // 溫柔白噪：柔和全頻深層遮蔽聲，去除刺耳高頻，平穩持久
+    private static func generateWhiteNoise(left: inout [Float], right: inout [Float], total: Int, sampleRate: Double) {
         var smoothL: Float = 0.0
         var smoothR: Float = 0.0
+        let driftPeriod = sampleRate * 30.0
         
         for i in 0..<total {
             let whiteL = Float.random(in: -1.0...1.0)
             let whiteR = Float.random(in: -1.0...1.0)
-            smoothL = (smoothL * 0.72) + (whiteL * 0.28)
-            smoothR = (smoothR * 0.72) + (whiteR * 0.28)
+            smoothL = (smoothL * 0.75) + (whiteL * 0.25)
+            smoothR = (smoothR * 0.75) + (whiteR * 0.25)
             
-            left[i] = smoothL * 0.32
-            right[i] = smoothR * 0.32
+            // 輕微立體聲呼吸漂移，防止聽覺麻木疲乏
+            let panDrift = Float(0.95 + 0.05 * sin(Double(i) / driftPeriod * 2.0 * .pi))
+            left[i] = smoothL * 0.35 * panDrift
+            right[i] = smoothR * 0.35 * (2.0 - panDrift)
         }
     }
     

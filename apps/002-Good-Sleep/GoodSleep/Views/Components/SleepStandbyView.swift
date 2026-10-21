@@ -237,37 +237,44 @@ struct SleepStandbyView: View {
             HStack(spacing: 5) {
                 Image(systemName: store.alarmSetting.isEnabled ? "bell.fill" : "bell.slash")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(SleepTheme.accent)
-                Text("預計鬧鐘響起")
+                    .foregroundColor(store.alarmSetting.isEnabled ? SleepTheme.accent : .yellow)
+                Text(store.alarmSetting.isEnabled ? "預計鬧鐘響起" : "鬧鐘已關閉")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(SleepTheme.textSecondary)
+                    .foregroundColor(store.alarmSetting.isEnabled ? SleepTheme.textSecondary : .yellow)
             }
-            
-            // 稍大字樣：顯示鬧鐘響起時間
-            Text(alarmTimeStr)
-                .font(.system(size: 48, weight: .bold, design: .rounded))
-                .foregroundColor(SleepTheme.moonGlow)
-                .tracking(1.5)
-                .shadow(color: SleepTheme.accent.opacity(0.22), radius: 10, x: 0, y: 4)
-            
-            // 較小字樣：顯示「倒數 XX:XX」距離預計起床時間的倒計時
-            HStack(spacing: 6) {
-                Image(systemName: "hourglass")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(SleepTheme.calmTeal)
-                Text("倒數 \(countdownStr)")
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundColor(SleepTheme.calmTeal)
-                    .monospacedDigit()
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
-            .background(SleepTheme.calmTeal.opacity(0.12))
+            .padding(.horizontal, store.alarmSetting.isEnabled ? 0 : 14)
+            .padding(.vertical, store.alarmSetting.isEnabled ? 0 : 6)
+            .background(store.alarmSetting.isEnabled ? Color.clear : Color.yellow.opacity(0.12))
             .clipShape(Capsule())
-            .overlay(
-                Capsule()
-                    .stroke(SleepTheme.calmTeal.opacity(0.28), lineWidth: 1)
-            )
+            
+            // 只有在鬧鐘開啟時，才顯示預計起床時間與倒計時膠囊
+            if store.alarmSetting.isEnabled {
+                // 稍大字樣：顯示鬧鐘響起時間
+                Text(alarmTimeStr)
+                    .font(.system(size: 48, weight: .bold, design: .rounded))
+                    .foregroundColor(SleepTheme.moonGlow)
+                    .tracking(1.5)
+                    .shadow(color: SleepTheme.accent.opacity(0.22), radius: 10, x: 0, y: 4)
+                
+                // 較小字樣：顯示「倒數 XX:XX」距離預計起床時間的倒計時
+                HStack(spacing: 6) {
+                    Image(systemName: "hourglass")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(SleepTheme.calmTeal)
+                    Text("倒數 \(countdownStr)")
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundColor(SleepTheme.calmTeal)
+                        .monospacedDigit()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(SleepTheme.calmTeal.opacity(0.12))
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .stroke(SleepTheme.calmTeal.opacity(0.28), lineWidth: 1)
+                )
+            }
         }
     }
     
@@ -333,7 +340,7 @@ struct SleepStandbyView: View {
                 }
             }
             
-            // 下排：4. 「長按取消」（防誤觸按住 1.2 秒進度填滿後取消睡眠）
+            // 下排：4. 「長按取消」（防誤觸按住 600ms 進度填滿後取消睡眠）
             longPressCancelButton
         }
         .padding(14)
@@ -390,7 +397,7 @@ struct SleepStandbyView: View {
         .buttonStyle(.plain)
     }
     
-    /// 長按取消按鈕（按住 1.2 秒填滿進度條才觸發取消，防止夜間誤觸）
+    /// 長按取消按鈕（按住 600ms 填滿進度條才觸發取消，防止夜間誤觸）
     private var longPressCancelButton: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
@@ -443,7 +450,7 @@ struct SleepStandbyView: View {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         #endif
         
-        let step: CGFloat = 0.03 / 1.2
+        let step: CGFloat = 0.03 / 0.6
         cancelHoldTask?.cancel()
         cancelHoldTask = Task { @MainActor in
             while !Task.isCancelled && isPressingCancel {

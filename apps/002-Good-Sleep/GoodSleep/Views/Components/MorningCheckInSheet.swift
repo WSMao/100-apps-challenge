@@ -21,6 +21,10 @@ struct MorningCheckInSheet: View {
         _note = State(initialValue: store.todayLog?.note ?? "")
     }
     
+    private var isTimeRangeValid: Bool {
+        bedtime < wakeTime
+    }
+    
     private var targetNightString: String {
         let f = DateFormatter()
         f.dateFormat = "M/d"
@@ -113,6 +117,22 @@ struct MorningCheckInSheet: View {
                             .padding(16)
                             .background(SleepTheme.surface)
                             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            
+                            // 防呆驗證提示：入睡時間晚於或等於醒來時間
+                            if !isTimeRangeValid {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .font(.system(size: 13))
+                                    Text("入睡時間不能晚於或等於醒來時間")
+                                        .font(.system(size: 13, weight: .semibold))
+                                }
+                                .foregroundColor(SleepTheme.warning)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(SleepTheme.warning.opacity(0.12))
+                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            }
                         }
                         
                         // 3. 賴床檢測
@@ -200,6 +220,7 @@ struct MorningCheckInSheet: View {
                         
                         // 保存完成按鈕
                         Button {
+                            guard isTimeRangeValid else { return }
                             store.recordMorningWakeUp(
                                 bedtime: bedtime,
                                 wakeTime: wakeTime,
@@ -216,10 +237,11 @@ struct MorningCheckInSheet: View {
                                 .foregroundColor(Color(hex: "0B0E14"))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 16)
-                                .background(SleepTheme.accent)
+                                .background(isTimeRangeValid ? SleepTheme.accent : SleepTheme.accent.opacity(0.35))
                                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                                .shadow(color: SleepTheme.accent.opacity(0.3), radius: 10, y: 4)
+                                .shadow(color: isTimeRangeValid ? SleepTheme.accent.opacity(0.3) : Color.clear, radius: 10, y: 4)
                         }
+                        .disabled(!isTimeRangeValid)
                         .padding(.top, 10)
                         .padding(.bottom, 30)
                     }

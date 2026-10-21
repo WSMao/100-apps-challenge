@@ -628,10 +628,12 @@ struct TodayView: View {
     }
     
     private func applyAlarmSettingsOnSleepStart() {
-        var setting = store.alarmSetting
-        setting.isEnabled = true
-        store.saveAlarmSetting(setting)
-        NotificationManager.shared.scheduleWakeAlarm(setting: setting)
+        let setting = store.alarmSetting
+        if setting.isEnabled {
+            NotificationManager.shared.scheduleWakeAlarm(setting: setting)
+        } else {
+            NotificationManager.shared.cancelWakeAlarm()
+        }
     }
 }
 
