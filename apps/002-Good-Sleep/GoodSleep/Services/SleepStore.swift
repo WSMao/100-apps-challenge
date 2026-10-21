@@ -319,10 +319,31 @@ final class SleepStore: ObservableObject {
         return total / sleepHistory.count
     }
     
+    var snoozeCount: Int {
+        sleepHistory.filter { $0.isSnoozed }.count
+    }
+    
     var snoozeRate: Double {
         guard !sleepHistory.isEmpty else { return 0 }
-        let count = sleepHistory.filter { $0.isSnoozed }.count
-        return (Double(count) / Double(sleepHistory.count)) * 100
+        return (Double(snoozeCount) / Double(sleepHistory.count)) * 100
+    }
+    
+    var lateNightCount: Int {
+        sleepHistory.filter { $0.isLateNight(fallbackTarget: alarmSetting.targetBedtime) }.count
+    }
+    
+    var lateNightRate: Double {
+        guard !sleepHistory.isEmpty else { return 0 }
+        return (Double(lateNightCount) / Double(sleepHistory.count)) * 100
+    }
+    
+    func ratingCount(for rating: SleepRating) -> Int {
+        sleepHistory.filter { $0.rating == rating }.count
+    }
+    
+    func ratingPercentage(for rating: SleepRating) -> Double {
+        guard !sleepHistory.isEmpty else { return 0.0 }
+        return (Double(ratingCount(for: rating)) / Double(sleepHistory.count)) * 100.0
     }
 }
 
