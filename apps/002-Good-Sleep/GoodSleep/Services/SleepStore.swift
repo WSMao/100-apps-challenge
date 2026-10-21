@@ -51,7 +51,8 @@ final class SleepStore: ObservableObject {
         // 載入睡眠歷史
         if let data = UserDefaults.standard.data(forKey: historyKey),
            let history = try? JSONDecoder().decode([SleepLog].self, from: data) {
-            self.sleepHistory = history
+            // 防呆防護：排除入睡時間晚於或等於醒來時間的異常記錄
+            self.sleepHistory = history.filter { $0.bedtime < $0.wakeTime }
         } else {
             self.sleepHistory = SleepLog.mockHistory
         }
@@ -176,29 +177,13 @@ final class SleepStore: ObservableObject {
         UserDefaults.standard.set(true, forKey: isSleepingKey)
         UserDefaults.standard.set(time, forKey: ongoingBedtimeKey)
         UserDefaults.standard.set(self.pendingBedtimeNote, forKey: pendingBedtimeNoteKey)
-        
-        // 若該邏輯睡眠夜已有記錄，同步更新入睡時間與睡前筆記
-        let targetNight = SleepStore.logicalSleepDate(for: time)
-        let calendar = Calendar.current
-        if let index = sleepHistory.firstIndex(where: { calendar.startOfDay(for: $0.date) == targetNight }) {
-            sleepHistory[index].bedtime = time
-            if !self.pendingBedtimeNote.isEmpty {
-                sleepHistory[index].bedtimeNote = self.pendingBedtimeNote
-            }
-            saveHistory()
-        }
+        // 注意：開始睡眠僅記錄進行中睡眠狀態，絕不寫入或修改 completed sleepHistory，避免未打卡或取消睡眠時殘留異常記錄
     }
     
     func saveBedtimeNote(_ note: String) {
         self.pendingBedtimeNote = note
         UserDefaults.standard.set(note, forKey: pendingBedtimeNoteKey)
-        
-        let targetNight = SleepStore.logicalSleepDate(for: ongoingBedtime ?? Date())
-        let calendar = Calendar.current
-        if let index = sleepHistory.firstIndex(where: { calendar.startOfDay(for: $0.date) == targetNight }) {
-            sleepHistory[index].bedtimeNote = note
-            saveHistory()
-        }
+        // 睡前筆記儲存於進行中狀態，待晨醒打卡時一併寫入歷史記錄
     }
     
     func clearSleepingState() {
@@ -210,7 +195,7 @@ final class SleepStore: ObservableObject {
         UserDefaults.standard.removeObject(forKey: pendingBedtimeNoteKey)
     }
     
-    /// 取消本次睡眠：清除正在睡眠狀態並取消單次鬧鐘（若開啟循環鬧鐘則維持每日鬧鐘）
+    /// 取消本次睡眠：清除正在睡眠狀態並取消單次鬧鐘（若開啟循環鬧鐘則維持每日鬧鐘），絕不產生任何睡眠記錄
     func cancelSleep() {
         clearSleepingState()
         if alarmSetting.isEnabled && alarmSetting.isRepeatingAlarm {
@@ -229,6 +214,11 @@ final class SleepStore: ObservableObject {
         note: String,
         bedtimeNote: String = ""
     ) {
+        // 防呆防護：入睡時間必須早於醒來時間
+        guard wakeTime > bedtime else {
+            return
+        }
+        
         let finalBedtimeNote = !bedtimeNote.isEmpty ? bedtimeNote : pendingBedtimeNote
         let logicalDate = SleepStore.logicalSleepDate(for: bedtime)
         
@@ -272,6 +262,9 @@ final class SleepStore: ObservableObject {
     
     // MARK: - 睡眠紀錄新增、更新與刪除
     func addSleepLog(_ log: SleepLog) {
+        // 防呆防護：入睡時間必須早於醒來時間
+        guard log.wakeTime > log.bedtime else { return }
+        
         var adjustedLog = log
         adjustedLog.date = SleepStore.logicalSleepDate(for: log.bedtime)
         let calendar = Calendar.current
@@ -286,6 +279,9 @@ final class SleepStore: ObservableObject {
     }
     
     func updateSleepLog(_ log: SleepLog) {
+        // 防呆防護：入睡時間必須早於醒來時間
+        guard log.wakeTime > log.bedtime else { return }
+        
         var adjustedLog = log
         adjustedLog.date = SleepStore.logicalSleepDate(for: log.bedtime)
         if let index = sleepHistory.firstIndex(where: { $0.id == log.id }) {

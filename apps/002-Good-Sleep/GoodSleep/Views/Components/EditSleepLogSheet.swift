@@ -99,6 +99,10 @@ struct EditSleepLogSheet: View {
         _bedtimeNote = State(initialValue: initialBedtimeNote)
     }
     
+    private var isTimeRangeValid: Bool {
+        bedtime < wakeTime
+    }
+    
     var body: some View {
         NavigationStack {
             ZStack {
@@ -192,6 +196,22 @@ struct EditSleepLogSheet: View {
                             .padding(14)
                             .background(SleepTheme.surface)
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            
+                            // 防呆驗證提示：入睡時間晚於或等於醒來時間
+                            if !isTimeRangeValid {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .font(.system(size: 13))
+                                    Text("入睡時間不能晚於或等於醒來時間")
+                                        .font(.system(size: 13, weight: .semibold))
+                                }
+                                .foregroundColor(SleepTheme.warning)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(SleepTheme.warning.opacity(0.12))
+                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            }
                         }
                         
                         // 3. 賴床狀況 (由醒來時間與鬧鐘時間自動換算時長)
@@ -256,9 +276,10 @@ struct EditSleepLogSheet: View {
                                     .foregroundColor(Color(hex: "0B0E14"))
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 14)
-                                    .background(SleepTheme.accent)
+                                    .background(isTimeRangeValid ? SleepTheme.accent : SleepTheme.accent.opacity(0.35))
                                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                             }
+                            .disabled(!isTimeRangeValid)
                             
                             if isEditing, let log = originalLog {
                                 Button(role: .destructive) {
@@ -306,6 +327,7 @@ struct EditSleepLogSheet: View {
     }
     
     private func saveAction() {
+        guard isTimeRangeValid else { return }
         let finalSnoozeMinutes = isSnoozed ? (originalLog?.snoozeMinutes ?? 15) : 0
         
         if isMorningCheckInMode {

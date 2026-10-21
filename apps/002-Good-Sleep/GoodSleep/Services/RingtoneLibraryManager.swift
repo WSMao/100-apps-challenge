@@ -272,14 +272,20 @@ final class RingtoneLibraryManager: ObservableObject {
         }
         
         let sampleRate: Double = 44100.0
+        let ringtonesVersionKey = "goodsleep.builtInRingtones.v2"
+        let isVersionCurrent = UserDefaults.standard.bool(forKey: ringtonesVersionKey)
         
         for ringtone in BuiltInRingtone.allCases where ringtone != .morningChime {
             let targetURL = dirURL.appendingPathComponent(ringtone.fileName)
-            guard !FileManager.default.fileExists(atPath: targetURL.path) else { continue }
+            if isVersionCurrent && FileManager.default.fileExists(atPath: targetURL.path) {
+                continue
+            }
             
             let (left, right) = generateSamples(for: ringtone, sampleRate: sampleRate)
             try? writeCAFFile(to: targetURL, left: left, right: right, sampleRate: sampleRate)
         }
+        
+        UserDefaults.standard.set(true, forKey: ringtonesVersionKey)
     }
     
     nonisolated private static func generateSamples(
@@ -297,7 +303,9 @@ final class RingtoneLibraryManager: ObservableObject {
             
         case .singingBowl:
             // 西藏頌缽泛音：432Hz 基頻 + 泛音共振，每 8 秒一次溫柔敲擊與綿長餘韻
-            let strikeTimes: [Double] = [0.1, 8.1]
+            // 在 16 秒的循環中，敲擊安排在 2.0s 與 10.0s（精準 8.0 秒間隔）
+            // 透過疊加前一週期敲擊 (-14.0s, -6.0s) 的持續餘波，讓 t=0.0s 與 t=16.0s 的波形、振幅與諧波相位無縫接軌
+            let strikeTimes: [Double] = [-14.0, -6.0, 2.0, 10.0]
             for i in 0..<totalSamples {
                 let t = Double(i) / sampleRate
                 var sampleL: Double = 0.0
@@ -311,11 +319,15 @@ final class RingtoneLibraryManager: ObservableObject {
                     let env2 = attack * exp(-dt * 0.55)
                     let env3 = attack * exp(-dt * 0.95)
                     
-                    // 432Hz 基音 + 微雙耳拍頻 (432.5Hz) + 頌缽泛音 (2.0x, 2.76x)
+                    // 頻率經過 8.0 秒整數週期精確微調，確保循環接縫處相位零跳變：
+                    // 432.0 Hz * 8.0 = 3456 個整數週期
+                    // 432.25 Hz * 8.0 = 3458 個整數週期 (雙耳拍頻 0.25Hz，4秒呼吸感)
+                    // 864.0 Hz * 8.0 = 6912 個整數週期 (二倍頻)
+                    // 1192.5 Hz * 8.0 = 9540 個整數週期 (泛音)
                     let f1L = sin(2.0 * .pi * 432.0 * dt) * env1 * 0.48
-                    let f1R = sin(2.0 * .pi * 432.6 * dt) * env1 * 0.48
+                    let f1R = sin(2.0 * .pi * 432.25 * dt) * env1 * 0.48
                     let f2 = sin(2.0 * .pi * 864.0 * dt) * env2 * 0.22
-                    let f3 = sin(2.0 * .pi * 1192.3 * dt) * env3 * 0.10
+                    let f3 = sin(2.0 * .pi * 1192.5 * dt) * env3 * 0.10
                     
                     sampleL += f1L + f2 + f3
                     sampleR += f1R + f2 * 0.95 + f3
