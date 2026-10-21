@@ -3,7 +3,7 @@ import SwiftUI
 /// 全螢幕「睡覺貓頭鷹」睡眠待機畫面
 /// - 顯示較大字樣的鬧鐘響起時間，與較小字樣的「倒數 XX:XX」預計起床倒計時
 /// - 中央呈現純 SwiftUI 睡覺貓頭鷹動畫，點擊貓頭鷹可展開/收合四合一功能選單：
-///   「引導睡眠」、「即時紀錄」、「早起打卡」、「長按取消」
+///   「引導睡眠」、「即時紀錄」、「起床打卡」、「長按取消」
 struct SleepStandbyView: View {
     @ObservedObject var store: SleepStore
     @ObservedObject private var soundManager = SoundManager.shared
@@ -302,7 +302,7 @@ struct SleepStandbyView: View {
     
     private var owlActionMenu: some View {
         VStack(spacing: 12) {
-            // 上排：「引導睡眠」、「即時紀錄」、「早起打卡」
+            // 上排：「引導睡眠」、「即時紀錄」、「起床打卡」
             HStack(spacing: 10) {
                 // 1. 引導睡眠
                 menuActionButton(
@@ -328,9 +328,9 @@ struct SleepStandbyView: View {
                     }
                 }
                 
-                // 3. 早起打卡
+                // 3. 起床打卡
                 menuActionButton(
-                    title: "早起打卡",
+                    title: "起床打卡",
                     subtitle: "醒來完成復盤",
                     icon: "sun.Waze.fill",
                     fallbackIcon: "sun.max.fill",
@@ -871,7 +871,7 @@ struct SleepStandbyView: View {
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { break }
                 
-                // 若正在操作子彈窗（引導睡眠、即時紀錄、早起打卡）或已在晚安道別中，暫停倒數
+                // 若正在操作子彈窗（引導睡眠、即時紀錄、起床打卡）或已在晚安道別中，暫停倒數
                 if showingQuickGuidanceSheet || showingInstantNoteModal || showingMorningCheckInSheet || isShowingGoodNightFarewell {
                     remainingLockSeconds = autoLockTimeoutSeconds
                     continue

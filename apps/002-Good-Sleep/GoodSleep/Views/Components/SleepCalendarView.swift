@@ -5,6 +5,8 @@ struct SleepCalendarView: View {
     @Binding var selectedDate: Date
     @ObservedObject var store: SleepStore
     var onSelectDateWithoutLog: ((Date) -> Void)? = nil
+    var onShowStatistics: (() -> Void)? = nil
+    var onTapToday: (() -> Void)? = nil
     
     enum CalendarScope {
         case week
@@ -52,6 +54,13 @@ struct SleepCalendarView: View {
         }
         .onAppear {
             currentMonth = selectedDate
+        }
+        .onChange(of: selectedDate) { _, newDate in
+            if !calendar.isDate(newDate, equalTo: currentMonth, toGranularity: .month) {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    currentMonth = newDate
+                }
+            }
         }
     }
     
@@ -108,23 +117,39 @@ struct SleepCalendarView: View {
         }
     }
     
-    // MARK: - 頂部日期標題、Today 標籤與日曆圖示按鈕
+    // MARK: - 頂部日期標題、左側統計圖示按鈕、Today 標籤與日曆圖示按鈕
     private var headerView: some View {
-        HStack {
-            // 左側：Today 快速返回標籤 (非今日或正在瀏覽其他月份時顯示)
-            ZStack(alignment: .leading) {
+        HStack(alignment: .center) {
+            // 左側：統計按鈕 (icon) 與 Today 快速返回標籤
+            HStack(spacing: 8) {
+                Button {
+                    onShowStatistics?()
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(SleepTheme.surfaceSecondary)
+                            .frame(width: 34, height: 34)
+                        
+                        Image(systemName: "chart.bar.xaxis")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(SleepTheme.accent)
+                    }
+                }
+                .buttonStyle(.plain)
+                
                 if !calendar.isDateInToday(selectedDate) || !calendar.isDate(currentMonth, equalTo: Date(), toGranularity: .month) {
                     Button {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                             selectedDate = Date()
                             currentMonth = Date()
                         }
+                        onTapToday?()
                     } label: {
                         Text("Today")
-                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
                             .foregroundColor(SleepTheme.accent)
-                            .padding(.horizontal, 11)
-                            .padding(.vertical, 7)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 6)
                             .background(SleepTheme.surfaceSecondary)
                             .clipShape(Capsule())
                     }
@@ -132,33 +157,34 @@ struct SleepCalendarView: View {
                     .transition(.scale.combined(with: .opacity))
                 }
             }
-            .frame(width: 80, alignment: .leading)
-            
-            Spacer()
+            .frame(maxWidth: .infinity, alignment: .leading)
             
             // 中間：選取日期 (若同月份) 或 目前瀏覽年月
             Text(headerTitleString)
-                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .font(.system(size: 17, weight: .bold, design: .rounded))
                 .foregroundColor(SleepTheme.textPrimary)
-            
-            Spacer()
+                .lineLimit(1)
+                .layoutPriority(1)
             
             // 右側：小日曆圖示 (點擊彈出年月快選)
-            Button {
-                showingDatePicker = true
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(SleepTheme.surfaceSecondary)
-                        .frame(width: 34, height: 34)
-                    
-                    Image(systemName: "calendar")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(SleepTheme.accent)
+            HStack {
+                Spacer()
+                Button {
+                    showingDatePicker = true
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(SleepTheme.surfaceSecondary)
+                            .frame(width: 34, height: 34)
+                        
+                        Image(systemName: "calendar")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(SleepTheme.accent)
+                    }
                 }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
-            .frame(width: 80, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
     
