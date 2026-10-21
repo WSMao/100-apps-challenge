@@ -10,6 +10,7 @@ export interface AppManifest {
   demoUrl?: string;
   docUrl?: string;
   coverImage?: string | string[];
+  folderName?: string;
 }
 
 export interface AppFeedback {

@@ -135,6 +135,34 @@ function resolveCoverImages(
 }
 
 /**
+ * 依據 manifest 與 readme 路徑動態解析真實子專案目錄名稱 (如 001-Challenge-Showcase, 002-Good-Sleep)
+ */
+export function extractFolderName(path: string, appId: string): string {
+  // 1. 如果路徑中包含明確的子目錄名，例如 ../../../002-Good-Sleep/app-manifest.json
+  const match = path.match(/\/([^/]+)\/app-manifest\.json$/);
+  if (match && match[1] && match[1] !== '..' && match[1] !== '.') {
+    return match[1];
+  }
+
+  // 2. 如果是 001 Showcase 自身的路徑 (../../app-manifest.json)
+  if (appId === '001') {
+    return '001-Challenge-Showcase';
+  }
+
+  // 3. 容錯回退：從 readmeFiles 路徑中尋找真實目錄名
+  for (const rPath in readmeFiles) {
+    if (rPath.includes(`/${appId}-`) || rPath.includes(`/${appId}/`)) {
+      const rMatch = rPath.match(/\/([^/]+)\/README\.md$/);
+      if (rMatch && rMatch[1]) {
+        return rMatch[1];
+      }
+    }
+  }
+
+  return `${appId}`;
+}
+
+/**
  * 解析所有子應用的 manifest 資料
  */
 export function getAllApps(): AppManifest[] {
@@ -147,8 +175,17 @@ export function getAllApps(): AppManifest[] {
       : rawData) as AppManifest;
 
     if (manifest && manifest.id && manifest.name) {
+      const folderName = extractFolderName(path, manifest.id);
+
+      // 自動解析 GitHub 原始檔案 URL：若已是完整 http 開頭則保留，否則基於真實資料夾動態生成
+      const resolvedDocUrl = manifest.docUrl?.startsWith('http')
+        ? manifest.docUrl
+        : `https://github.com/WSMao/100-apps-challenge/blob/main/apps/${folderName}/${manifest.docUrl || 'README.md'}`;
+
       appMap.set(manifest.id, {
         ...manifest,
+        folderName,
+        docUrl: resolvedDocUrl,
         // 動態解析 Vite 打包後的專屬封面圖路徑（支援單圖或多圖陣列）
         coverImage: resolveCoverImages(manifest.id, manifest.coverImage),
       });
