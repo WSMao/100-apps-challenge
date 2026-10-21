@@ -296,6 +296,11 @@ final class SleepStore: ObservableObject {
         saveHistory()
     }
     
+    func clearAllHistory() {
+        sleepHistory.removeAll()
+        saveHistory()
+    }
+    
     func log(for date: Date) -> SleepLog? {
         let calendar = Calendar.current
         let targetDay = calendar.startOfDay(for: date)

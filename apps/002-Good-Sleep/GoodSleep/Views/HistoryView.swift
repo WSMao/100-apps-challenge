@@ -260,6 +260,7 @@ struct HistoryView: View {
 struct SleepStatsSheet: View {
     @ObservedObject var store: SleepStore
     @Environment(\.dismiss) private var dismiss
+    @State private var showingClearAllAlert: Bool = false
     
     var body: some View {
         NavigationStack {
@@ -279,6 +280,9 @@ struct SleepStatsSheet: View {
                             
                             // 3. 起床精神狀態自評 4 大分類分佈
                             ratingBreakdownCard
+                            
+                            // 4. 危險管理區：清空所有歷史紀錄
+                            clearAllDataButton
                         }
                     }
                     .padding(.horizontal, 16)
@@ -296,7 +300,41 @@ struct SleepStatsSheet: View {
                     .foregroundColor(SleepTheme.accent)
                 }
             }
+            .alert("確定要清空所有歷史紀錄嗎？", isPresented: $showingClearAllAlert) {
+                Button("取消", role: .cancel) { }
+                Button("全部刪除", role: .destructive) {
+                    store.clearAllHistory()
+                    dismiss()
+                }
+            } message: {
+                Text("此操作將永久刪除全部共 \(store.sleepHistory.count) 晚睡眠紀錄，統計數據將重置且無法復原。")
+            }
         }
+    }
+    
+    // MARK: - 清空所有歷史紀錄按鈕
+    private var clearAllDataButton: some View {
+        Button(role: .destructive) {
+            showingClearAllAlert = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "trash")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("清空所有歷史紀錄")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundColor(SleepTheme.warning)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 13)
+            .background(SleepTheme.warning.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(SleepTheme.warning.opacity(0.3), lineWidth: 1)
+            )
+        }
+        .padding(.top, 6)
+        .padding(.bottom, 10)
     }
     
     // MARK: - 空白狀態提示
