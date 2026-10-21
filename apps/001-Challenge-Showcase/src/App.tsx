@@ -186,9 +186,6 @@ export function App() {
     }));
 
     const content = getAppReadme(appId);
-    const githubDocUrl = app.docUrl?.startsWith('http')
-      ? app.docUrl
-      : `https://github.com/WSMao/100-apps-challenge/blob/main/apps/${encodeURIComponent(`${app.id}-${app.name}`)}/README.md`;
 
     setDocModal({
       isOpen: true,
@@ -196,7 +193,7 @@ export function App() {
       appName: app.name,
       content,
       demoUrl: app.demoUrl,
-      docUrl: githubDocUrl,
+      docUrl: app.docUrl,
     });
   };
 
