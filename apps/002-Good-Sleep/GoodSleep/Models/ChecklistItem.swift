@@ -10,9 +10,21 @@ struct ChecklistItem: Identifiable, Codable, Equatable {
     var category: Category
     
     enum Category: String, Codable, CaseIterable {
-        case avoidance = "避坑防範" // 避免刺激物/藍光
-        case environment = "環境調節" // 燈光/溫度
-        case mind = "放鬆靜心"       // 呼吸/伸展
+        case environment = "環境調解"
+        case mind = "放鬆心情"
+        case avoidance = "避坑規範"
+        
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            let raw = try container.decode(String.self)
+            switch raw {
+            case "環境調節", "環境調解": self = .environment
+            case "放鬆靜心", "放鬆心情": self = .mind
+            case "避坑防範", "避坑規範": self = .avoidance
+            default:
+                self = Category(rawValue: raw) ?? .environment
+            }
+        }
     }
     
     static var defaultItems: [ChecklistItem] {
