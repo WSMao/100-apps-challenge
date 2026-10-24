@@ -330,10 +330,14 @@ struct EditSleepLogSheet: View {
         guard isTimeRangeValid else { return }
         let finalSnoozeMinutes = isSnoozed ? (originalLog?.snoozeMinutes ?? 15) : 0
         
+        let cal = Calendar.current
+        let cleanBedtime = cal.date(bySetting: .second, value: 0, of: bedtime) ?? bedtime
+        let cleanWakeTime = cal.date(bySetting: .second, value: 0, of: wakeTime) ?? wakeTime
+        
         if isMorningCheckInMode {
             store.recordMorningWakeUp(
-                bedtime: bedtime,
-                wakeTime: wakeTime,
+                bedtime: cleanBedtime,
+                wakeTime: cleanWakeTime,
                 rating: selectedRating,
                 isSnoozed: isSnoozed,
                 snoozeMinutes: finalSnoozeMinutes,
@@ -347,9 +351,9 @@ struct EditSleepLogSheet: View {
         
         if let original = originalLog {
             var updated = original
-            updated.bedtime = bedtime
-            updated.wakeTime = wakeTime
-            updated.date = SleepStore.logicalSleepDate(for: bedtime)
+            updated.bedtime = cleanBedtime
+            updated.wakeTime = cleanWakeTime
+            updated.date = SleepStore.logicalSleepDate(for: cleanBedtime)
             updated.rating = selectedRating
             updated.isSnoozed = isSnoozed
             updated.snoozeMinutes = finalSnoozeMinutes
@@ -358,9 +362,8 @@ struct EditSleepLogSheet: View {
             store.updateSleepLog(updated)
         } else if let _ = newLogDate {
             let scheduledTime = store.alarmSetting.targetWakeTime
-            let logicalDate = SleepStore.logicalSleepDate(for: bedtime)
+            let logicalDate = SleepStore.logicalSleepDate(for: cleanBedtime)
             
-            let cal = Calendar.current
             let targetBedHour = cal.component(.hour, from: store.alarmSetting.targetBedtime)
             let targetBedMin = cal.component(.minute, from: store.alarmSetting.targetBedtime)
             let scheduledBed: Date
@@ -373,8 +376,8 @@ struct EditSleepLogSheet: View {
             
             let newLog = SleepLog(
                 date: logicalDate,
-                bedtime: bedtime,
-                wakeTime: wakeTime,
+                bedtime: cleanBedtime,
+                wakeTime: cleanWakeTime,
                 scheduledWakeTime: scheduledTime,
                 scheduledBedtime: scheduledBed,
                 rating: selectedRating,

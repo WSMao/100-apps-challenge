@@ -10,6 +10,7 @@ final class NotificationManager: NSObject, ObservableObject {
     static let categoryNoSnooze = "WAKE_ALARM_NO_SNOOZE"
     static let actionSnooze = "SNOOZE_ACTION"
     static let actionStop = "STOP_ACTION"
+    static let morningCheckInReminderID = "morning_checkin_reminder"
     
     @Published var isAuthorized: Bool = false
     
@@ -127,6 +128,41 @@ final class NotificationManager: NSObject, ObservableObject {
         WakeAlarmService.shared.cancelWakeAlarm()
     }
     
+    /// 排程未開啟鬧鐘時的晨間打卡提醒通知（於目標喚醒時間發送標準橫幅通知）
+    func scheduleMorningCheckInReminder(setting: AlarmSetting) {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [Self.morningCheckInReminderID])
+        
+        let calendar = Calendar.current
+        let wakeComponents = calendar.dateComponents([.hour, .minute], from: setting.targetWakeTime)
+        
+        let content = UNMutableNotificationContent()
+        content.title = "☀️ 早安！別忘了記錄昨晚的睡眠"
+        content.body = "點擊此通知完成起床打卡，持續追蹤身心狀態與睡眠趨勢。"
+        content.sound = .default
+        content.interruptionLevel = .timeSensitive
+        content.categoryIdentifier = Self.categoryNoSnooze
+        content.userInfo = [
+            "isMorningCheckInReminder": true
+        ]
+        
+        let trigger = UNCalendarNotificationTrigger(dateMatching: wakeComponents, repeats: true)
+        let request = UNNotificationRequest(identifier: Self.morningCheckInReminderID, content: content, trigger: trigger)
+        
+        center.add(request) { error in
+            if let error = error {
+                print("排程晨間打卡通知失敗: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    /// 取消未開啟鬧鐘時的晨間打卡提醒通知
+    func cancelMorningCheckInReminder() {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [Self.morningCheckInReminderID])
+        center.removeDeliveredNotifications(withIdentifiers: [Self.morningCheckInReminderID])
+    }
+    
     /// 5 秒後測試鬧鐘（iOS 26+ 直接觸發 AlarmKit 系統鎖屏全螢幕鬧鐘）
     func scheduleTestAlarmIn5Seconds(setting: AlarmSetting? = nil) {
         Task { @MainActor in
@@ -204,7 +240,7 @@ final class NotificationManager: NSObject, ObservableObject {
     
     func clearDeliveredWakeNotifications() {
         let center = UNUserNotificationCenter.current()
-        center.removeDeliveredNotifications(withIdentifiers: ["wake_alarm", "wake_alarm_test", "wake_alarm_snooze", "wake_alarm_checkin"])
+        center.removeDeliveredNotifications(withIdentifiers: ["wake_alarm", "wake_alarm_test", "wake_alarm_snooze", "wake_alarm_checkin", Self.morningCheckInReminderID])
     }
     
     /// 當使用者在鎖屏透過 iOS AlarmKit 滑動停止鬧鐘後，確保鎖屏上立即有一則可點擊的「起床打卡」通知

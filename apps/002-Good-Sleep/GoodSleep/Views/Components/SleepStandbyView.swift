@@ -7,6 +7,7 @@ import SwiftUI
 struct SleepStandbyView: View {
     @ObservedObject var store: SleepStore
     @ObservedObject private var soundManager = SoundManager.shared
+    @Environment(\.scenePhase) private var scenePhase
     
     var onMinimize: (() -> Void)? = nil
     var onNavigateToGuidanceTab: (() -> Void)? = nil
@@ -36,8 +37,12 @@ struct SleepStandbyView: View {
     
     // 5 分鐘無觸控溫柔「晚安」彈出與漸暗鎖屏狀態
     @State private var isShowingGoodNightFarewell: Bool = false
-    @State private var farewellBlackoutOpacity: Double = 0.0
     @State private var farewellScale: CGFloat = 0.88
+    
+    // 螢幕硬體整體亮度控制 (對齊 iOS 控制中心亮度滑桿調至最暗)
+    @State private var originalBrightness: CGFloat = 0.5
+    @State private var isScreenDimmed: Bool = false
+    @State private var dimBrightnessTask: Task<Void, Never>? = nil
     
     var body: some View {
         ZStack {
@@ -133,6 +138,7 @@ struct SleepStandbyView: View {
         }
         .onAppear {
             #if canImport(UIKit)
+            recordOriginalBrightnessIfNeeded()
             UIApplication.shared.isIdleTimerDisabled = true
             #endif
             startAutoLockCountdown()
@@ -141,20 +147,51 @@ struct SleepStandbyView: View {
             stopCancelHoldTimer()
             stopAutoLockCountdown()
             isShowingGoodNightFarewell = false
-            farewellBlackoutOpacity = 0.0
+            isScreenDimmed = false
+            restoreBrightness(animated: false)
             #if canImport(UIKit)
             UIApplication.shared.isIdleTimerDisabled = false
             #endif
         }
         .onChange(of: soundManager.isAlarmRinging) { _, isRinging in
             if isRinging {
-                if isShowingGoodNightFarewell {
+                if isShowingGoodNightFarewell || isScreenDimmed {
                     dismissFarewellAndWake()
                 } else {
+                    restoreBrightness(animated: false)
                     resetAutoLockTimer()
                 }
             }
         }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                // 解鎖螢幕或回到前台時：若處於晚安狀態或螢幕調暗狀態，立即關閉並恢復一般亮度，重啟 5 分鐘計時
+                if isShowingGoodNightFarewell || isScreenDimmed {
+                    isShowingGoodNightFarewell = false
+                    isScreenDimmed = false
+                    farewellScale = 0.88
+                    restoreBrightness(animated: false)
+                }
+                resetAutoLockTimer()
+            } else if newPhase == .background {
+                // 螢幕已鎖定或進入背景時：先復原晚安狀態與硬體螢幕亮度，確保下次螢幕亮起解鎖時畫面已是正常明亮狀態
+                isShowingGoodNightFarewell = false
+                farewellScale = 0.88
+                isScreenDimmed = false
+                restoreBrightness(animated: false)
+            }
+        }
+        #if canImport(UIKit)
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            if isShowingGoodNightFarewell || isScreenDimmed {
+                isShowingGoodNightFarewell = false
+                isScreenDimmed = false
+                farewellScale = 0.88
+                restoreBrightness(animated: false)
+            }
+            resetAutoLockTimer()
+        }
+        #endif
     }
     
     // MARK: - 頂部狀態列
@@ -794,10 +831,6 @@ struct SleepStandbyView: View {
                 }
                 .scaleEffect(farewellScale)
                 .transition(.opacity.combined(with: .scale(scale: 0.92)))
-                
-                // 漸暗全黑遮罩 (平滑漸層變暗至純黑，讓螢幕自然熄滅進入鎖屏)
-                Color.black.opacity(farewellBlackoutOpacity)
-                    .ignoresSafeArea()
             }
             .contentShape(Rectangle())
             .onTapGesture {
@@ -821,25 +854,28 @@ struct SleepStandbyView: View {
         UIImpactFeedbackGenerator(style: .soft).impactOccurred()
         #endif
         
-        withAnimation(.easeOut(duration: 0.7)) {
+        // 1. 維持當前亮度，彈出溫柔「晚安」道別畫面
+        withAnimation(.easeOut(duration: 0.5)) {
             isShowingGoodNightFarewell = true
             farewellScale = 1.0
-            farewellBlackoutOpacity = 0.0
         }
         
-        // 1.4 秒後開始溫柔漸暗至全黑
+        // 2. 「晚安」畫面持續 1.5 秒
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(1400))
+            try? await Task.sleep(for: .milliseconds(1500))
             guard isShowingGoodNightFarewell else { return }
             
-            withAnimation(.easeInOut(duration: 1.8)) {
-                farewellBlackoutOpacity = 1.0
+            // 3. 1.5 秒後：「晚安」畫面淡出消失
+            withAnimation(.easeInOut(duration: 0.8)) {
+                isShowingGoodNightFarewell = false
+                farewellScale = 0.88
             }
+            isScreenDimmed = true
             
-            // 漸暗完成後解除螢幕常亮，交由 iOS 系統自然進入鎖屏休眠
-            try? await Task.sleep(for: .milliseconds(1800))
-            guard isShowingGoodNightFarewell else { return }
+            // 4. 同時將整體螢幕硬體亮度調至最暗（如控制中心最低模式）
+            smoothlyDimBrightness(duration: 1.0)
             
+            // 5. 解除螢幕常亮控制權，iOS 原生 idle timer 隨即開始接手 30 秒倒數鎖屏
             #if canImport(UIKit)
             UIApplication.shared.isIdleTimerDisabled = false
             #endif
@@ -851,12 +887,76 @@ struct SleepStandbyView: View {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         #endif
         
+        isScreenDimmed = false
+        restoreBrightness(animated: true)
+        
         withAnimation(.easeOut(duration: 0.25)) {
             isShowingGoodNightFarewell = false
-            farewellBlackoutOpacity = 0.0
             farewellScale = 0.88
         }
         resetAutoLockTimer()
+    }
+    
+    // MARK: - 螢幕硬體整體亮度控制 (如同控制中心亮度滑桿調至最暗)
+    
+    private func recordOriginalBrightnessIfNeeded() {
+        #if canImport(UIKit)
+        let current = UIScreen.main.brightness
+        if current > 0.05 {
+            originalBrightness = current
+        }
+        #endif
+    }
+    
+    private func smoothlyDimBrightness(duration: TimeInterval = 1.0) {
+        #if canImport(UIKit)
+        recordOriginalBrightnessIfNeeded()
+        dimBrightnessTask?.cancel()
+        
+        let startBrightness = UIScreen.main.brightness
+        let targetBrightness: CGFloat = 0.0 // 調至控制中心最暗
+        let steps = 15
+        let interval = duration / Double(steps)
+        let delta = targetBrightness - startBrightness
+        
+        dimBrightnessTask = Task { @MainActor in
+            for i in 1...steps {
+                try? await Task.sleep(for: .milliseconds(Int(interval * 1000)))
+                guard !Task.isCancelled else { break }
+                let progress = CGFloat(i) / CGFloat(steps)
+                UIScreen.main.brightness = max(0.0, startBrightness + delta * progress)
+            }
+            if !Task.isCancelled {
+                UIScreen.main.brightness = targetBrightness
+            }
+        }
+        #endif
+    }
+    
+    private func restoreBrightness(animated: Bool = true) {
+        #if canImport(UIKit)
+        dimBrightnessTask?.cancel()
+        dimBrightnessTask = nil
+        
+        let target = max(0.2, originalBrightness)
+        if animated {
+            let startBrightness = UIScreen.main.brightness
+            let steps = 6
+            let interval = 0.2 / Double(steps)
+            let delta = target - startBrightness
+            
+            Task { @MainActor in
+                for i in 1...steps {
+                    try? await Task.sleep(for: .milliseconds(Int(interval * 1000)))
+                    let progress = CGFloat(i) / CGFloat(steps)
+                    UIScreen.main.brightness = startBrightness + delta * progress
+                }
+                UIScreen.main.brightness = target
+            }
+        } else {
+            UIScreen.main.brightness = target
+        }
+        #endif
     }
     
     private func startAutoLockCountdown() {
@@ -871,8 +971,8 @@ struct SleepStandbyView: View {
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { break }
                 
-                // 若正在操作子彈窗（引導睡眠、即時紀錄、起床打卡）或已在晚安道別中，暫停倒數
-                if showingQuickGuidanceSheet || showingInstantNoteModal || showingMorningCheckInSheet || isShowingGoodNightFarewell {
+                // 若正在操作子彈窗（引導睡眠、即時紀錄、起床打卡）或已在晚安道別/調暗中，暫停倒數
+                if showingQuickGuidanceSheet || showingInstantNoteModal || showingMorningCheckInSheet || isShowingGoodNightFarewell || isScreenDimmed {
                     remainingLockSeconds = autoLockTimeoutSeconds
                     continue
                 }
@@ -881,8 +981,9 @@ struct SleepStandbyView: View {
                     remainingLockSeconds -= 1
                 } else {
                     remainingLockSeconds = 0
-                    // 5 分鐘時間一到，溫柔彈出「晚安」，漸暗後進入鎖屏
+                    // 5 分鐘時間一到，溫柔彈出「晚安」，1.5 秒後淡出並調暗鎖屏
                     triggerGoodNightAndLock()
+                    autoLockTask = nil
                     break
                 }
             }
@@ -894,13 +995,11 @@ struct SleepStandbyView: View {
             dismissFarewellAndWake()
             return
         }
-        remainingLockSeconds = autoLockTimeoutSeconds
-        #if canImport(UIKit)
-        UIApplication.shared.isIdleTimerDisabled = true
-        #endif
-        if autoLockTask == nil {
-            startAutoLockCountdown()
+        if isScreenDimmed {
+            isScreenDimmed = false
+            restoreBrightness(animated: true)
         }
+        startAutoLockCountdown()
     }
     
     private func stopAutoLockCountdown() {

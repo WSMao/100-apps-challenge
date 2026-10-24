@@ -40,6 +40,16 @@ final class SleepStore: ObservableObject {
             self.alarmSetting = .default
         }
         
+        // 同步通知與鬧鐘排程（若開啟鬧鐘則排程喚醒鬧鐘，關閉鬧鐘則排程早安打卡橫幅通知）
+        NotificationManager.shared.scheduleBedtimeReminder(setting: self.alarmSetting)
+        if self.alarmSetting.isEnabled {
+            NotificationManager.shared.cancelMorningCheckInReminder()
+            NotificationManager.shared.scheduleWakeAlarm(setting: self.alarmSetting)
+        } else {
+            NotificationManager.shared.cancelWakeAlarm()
+            NotificationManager.shared.scheduleMorningCheckInReminder(setting: self.alarmSetting)
+        }
+        
         // 載入檢核清單
         if let data = UserDefaults.standard.data(forKey: checklistKey),
            let items = try? JSONDecoder().decode([ChecklistItem].self, from: data) {
@@ -76,11 +86,14 @@ final class SleepStore: ObservableObject {
         }
         // 排程入睡前提醒
         NotificationManager.shared.scheduleBedtimeReminder(setting: setting)
-        // 若總開關開啟，立即根據設定更新鬧鐘（開啟循環鬧鐘則每日重複；未開啟循環鬧鐘則排程下一次單次響鈴，支援稍後提醒設定）
+        // 若總開關開啟，立即根據設定更新鬧鐘並取消無鬧鐘時的晨間打卡提醒
         if setting.isEnabled {
+            NotificationManager.shared.cancelMorningCheckInReminder()
             NotificationManager.shared.scheduleWakeAlarm(setting: setting)
         } else {
+            // 若關閉鬧鐘，取消鬧鐘排程並於目標喚醒時間排程標準橫幅早安打卡提醒
             NotificationManager.shared.cancelWakeAlarm()
+            NotificationManager.shared.scheduleMorningCheckInReminder(setting: setting)
         }
     }
     
@@ -199,9 +212,13 @@ final class SleepStore: ObservableObject {
     func cancelSleep() {
         clearSleepingState()
         if alarmSetting.isEnabled && alarmSetting.isRepeatingAlarm {
+            NotificationManager.shared.cancelMorningCheckInReminder()
             NotificationManager.shared.scheduleWakeAlarm(setting: alarmSetting)
+        } else if alarmSetting.isEnabled {
+            NotificationManager.shared.cancelWakeAlarm()
         } else {
             NotificationManager.shared.cancelWakeAlarm()
+            NotificationManager.shared.scheduleMorningCheckInReminder(setting: alarmSetting)
         }
     }
     
@@ -219,10 +236,13 @@ final class SleepStore: ObservableObject {
             return
         }
         
-        let finalBedtimeNote = !bedtimeNote.isEmpty ? bedtimeNote : pendingBedtimeNote
-        let logicalDate = SleepStore.logicalSleepDate(for: bedtime)
-        
         let cal = Calendar.current
+        let cleanBedtime = cal.date(bySetting: .second, value: 0, of: bedtime) ?? bedtime
+        let cleanWakeTime = cal.date(bySetting: .second, value: 0, of: wakeTime) ?? wakeTime
+        
+        let finalBedtimeNote = !bedtimeNote.isEmpty ? bedtimeNote : pendingBedtimeNote
+        let logicalDate = SleepStore.logicalSleepDate(for: cleanBedtime)
+        
         let targetBedHour = cal.component(.hour, from: alarmSetting.targetBedtime)
         let targetBedMin = cal.component(.minute, from: alarmSetting.targetBedtime)
         let scheduledBed: Date
@@ -235,8 +255,8 @@ final class SleepStore: ObservableObject {
         
         let newLog = SleepLog(
             date: logicalDate,
-            bedtime: bedtime,
-            wakeTime: wakeTime,
+            bedtime: cleanBedtime,
+            wakeTime: cleanWakeTime,
             scheduledWakeTime: alarmSetting.targetWakeTime,
             scheduledBedtime: scheduledBed,
             rating: rating,
