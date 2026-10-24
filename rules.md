@@ -180,6 +180,10 @@
 - 每款 App 採用獨立 App-Branch（以 App 為單位的分支）：如 `<id>-<name>`，開發完成後再 PR / Merge 回 main。
 - 若需同時進行兩個不同 App 的開發，請確保各自在獨立的 Git Worktree 或等單一 App 併入 main 後再開新分支。
 
+### add 的內容
+- 特定 app 的分支，只能 add 自己資料夾內的項目，如分支 `<id>-<name>` 只能 `add` 資料夾 `<id>-<name>` 下的東西。
+- 非屬於特定分支的文件，如直接在根目錄 `100 Apps Challenge` 下的內容，則只能由分支 `main` 進行 `add`。
+
 ### commit 時機點
 - 每完成一定的階段時，讓使用者確認無誤後才 add 進 repository，並規劃 commit 訊息請求提交。
 
