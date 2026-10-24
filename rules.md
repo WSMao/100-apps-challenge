@@ -175,14 +175,34 @@
 |chore	  | 建置工具、依賴項升級或雜項維護	         |chore(root): add pnpm workspace config
 |test	     | 新增或修改測試	                      |test(001): add unit tests for date formatter
 
-### 分支（Branch）管理
+### 分支（Branch）架構與管理策略
 
-- 每款 App 採用獨立 App-Branch（以 App 為單位的分支）：如 `<id>-<name>`，開發完成後再 PR / Merge 回 main。
-- 若需同時進行兩個不同 App 的開發，請確保各自在獨立的 Git Worktree 或等單一 App 併入 main 後再開新分支。
+本專案採用 **「三層分支架構」**，兼顧多 App 獨立性與全域規範的一致性：
 
-### add 的內容
-- 特定 app 的分支，只能 add 自己資料夾內的項目，如分支 `<id>-<name>` 只能 `add` 資料夾 `<id>-<name>` 下的東西。
-- 非屬於特定分支的文件，如直接在根目錄 `100 Apps Challenge` 下的內容，則只能由分支 `main` 進行 `add`。
+1. **`base` 分支（全域基礎骨架）**：
+   - **定位**：專門維護 `apps/` 以外的所有全域內容（例如 `rules.md`、`agents.md`、`CLAUDE.md`、`.agents/` 工具集、全域設定檔）。
+   - **原則**：**永遠不 merge 任何個別 App 分支或 `main` 分支**，確保骨架絕對純淨。
+   - **全域提交**：所有非特定 App 的全域修改，一律切換至 `base` 進行 Commit 與 Push，再合入 `main`。
+   - **新專案起點**：未來所有新建立的 App 分支，一律由 `base` 切出：`git checkout -b <id>-<name> base`。
+
+2. **`<id>-<name>` 分支（獨立 App 開發分支）**：
+   - **定位**：個別應用的專屬工作分支（例如 `002-Good-Sleep`）。
+   - **邊界隔離**：只能在自己的 `apps/<id>-<name>/` 目錄下作業與提交。
+   - **同步全域規範（使用 `merge base`）**：
+     - 當 `base` 分支有新增 Skill 或更新規範時，進行中的 App 分支一律執行 **`git merge base`** 進行同步。
+     - **嚴禁 `git merge main`**（因為 `main` 匯集了所有其他 App 的程式碼，反向 merge 會污染當前 App 分支）。
+     - **為何使用 `merge base` 而非 `rebase base`？**
+       - 各 App 分支通常已 Push 至遠端 GitHub 供跨平台 Agent 或多裝置接力協同。`rebase` 會改寫 Commit SHA，導致推送時必須強制覆蓋 (`git push --force`)，極易造成協同衝突或覆蓋他方進度。
+       - `git merge base` 屬於安全、非破壞性的前進式合併，完全無需 force push，且因為 `base` 只變動根目錄，與 `apps/<id>-<name>/` 完全無衝突。
+
+3. **`main` 分支（生產整合分支）**：
+   - **定位**：展示中心與整體專案的最終集大成分支。
+   - **職責**：匯總所有已驗證完成的 App 分支，並同步 merge `base` 的全域更新。禁止直接在 `main` 進行個別 App 的功能開發。
+
+### add 的內容與邊界限制
+- **App 分支 (`<id>-<name>`)**：只能 `add` 自己資料夾內的項目，即 `apps/<id>-<name>/`。
+- **全域分支 (`base`)**：專門 `add` 根目錄 `100 Apps Challenge` 下的全域檔案（如 `rules.md`、`.agents/`、設定檔等）。
+- **主分支 (`main`)**：僅執行 `merge` 操作（如 `git merge base`、`git merge <id>-<name>`），不隨意個別 `add`。
 
 ### commit 時機點
 - 每完成一定的階段時，讓使用者確認無誤後才 add 進 repository，並規劃 commit 訊息請求提交。
