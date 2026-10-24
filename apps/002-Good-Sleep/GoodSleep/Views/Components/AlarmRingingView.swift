@@ -61,6 +61,18 @@ struct AlarmRingingView: View {
                 }
             )
         }
+        .onAppear {
+            if soundManager.shouldDirectlyOpenCheckInSheet {
+                soundManager.shouldDirectlyOpenCheckInSheet = false
+                showingEditSleepLogSheet = true
+            }
+        }
+        .onChange(of: soundManager.shouldDirectlyOpenCheckInSheet) { _, shouldOpen in
+            if shouldOpen {
+                soundManager.shouldDirectlyOpenCheckInSheet = false
+                showingEditSleepLogSheet = true
+            }
+        }
     }
     
     // MARK: - 第一階段：鬧鐘響鈴中內容
@@ -237,7 +249,7 @@ struct AlarmRingingView: View {
                     .font(.system(size: 23, weight: .bold))
                     .foregroundColor(SleepTheme.moonGlow)
                 
-                Text("鬧鐘已停止。現在要打開「編輯睡眠記錄」完成起床打卡嗎？")
+                Text(store.alarmSetting.isEnabled ? "鬧鐘已停止。現在要打開「編輯睡眠記錄」完成起床打卡嗎？" : "早安！現在要打開「編輯睡眠記錄」完成起床打卡嗎？")
                     .font(.system(size: 14))
                     .foregroundColor(SleepTheme.textSecondary)
                     .multilineTextAlignment(.center)

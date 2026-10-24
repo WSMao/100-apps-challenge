@@ -15,6 +15,7 @@ final class SoundManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
     @Published var isAlarmRinging: Bool = false
     @Published var isShowingWakeUpPrompt: Bool = false
+    @Published var shouldDirectlyOpenCheckInSheet: Bool = false
     @Published var previewingRingtoneID: String? = nil
     
     // 定時器相關狀態
@@ -327,9 +328,10 @@ final class SoundManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         alarmPlayer = nil
     }
     
-    /// 「滑動來停止」後切換至晨間喚醒打卡提示畫面（含【起床打卡】與【略過】）
-    func transitionToWakeUpPrompt() {
+    /// 「滑動來停止」或點擊打卡通知後切換至晨間喚醒打卡提示畫面（含【起床打卡】與【略過】）
+    func transitionToWakeUpPrompt(autoOpenCheckIn: Bool = false) {
         stopAlarmAudioOnly()
+        shouldDirectlyOpenCheckInSheet = autoOpenCheckIn
         isShowingWakeUpPrompt = true
         if !isAlarmRinging {
             isAlarmRinging = true
@@ -339,6 +341,7 @@ final class SoundManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     /// 完全停止鬧鐘響鈴並關閉全螢幕視窗
     func stopAlarmMelody() {
         stopAlarmAudioOnly()
+        shouldDirectlyOpenCheckInSheet = false
         isShowingWakeUpPrompt = false
         isAlarmRinging = false
     }
