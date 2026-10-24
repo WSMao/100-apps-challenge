@@ -63,16 +63,31 @@ struct SleepLog: Identifiable, Codable, Equatable {
         completedChecklistCount = try container.decodeIfPresent(Int.self, forKey: .completedChecklistCount) ?? 0
     }
     
-    // 實際睡眠總時長 (小時)
-    var durationHours: Double {
+    // 實際睡眠總分鐘數（以分鐘為解析度抹平秒數，完美對齊介面顯示之「HH:mm」時間，徹底消弭浮點截斷誤差）
+    var durationMinutes: Int {
+        let cal = Calendar.current
+        let startComponents = cal.dateComponents([.year, .month, .day, .hour, .minute], from: bedtime)
+        let endComponents = cal.dateComponents([.year, .month, .day, .hour, .minute], from: wakeTime)
+        
+        if let cleanStart = cal.date(from: startComponents),
+           let cleanEnd = cal.date(from: endComponents) {
+            let diff = cal.dateComponents([.minute], from: cleanStart, to: cleanEnd).minute ?? 0
+            return max(0, diff)
+        }
+        
         let diffSeconds = wakeTime.timeIntervalSince(bedtime)
-        return max(0, diffSeconds / 3600.0)
+        return max(0, Int((diffSeconds / 60.0).rounded()))
     }
     
-    // 格式化睡眠時長 (例：7 小時 30 分)
+    // 實際睡眠總時長 (小時)
+    var durationHours: Double {
+        return Double(durationMinutes) / 60.0
+    }
+    
+    // 格式化睡眠時長 (例：8 小時 3 分)
     var durationFormatted: String {
-        let hours = Int(durationHours)
-        let minutes = Int((durationHours - Double(hours)) * 60)
+        let hours = durationMinutes / 60
+        let minutes = durationMinutes % 60
         return "\(hours) 小時 \(minutes) 分"
     }
     

@@ -36,7 +36,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
         let isGentleFadeIn = userInfo["isGentleFadeInEnabled"] as? Bool
         let isCompanionToAlarmKit = (userInfo["isCompanionToAlarmKit"] as? Bool) ?? false
         
-        if identifier == "wake_alarm_checkin" {
+        if identifier == "wake_alarm_checkin" || identifier == NotificationManager.morningCheckInReminderID {
             completionHandler([.banner, .list])
             return
         }
@@ -83,6 +83,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
                 soundFileName: soundFileName,
                 isGentleFadeInEnabled: isGentleFadeIn
             )
+        } else if identifier == NotificationManager.morningCheckInReminderID {
+            // 未開啟鬧鐘時點選早安打卡橫幅通知，直接開啟打卡畫面
+            NotificationManager.shared.clearDeliveredWakeNotifications()
+            SoundManager.shared.transitionToWakeUpPrompt(autoOpenCheckIn: true)
         } else if response.actionIdentifier == NotificationManager.actionStop
                     || identifier == "wake_alarm_checkin"
                     || (identifier.contains("wake_alarm") && (isCompanionToAlarmKit || !WakeAlarmService.shared.isCurrentlyAlerting)) {
