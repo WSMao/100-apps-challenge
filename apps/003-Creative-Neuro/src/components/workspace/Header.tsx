@@ -12,6 +12,7 @@
  */
 
 import React, { useState, useRef } from 'react';
+import logoImg from '../../../assets/logo.png';
 import {
   Brain,
   Undo2,
@@ -176,8 +177,8 @@ export const Header: React.FC<HeaderProps> = ({
       >
         {/* Left: Brand Identity & Project / Board Metadata */}
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center shadow-lg shadow-indigo-500/20 shrink-0">
-            <Brain className="w-5 h-5 text-white" />
+          <div className="w-9 h-9 rounded-xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center shadow-lg shadow-cyan-500/10 shrink-0">
+            <img src={logoImg} alt="Creative-Neuro Logo" className="w-full h-full object-cover" />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
