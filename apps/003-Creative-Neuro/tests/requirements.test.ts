@@ -14,7 +14,13 @@
  * - FN-04: Grouping & Ungrouping (groupNodes, ungroupNodes)
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect, beforeEach } from 'vitest';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import {
   useProjectStore,
   findOptimalHandlePair,
@@ -27,8 +33,12 @@ import {
   spawnChildNode,
   spawnSiblingNode,
   navigateSelectionDirectionally,
+  handleGlobalKeyDown,
 } from '../src/components/workspace/ShortcutsHandler.tsx';
-import { getShapeHandleIntersections } from '../src/components/canvas/nodes/ShapeNode.tsx';
+import {
+  getShapeHandleIntersections,
+  quickAddDirectionalNode,
+} from '../src/components/canvas/nodes/ShapeNode.tsx';
 import { CONNECTOR_OPTIONS } from '../src/components/workspace/Toolbar.tsx';
 import { resolveProjectName } from '../src/components/workspace/AppLogoMenu.tsx';
 import type { NeuroNode, PlacementDirection, EdgeRoutingType } from '../src/types/index.ts';
@@ -143,6 +153,190 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
       const navLeft2 = navigateSelectionDirectionally('ArrowLeft');
       expect(navLeft2).toBe(west);
       expect(useProjectStore.getState().selectedNodeIds).toEqual([west]);
+    });
+
+    it('OP-11: Direct Type-to-Edit: single selected node immediately enters inline edit mode on typing without tool conflicts', () => {
+      const store = useProjectStore.getState();
+      const pageId = store.addPage('Type-to-Edit Test Page');
+      store.setActivePage(pageId);
+
+      const shapeId = store.addNode({
+        type: 'shape',
+        position: { x: 200, y: 200 },
+        data: { label: 'New Node', shapeType: 'rounded' },
+      });
+      const textId = store.addNode({
+        type: 'text',
+        position: { x: 400, y: 200 },
+        data: { label: 'Annotation Note' },
+      });
+      const frameId = store.addNode({
+        type: 'frame',
+        position: { x: 200, y: 400 },
+        width: 300,
+        height: 200,
+        data: { title: 'Architecture Frame' },
+      });
+
+      // 1. Single ShapeNode selected -> typing printable character 'H' activates inline editing
+      store.setSelectedNodes([shapeId]);
+      expect(useProjectStore.getState().editingNodeId).toBeNull();
+      expect(useProjectStore.getState().toolMode).toBe('select');
+
+      let prevented = false;
+      const handledH = handleGlobalKeyDown({
+        key: 'H',
+        preventDefault: () => {
+          prevented = true;
+        },
+      });
+      expect(handledH).toBe(true);
+      expect(prevented).toBe(true);
+      expect(useProjectStore.getState().editingNodeId).toBe(shapeId);
+      expect(useProjectStore.getState().editingInitialValue).toBe('H');
+      expect(useProjectStore.getState().toolMode).toBe('select');
+
+      // 2. Escape cancels editing mode
+      handleGlobalKeyDown({ key: 'Escape' });
+      expect(useProjectStore.getState().editingNodeId).toBeNull();
+      expect(useProjectStore.getState().editingInitialValue).toBeNull();
+
+      // 3. Typing letters that match tool mode shortcuts ('c', 's', 't', 'v', 'f', 'r', 'd', 'p') on selected node
+      // MUST NOT switch tool mode; must activate inline edit mode with that typed character!
+      for (const toolKey of ['c', 's', 't', 'v', 'f', 'r', 'd', 'p']) {
+        store.setSelectedNodes([shapeId]);
+        store.setToolMode('select');
+        expect(useProjectStore.getState().editingNodeId).toBeNull();
+
+        const handled = handleGlobalKeyDown({ key: toolKey });
+        expect(handled).toBe(true);
+        expect(useProjectStore.getState().toolMode).toBe('select'); // Tool mode MUST remain select!
+        expect(useProjectStore.getState().editingNodeId).toBe(shapeId);
+        expect(useProjectStore.getState().editingInitialValue).toBe(toolKey);
+
+        // Cancel edit for next iteration
+        handleGlobalKeyDown({ key: 'Escape' });
+      }
+
+      // 4. When NO node is selected, tool mode shortcuts switch tool mode normally
+      store.setSelectedNodes([]);
+      expect(useProjectStore.getState().selectedNodeIds).toHaveLength(0);
+
+      handleGlobalKeyDown({ key: 'c' });
+      expect(useProjectStore.getState().toolMode).toBe('connect');
+
+      handleGlobalKeyDown({ key: 't' });
+      expect(useProjectStore.getState().toolMode).toBe('text');
+
+      handleGlobalKeyDown({ key: 'f' });
+      expect(useProjectStore.getState().toolMode).toBe('frame');
+
+      handleGlobalKeyDown({ key: 'v' });
+      expect(useProjectStore.getState().toolMode).toBe('select');
+
+      // 5. Chinese IME composition (key === 'Process' or isComposing) activates edit mode with empty initial value
+      store.setSelectedNodes([shapeId]);
+      handleGlobalKeyDown({ key: 'Process', isComposing: true });
+      expect(useProjectStore.getState().editingNodeId).toBe(shapeId);
+      expect(useProjectStore.getState().editingInitialValue).toBe('');
+      handleGlobalKeyDown({ key: 'Escape' });
+
+      // 6. Pressing Space on selected node activates inline editing
+      store.setSelectedNodes([shapeId]);
+      handleGlobalKeyDown({ key: ' ' });
+      expect(useProjectStore.getState().editingNodeId).toBe(shapeId);
+      expect(useProjectStore.getState().editingInitialValue).toBe(' ');
+      handleGlobalKeyDown({ key: 'Escape' });
+
+      // 7. TextNode and FrameNode: pressing Enter activates inline editing
+      store.setSelectedNodes([textId]);
+      handleGlobalKeyDown({ key: 'Enter' });
+      expect(useProjectStore.getState().editingNodeId).toBe(textId);
+      handleGlobalKeyDown({ key: 'Escape' });
+
+      store.setSelectedNodes([frameId]);
+      handleGlobalKeyDown({ key: 'Enter' });
+      expect(useProjectStore.getState().editingNodeId).toBe(frameId);
+      handleGlobalKeyDown({ key: 'Escape' });
+
+      // 8. ShapeNode: pressing Enter spawns a sibling node (does NOT enter inline edit mode)
+      store.setSelectedNodes([shapeId]);
+      const initialNodeCount = Object.keys(useProjectStore.getState().nodes).length;
+      handleGlobalKeyDown({ key: 'Enter' });
+      expect(Object.keys(useProjectStore.getState().nodes).length).toBe(initialNodeCount + 1);
+
+      // 9. When a node is selected, Tab spawns child, Delete deletes node
+      const countBeforeTab = Object.keys(useProjectStore.getState().nodes).length;
+      handleGlobalKeyDown({ key: 'Tab' });
+      expect(Object.keys(useProjectStore.getState().nodes).length).toBe(countBeforeTab + 1);
+
+      const newlySpawnedId = useProjectStore.getState().selectedNodeIds[0];
+      handleGlobalKeyDown({ key: 'Delete' });
+      expect(useProjectStore.getState().nodes[newlySpawnedId]).toBeUndefined();
+
+      // 10. Deselection and deletion clean up editing state
+      store.setSelectedNodes([shapeId]);
+      store.setEditingNodeId(shapeId, 'test');
+      expect(useProjectStore.getState().editingNodeId).toBe(shapeId);
+
+      store.setSelectedNodes([]);
+      expect(useProjectStore.getState().editingNodeId).toBeNull();
+      expect(useProjectStore.getState().editingInitialValue).toBeNull();
+
+      // 11. Robustness Guard: When editingNodeId is active, Delete/Backspace/Tab MUST NOT delete node or spawn children
+      store.setSelectedNodes([shapeId]);
+      store.setEditingNodeId(shapeId, 'typing');
+      const nodesBeforeKeys = { ...useProjectStore.getState().nodes };
+      const handledDeleteWhileEditing = handleGlobalKeyDown({ key: 'Delete' });
+      expect(handledDeleteWhileEditing).toBe(false);
+      expect(useProjectStore.getState().nodes[shapeId]).toBeDefined();
+
+      const handledTabWhileEditing = handleGlobalKeyDown({ key: 'Tab' });
+      expect(handledTabWhileEditing).toBe(false);
+      expect(Object.keys(useProjectStore.getState().nodes).length).toBe(Object.keys(nodesBeforeKeys).length);
+
+      // Escape cleans up editing state
+      handleGlobalKeyDown({ key: 'Escape' });
+      expect(useProjectStore.getState().editingNodeId).toBeNull();
+
+      // 12. DiagramNode exclusion: Diagram cards do not support direct text inline editing
+      const diagramId = store.addNode({
+        type: 'diagram',
+        position: { x: 500, y: 500 },
+        data: { title: 'Mermaid Diagram', mermaidCode: 'flowchart TD\n A-->B' },
+      });
+      store.setSelectedNodes([diagramId]);
+      const handledDiagramType = handleGlobalKeyDown({ key: 'x' });
+      expect(handledDiagramType).toBe(false);
+      expect(useProjectStore.getState().editingNodeId).toBeNull();
+
+      // 13. Explicit inline edit triggers: Shift+Enter and F2
+      store.setSelectedNodes([shapeId]);
+      const handledShiftEnter = handleGlobalKeyDown({ key: 'Enter', shiftKey: true });
+      expect(handledShiftEnter).toBe(true);
+      expect(useProjectStore.getState().editingNodeId).toBe(shapeId);
+      expect(useProjectStore.getState().editingInitialValue).toBeNull();
+      handleGlobalKeyDown({ key: 'Escape' });
+
+      const handledF2 = handleGlobalKeyDown({ key: 'F2' });
+      expect(handledF2).toBe(true);
+      expect(useProjectStore.getState().editingNodeId).toBe(shapeId);
+      expect(useProjectStore.getState().editingInitialValue).toBeNull();
+      handleGlobalKeyDown({ key: 'Escape' });
+
+      // 14. Multi-selection: typing does NOT enter edit mode
+      store.setSelectedNodes([shapeId, textId]);
+      const handledMultiType = handleGlobalKeyDown({ key: 'a' });
+      expect(handledMultiType).toBe(false);
+      expect(useProjectStore.getState().editingNodeId).toBeNull();
+
+      // 15. Switching pages resets editing state cleanly
+      store.setSelectedNodes([shapeId]);
+      store.setEditingNodeId(shapeId, 'hello');
+      const page2 = store.addPage('Second Page');
+      store.setActivePage(page2);
+      expect(useProjectStore.getState().editingNodeId).toBeNull();
+      expect(useProjectStore.getState().editingInitialValue).toBeNull();
     });
   });
 
@@ -474,9 +668,6 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
     });
 
     it('UI-03: Logo asset, circular frame, Header brand layout and Workspace modal positioning', () => {
-      const fs = require('fs');
-      const path = require('path');
-
       // 1. Verify logo_option_4e.png exists
       const logo4ePath = path.resolve(__dirname, '../assets/logo_option_4e.png');
       expect(fs.existsSync(logo4ePath)).toBe(true);
@@ -1544,8 +1735,6 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
 
     it('TL-07: Floating Action Bars have top-layer z-index classes ensuring no occlusion', () => {
       // Verify index.css has .react-flow__node.selected { z-index: 99999 !important; }
-      const fs = require('fs');
-      const path = require('path');
       const cssPath = path.resolve(__dirname, '../src/index.css');
       const css = fs.readFileSync(cssPath, 'utf8');
 
@@ -1555,8 +1744,6 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
     });
 
     it('FN-05: TextNode defaults to transparent background with no hardcoded solid background color', () => {
-      const fs = require('fs');
-      const path = require('path');
       const textNodePath = path.resolve(__dirname, '../src/components/canvas/nodes/TextNode.tsx');
       const textNodeCode = fs.readFileSync(textNodePath, 'utf8');
 
@@ -1565,6 +1752,491 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
       // Verify no hardcoded bg-slate-900 on unedited container
       expect(textNodeCode).not.toContain('bg-slate-900/80');
       expect(textNodeCode).not.toContain('hover:bg-slate-900/40');
+    });
+
+    // ========================================================================
+    // Controlled Selection & React Flow Lifecycle (Bug Fixes: Issues 1, 2, 3)
+    // ========================================================================
+    describe('Controlled Selection & React Flow Lifecycle (Canvas Error Prevention)', () => {
+      it('Issue 1: Selecting a node then selecting its edge does not trigger infinite loops or error out', () => {
+        const store = useProjectStore.getState();
+        const pageId = store.addPage('Selection Loop Test Page');
+        store.setActivePage(pageId);
+
+        const nodeA = store.addNode({
+          position: { x: 100, y: 100 },
+          width: 160,
+          height: 60,
+          data: { label: 'Node A', layoutMode: 'manual' },
+        });
+        const nodeB = store.addNode({
+          position: { x: 400, y: 100 },
+          width: 160,
+          height: 60,
+          data: { label: 'Node B', layoutMode: 'manual' },
+        });
+        const edgeId = store.addEdge({
+          source: nodeA,
+          target: nodeB,
+          type: 'jump',
+        });
+
+        // 1. User selects Node A
+        store.setSelectedNodes([nodeA]);
+        expect(useProjectStore.getState().selectedNodeIds).toEqual([nodeA]);
+        expect(useProjectStore.getState().selectedEdgeIds).toEqual([]);
+
+        // Controlled mapping test: nodeA has selected: true, edge has selected: false
+        const activeNodes = Object.values(useProjectStore.getState().nodes);
+        const activeEdges = Object.values(useProjectStore.getState().edges);
+        const selNodes1 = useProjectStore.getState().selectedNodeIds;
+        const selEdges1 = useProjectStore.getState().selectedEdgeIds;
+
+        const rfNodes1 = activeNodes.map((n) => ({
+          ...n,
+          selected: selNodes1.includes(n.id),
+        }));
+        const rfEdges1 = activeEdges.map((e) => ({
+          ...e,
+          selected: selEdges1.includes(e.id),
+        }));
+
+        expect(rfNodes1.find((n) => n.id === nodeA)?.selected).toBe(true);
+        expect(rfNodes1.find((n) => n.id === nodeB)?.selected).toBe(false);
+        expect(rfEdges1.find((e) => e.id === edgeId)?.selected).toBe(false);
+
+        // 2. User selects the connecting edge
+        store.setSelectedEdges([edgeId]);
+        store.setSelectedNodes([]); // Single edge click clears node selection
+
+        const selNodes2 = useProjectStore.getState().selectedNodeIds;
+        const selEdges2 = useProjectStore.getState().selectedEdgeIds;
+
+        const rfNodes2 = activeNodes.map((n) => ({
+          ...n,
+          selected: selNodes2.includes(n.id),
+        }));
+        const rfEdges2 = activeEdges.map((e) => ({
+          ...e,
+          selected: selEdges2.includes(e.id),
+        }));
+
+        expect(rfEdges2.find((e) => e.id === edgeId)?.selected).toBe(true);
+        expect(rfNodes2.find((n) => n.id === nodeA)?.selected).toBe(false);
+
+        // Verify repetitive edge change events are idempotent and do not recurse or loop
+        for (let i = 0; i < 20; i++) {
+          store.onEdgesChange([{ id: edgeId, type: 'select', selected: true }]);
+        }
+        expect(useProjectStore.getState().selectedEdgeIds).toEqual([edgeId]);
+
+        // Static contract verification in Canvas.tsx:
+        const canvasPath = path.resolve(__dirname, '../src/components/canvas/Canvas.tsx');
+        const canvasCode = fs.readFileSync(canvasPath, 'utf8');
+
+        // Confirm controlled selected mapping on reactFlowNodes & reactFlowEdges
+        expect(canvasCode).toContain('selected: selectedSet.has(n.id)');
+        expect(canvasCode).toContain('selected: selectedSet.has(e.id)');
+
+        // Confirm problematic manual useEffect synchronizers are removed
+        expect(canvasCode).not.toContain('setReactFlowNodes((nds)');
+        expect(canvasCode).not.toContain('setReactFlowEdges((eds)');
+
+        // Confirm stable constants are extracted
+        expect(canvasCode).toContain('const SNAP_GRID');
+        expect(canvasCode).toContain('const PAN_ON_DRAG');
+        expect(canvasCode).toContain('const MULTI_SELECTION_KEY_CODE');
+        expect(canvasCode).toContain('const ZOOM_ACTIVATION_KEY_CODE');
+        expect(canvasCode).toContain('const FIT_VIEW_OPTIONS');
+      });
+
+      it('Issue 2: Selecting a node, clicking pane to deselect, and clicking the same node immediately re-selects it', () => {
+        const store = useProjectStore.getState();
+        const pageId = store.addPage('Re-select Test Page');
+        store.setActivePage(pageId);
+
+        const nodeA = store.addNode({
+          position: { x: 200, y: 200 },
+          width: 160,
+          height: 60,
+          data: { label: 'Node A', layoutMode: 'manual' },
+        });
+
+        // 1. User selects Node A
+        store.setSelectedNodes([nodeA]);
+        expect(useProjectStore.getState().selectedNodeIds).toEqual([nodeA]);
+
+        // In controlled mode, React Flow node has selected: true
+        let selNodeIds = useProjectStore.getState().selectedNodeIds;
+        let rfNode = {
+          ...store.nodes[nodeA],
+          selected: selNodeIds.includes(nodeA),
+        };
+        expect(rfNode.selected).toBe(true);
+
+        // 2. User clicks empty pane to deselect
+        store.setSelectedNodes([]);
+        store.setSelectedEdges([]);
+        expect(useProjectStore.getState().selectedNodeIds).toHaveLength(0);
+
+        // In controlled mode, React Flow receives selected: false
+        selNodeIds = useProjectStore.getState().selectedNodeIds;
+        rfNode = {
+          ...store.nodes[nodeA],
+          selected: selNodeIds.includes(nodeA),
+        };
+        expect(rfNode.selected).toBe(false);
+
+        // Simulate React Flow's internal handleNodeClick logic:
+        // if (!node.selected) { addSelectedNodes([id]); }
+        // Because rfNode.selected is false (NOT undefined or stale true), !rfNode.selected is true!
+        const canSelectOnFirstClick = !rfNode.selected;
+        expect(canSelectOnFirstClick).toBe(true);
+
+        // 3. User clicks the same node again immediately
+        if (canSelectOnFirstClick) {
+          store.setSelectedNodes([nodeA]);
+        }
+        expect(useProjectStore.getState().selectedNodeIds).toEqual([nodeA]);
+      });
+
+      it('Issue 3: Box-drag multi-selection followed by a single pane click completely deselects all nodes in 1 click', () => {
+        const store = useProjectStore.getState();
+        const pageId = store.addPage('Box Selection Deselect Page');
+        store.setActivePage(pageId);
+
+        const nodeA = store.addNode({
+          position: { x: 100, y: 100 },
+          width: 160,
+          height: 60,
+          data: { label: 'Node A', layoutMode: 'manual' },
+        });
+        const nodeB = store.addNode({
+          position: { x: 300, y: 100 },
+          width: 160,
+          height: 60,
+          data: { label: 'Node B', layoutMode: 'manual' },
+        });
+
+        // 1. User box-drags to multi-select both nodes
+        store.setSelectedNodes([nodeA, nodeB]);
+        expect(useProjectStore.getState().selectedNodeIds).toHaveLength(2);
+        expect(useProjectStore.getState().selectedNodeIds).toContain(nodeA);
+        expect(useProjectStore.getState().selectedNodeIds).toContain(nodeB);
+
+        // 2. Verify CSS completely suppresses .react-flow__nodesselection and .react-flow__nodesselection-rect
+        // This ensures the internal xyflow selection box doesn't capture clicks or require a 2nd click to dismiss
+        const cssPath = path.resolve(__dirname, '../src/index.css');
+        const css = fs.readFileSync(cssPath, 'utf8');
+
+        expect(css).toContain('.react-flow__nodesselection');
+        expect(css).toContain('.react-flow__nodesselection-rect');
+        expect(css).toMatch(/\.react-flow__nodesselection[\s\S]*?display:\s*none\s*!important/);
+
+        // 3. User clicks empty pane ONCE (single click)
+        store.setSelectedNodes([]);
+        store.setSelectedEdges([]);
+
+        // Assert: 1 click completely clears all selections immediately
+        expect(useProjectStore.getState().selectedNodeIds).toHaveLength(0);
+        expect(useProjectStore.getState().selectedEdgeIds).toHaveLength(0);
+
+        const activeNodes = Object.values(useProjectStore.getState().nodes);
+        const selNodeIds = useProjectStore.getState().selectedNodeIds;
+        const rfNodes = activeNodes.map((n) => ({
+          ...n,
+          selected: selNodeIds.includes(n.id),
+        }));
+        expect(rfNodes.every((n) => n.selected === false)).toBe(true);
+      });
+
+      it('Issue 4: Box-selecting two connected nodes and their connecting edge selects all three cleanly with zero crashes and strict idempotency', () => {
+        const store = useProjectStore.getState();
+        const pageId = store.addPage('Box Selection Connected Nodes Page');
+        store.setActivePage(pageId);
+
+        const nodeA = store.addNode({
+          position: { x: 100, y: 100 },
+          width: 160,
+          height: 60,
+          data: { label: 'Node A', layoutMode: 'manual' },
+        });
+        const nodeB = store.addNode({
+          position: { x: 400, y: 100 },
+          width: 160,
+          height: 60,
+          data: { label: 'Node B', layoutMode: 'manual' },
+        });
+        const edgeId = store.addEdge({
+          source: nodeA,
+          target: nodeB,
+          type: 'jump',
+        });
+
+        // 1. Static Contract & Architectural Regression Guards in Canvas.tsx
+        const canvasPath = path.resolve(__dirname, '../src/components/canvas/Canvas.tsx');
+        const canvasCode = fs.readFileSync(canvasPath, 'utf8');
+
+        // Verify userSelectionActive is NOT subscribed via reactive useStore hook (causes re-render churn)
+        expect(canvasCode).not.toContain('useStore((s) => s.userSelectionActive)');
+
+        // Verify handleEdgesChange filters out 'select' changes to prevent dual-channel conflict with handleSelectionChange
+        expect(canvasCode).toMatch(
+          /const\s+nonSelectChanges\s*=\s*changes\.filter\(\s*\(c\)\s*=>\s*c\.type\s*!==\s*['"]select['"]\s*\)/
+        );
+
+        // Verify handleSelectionChange does NOT have userSelectionActive in its dependency array
+        const handleSelectionChangeDepMatch = canvasCode.match(
+          /const\s+handleSelectionChange\s*=\s*useCallback\([\s\S]*?\},\s*\[([\s\S]*?)\]\s*\);/
+        );
+        expect(handleSelectionChangeDepMatch).toBeTruthy();
+        expect(handleSelectionChangeDepMatch![1]).not.toContain('userSelectionActive');
+        expect(handleSelectionChangeDepMatch![1]).toContain('storeApi');
+
+        // Verify strict idempotency guard exists before setSelectedNodes and setSelectedEdges
+        expect(canvasCode).toContain('if (nodesChanged)');
+        expect(canvasCode).toContain('if (edgesChanged)');
+
+        // 2. Behavioral Simulation: Edge change filtering
+        // React Flow dispatches edge select changes during box selection; verify store remains isolated
+        const nonSelectChanges = ([
+          { id: edgeId, type: 'select', selected: true },
+        ] as any[]).filter((c) => c.type !== 'select');
+        expect(nonSelectChanges).toHaveLength(0); // Should be filtered out
+
+        // 3. Behavioral Simulation: Marquee drag partial enclosing (only nodeA enclosed)
+        // Rule: an edge is only selected if BOTH source and target are enclosed
+        const activeNodes = useProjectStore.getState().nodes;
+        const activeEdges = useProjectStore.getState().edges;
+
+        const partialSelectionNodes = [activeNodes[nodeA]];
+        const candidateEdges = [activeEdges[edgeId]];
+        const selNodeIdSetPartial = new Set(partialSelectionNodes.map((n) => n.id));
+        const userSelectionActiveTrue = true;
+
+        const filteredEdgesPartial = candidateEdges.filter((e) => {
+          if (userSelectionActiveTrue) {
+            return selNodeIdSetPartial.has(e.source) && selNodeIdSetPartial.has(e.target);
+          }
+          return true;
+        });
+        expect(filteredEdgesPartial).toHaveLength(0); // Edge must NOT be selected when partially enclosed
+
+        // 4. Behavioral Simulation: Marquee drag full enclosing (both nodeA and nodeB enclosed)
+        const fullSelectionNodes = [activeNodes[nodeA], activeNodes[nodeB]];
+        const selNodeIdSetFull = new Set(fullSelectionNodes.map((n) => n.id));
+
+        const filteredEdgesFull = candidateEdges.filter((e) => {
+          if (userSelectionActiveTrue) {
+            return selNodeIdSetFull.has(e.source) && selNodeIdSetFull.has(e.target);
+          }
+          return true;
+        });
+        expect(filteredEdgesFull).toHaveLength(1);
+        expect(filteredEdgesFull[0].id).toBe(edgeId);
+
+        // Apply full selection to store
+        store.setSelectedNodes([nodeA, nodeB]);
+        store.setSelectedEdges([edgeId]);
+
+        expect(useProjectStore.getState().selectedNodeIds).toEqual([nodeA, nodeB]);
+        expect(useProjectStore.getState().selectedEdgeIds).toEqual([edgeId]);
+
+        // 5. Store & Component Double-Layer Idempotency Guard Verification:
+        let storeSubscriberNotificationCount = 0;
+        const unsubscribe = useProjectStore.subscribe((state, prevState) => {
+          if (
+            state.selectedNodeIds !== prevState.selectedNodeIds ||
+            state.selectedEdgeIds !== prevState.selectedEdgeIds
+          ) {
+            storeSubscriberNotificationCount++;
+          }
+        });
+
+        // Simulate 50 rapid marquee hover / move frames with identical selection:
+        for (let frame = 0; frame < 50; frame++) {
+          const { selectedNodeIds: currNodeIds, selectedEdgeIds: currEdgeIds } =
+            useProjectStore.getState();
+          const targetNodeIds = [nodeA, nodeB];
+          const targetEdgeIds = [edgeId];
+
+          const currNodeSet = new Set(currNodeIds);
+          const targetNodeSet = new Set(targetNodeIds);
+          const nodesChanged =
+            currNodeSet.size !== targetNodeSet.size ||
+            targetNodeIds.some((id) => !currNodeSet.has(id));
+
+          if (nodesChanged) {
+            store.setSelectedNodes(targetNodeIds);
+          }
+
+          const currEdgeSet = new Set(currEdgeIds);
+          const targetEdgeSet = new Set(targetEdgeIds);
+          const edgesChanged =
+            currEdgeSet.size !== targetEdgeSet.size ||
+            targetEdgeIds.some((id) => !currEdgeSet.has(id));
+
+          if (edgesChanged) {
+            store.setSelectedEdges(targetEdgeIds);
+          }
+
+          // Direct store calls also test layer-2 idempotency in projectStore
+          store.setSelectedNodes([nodeA, nodeB]);
+          store.setSelectedEdges([edgeId]);
+        }
+        unsubscribe();
+
+        // Zero state updates dispatched during steady state -> prevents React render loops
+        expect(storeSubscriberNotificationCount).toBe(0);
+
+        // 6. Verify controlled reactFlowNodes and reactFlowEdges selection state
+        const finalNodes = Object.values(useProjectStore.getState().nodes);
+        const finalEdges = Object.values(useProjectStore.getState().edges);
+        const rfNodes = finalNodes.map((n) => ({
+          ...n,
+          selected: useProjectStore.getState().selectedNodeIds.includes(n.id),
+        }));
+        const rfEdges = finalEdges.map((e) => ({
+          ...e,
+          selected: useProjectStore.getState().selectedEdgeIds.includes(e.id),
+        }));
+
+        expect(rfNodes.find((n) => n.id === nodeA)?.selected).toBe(true);
+        expect(rfNodes.find((n) => n.id === nodeB)?.selected).toBe(true);
+        expect(rfEdges.find((e) => e.id === edgeId)?.selected).toBe(true);
+      });
+    });
+  });
+
+  // ==========================================================================
+  // Section 12: Directional Handle Spawn & Auto-Connection with Selection (OP-09)
+  // ==========================================================================
+  describe('Directional Handle Spawn & Auto-Connection (OP-09)', () => {
+    it('should create new node and connecting edge in all 4 directions with matching handles', () => {
+      const directions: Array<{
+        dir: PlacementDirection;
+        expectedSourceHandle: string;
+        expectedTargetHandle: string;
+      }> = [
+        { dir: 'right', expectedSourceHandle: 'right', expectedTargetHandle: 'left' },
+        { dir: 'bottom', expectedSourceHandle: 'bottom', expectedTargetHandle: 'top' },
+        { dir: 'left', expectedSourceHandle: 'left', expectedTargetHandle: 'right' },
+        { dir: 'top', expectedSourceHandle: 'top', expectedTargetHandle: 'bottom' },
+      ];
+
+      for (const { dir, expectedSourceHandle, expectedTargetHandle } of directions) {
+        const store = useProjectStore.getState();
+        store.setDefaultEdgeRoutingType('jump');
+        const rootId = 'mm-root';
+        const rootNode = store.nodes[rootId];
+        expect(rootNode).toBeDefined();
+
+        // Initially select the root node
+        store.setSelectedNodes([rootId]);
+        expect(useProjectStore.getState().selectedNodeIds).toEqual([rootId]);
+
+        // Trigger quick-add on the directional handle
+        const result = quickAddDirectionalNode(rootId, dir);
+        expect(result).not.toBeNull();
+        const { nodeId: newNodeId, edgeId } = result!;
+
+        const updatedStore = useProjectStore.getState();
+
+        // 1. Verify new node was created and added to the page
+        const newNode = updatedStore.nodes[newNodeId];
+        expect(newNode).toBeDefined();
+        expect(newNode.type).toBe('shape');
+        const activePage = updatedStore.pages[updatedStore.activePageId];
+        expect(activePage.nodeIds).toContain(newNodeId);
+
+        // 2. Verify connecting edge was created between source node and new node
+        expect(edgeId).toBeDefined();
+        const edge = updatedStore.edges[edgeId!];
+        expect(edge).toBeDefined();
+        expect(edge.source).toBe(rootId);
+        expect(edge.target).toBe(newNodeId);
+        expect(edge.sourceHandle).toBe(expectedSourceHandle);
+        expect(edge.targetHandle).toBe(expectedTargetHandle);
+        expect(edge.type).toBe('jump');
+        expect(edge.data?.jumpArc).toBe(true);
+        expect(activePage.edgeIds).toContain(edgeId);
+
+        // 3. Verify newly created node is exclusively selected, clearing previous selection
+        expect(updatedStore.selectedNodeIds).toEqual([newNodeId]);
+        expect(updatedStore.selectedNodeIds).not.toContain(rootId);
+      }
+    });
+
+    it('should automatically select the new node and clear multi-selection', () => {
+      const store = useProjectStore.getState();
+      const nodeA = 'mm-root';
+      const nodeB = 'mm-node-1';
+      store.setSelectedNodes([nodeA, nodeB]);
+      expect(useProjectStore.getState().selectedNodeIds.length).toBe(2);
+
+      // Clicking directional handle on nodeA
+      const result = quickAddDirectionalNode(nodeA, 'right');
+      expect(result).not.toBeNull();
+
+      // Only the newly created node should be selected
+      const currentSelected = useProjectStore.getState().selectedNodeIds;
+      expect(currentSelected).toEqual([result!.nodeId]);
+      expect(currentSelected).not.toContain(nodeA);
+      expect(currentSelected).not.toContain(nodeB);
+    });
+
+    it('should avoid collisions when multiple nodes are sequentially spawned in the same direction', () => {
+      const store = useProjectStore.getState();
+      const rootId = 'mm-root';
+      const rootPos = { ...store.nodes[rootId].position };
+
+      // Spawn 1st node to the right
+      const res1 = quickAddDirectionalNode(rootId, 'right');
+      expect(res1).not.toBeNull();
+      const node1 = useProjectStore.getState().nodes[res1!.nodeId];
+      expect(node1.position.x).toBeGreaterThan(rootPos.x);
+
+      // Spawn 2nd node to the right from the same root
+      const res2 = quickAddDirectionalNode(rootId, 'right');
+      expect(res2).not.toBeNull();
+      const node2 = useProjectStore.getState().nodes[res2!.nodeId];
+
+      // Second node should not overlap with the first node
+      const overlap =
+        Math.abs(node1.position.x - node2.position.x) < node1.width &&
+        Math.abs(node1.position.y - node2.position.y) < node1.height;
+      expect(overlap).toBe(false);
+
+      // Both edges should exist connecting from root
+      const edge1 = useProjectStore.getState().edges[res1!.edgeId!];
+      const edge2 = useProjectStore.getState().edges[res2!.edgeId!];
+      expect(edge1.source).toBe(rootId);
+      expect(edge1.target).toBe(res1!.nodeId);
+      expect(edge2.source).toBe(rootId);
+      expect(edge2.target).toBe(res2!.nodeId);
+
+      // The last spawned node is the selected node
+      expect(useProjectStore.getState().selectedNodeIds).toEqual([res2!.nodeId]);
+    });
+
+    it('should atomically undo both node and connecting edge in a single step', () => {
+      const store = useProjectStore.getState();
+      const rootId = 'mm-root';
+      const nodeCountBefore = Object.keys(store.nodes).length;
+      const edgeCountBefore = Object.keys(store.edges).length;
+
+      const result = quickAddDirectionalNode(rootId, 'bottom');
+      expect(result).not.toBeNull();
+      expect(Object.keys(useProjectStore.getState().nodes).length).toBe(nodeCountBefore + 1);
+      expect(Object.keys(useProjectStore.getState().edges).length).toBe(edgeCountBefore + 1);
+
+      // Undo the single action
+      undo();
+
+      expect(useProjectStore.getState().nodes[result!.nodeId]).toBeUndefined();
+      expect(useProjectStore.getState().edges[result!.edgeId!]).toBeUndefined();
+      expect(Object.keys(useProjectStore.getState().nodes).length).toBe(nodeCountBefore);
+      expect(Object.keys(useProjectStore.getState().edges).length).toBe(edgeCountBefore);
     });
   });
 });

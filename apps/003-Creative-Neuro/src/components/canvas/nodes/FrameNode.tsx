@@ -8,7 +8,7 @@
  * - Automatic ELK layout recalculation around folded/expanded frame bounds
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useState, useRef, useEffect } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { ChevronDown, ChevronRight, Folder, Layers } from 'lucide-react';
 
@@ -25,6 +25,66 @@ export function FrameNode({
   height = 260,
 }: NodeProps) {
   const data = rawData as unknown as NeuroNode['data'];
+  const isEditingStore = useProjectStore((s) => s.editingNodeId === id);
+  const editingInitialValue = useProjectStore((s) => s.editingInitialValue);
+  const setEditingNodeId = useProjectStore((s) => s.setEditingNodeId);
+
+  const [title, setTitle] = useState(data?.title || data?.label || 'Container Frame');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isEditingStore) {
+      setTitle(data?.title || data?.label || 'Container Frame');
+    }
+  }, [data?.title, data?.label, isEditingStore]);
+
+  useEffect(() => {
+    if (isEditingStore) {
+      const currentText = data?.title || data?.label || 'Container Frame';
+      const raw = currentText.trim().toLowerCase();
+      const isPlaceholder = !raw || raw === 'container frame' || raw === 'container';
+
+      if (editingInitialValue !== null && editingInitialValue !== undefined) {
+        if (editingInitialValue === '') {
+          setTitle(isPlaceholder ? '' : currentText);
+        } else if (isPlaceholder) {
+          setTitle(editingInitialValue);
+        } else {
+          setTitle(currentText + editingInitialValue);
+        }
+      } else {
+        setTitle(currentText);
+      }
+    }
+  }, [isEditingStore, editingInitialValue, data?.title, data?.label]);
+
+  useEffect(() => {
+    if (isEditingStore && inputRef.current) {
+      inputRef.current.focus();
+      if (editingInitialValue !== null && editingInitialValue !== undefined) {
+        const len = inputRef.current.value.length;
+        inputRef.current.setSelectionRange(len, len);
+      } else {
+        inputRef.current.select();
+      }
+    }
+  }, [isEditingStore, editingInitialValue, title]);
+
+  const handleCommit = () => {
+    if (isEditingStore) {
+      setEditingNodeId(null);
+    }
+    updateNodeData(id, { title, label: title });
+  };
+
+  const handleCancel = () => {
+    if (isEditingStore) {
+      setEditingNodeId(null);
+    }
+    setTitle(data?.title || data?.label || 'Container Frame');
+    inputRef.current?.blur();
+  };
+
   const updateNodeData = useProjectStore((s) => s.updateNodeData);
   const isStoreSelected = useProjectStore((s) => s.selectedNodeIds.includes(id));
   const selectedNodeCount = useProjectStore((s) => s.selectedNodeIds.length);
@@ -185,6 +245,10 @@ export function FrameNode({
           ? 'border-indigo-500 shadow-2xl shadow-indigo-500/10 ring-2 ring-cyan-400'
           : 'border-slate-700/80'
       }`}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        setEditingNodeId(id, null);
+      }}
     >
       {/* Horizontal Floating Quick-Action Menu directly above frame when single frame is selected */}
       {isNodeSelected && selectedNodeCount <= 1 && <NodeFloatingActionBar nodeId={id} />}
@@ -223,13 +287,36 @@ export function FrameNode({
         <div className="flex items-center gap-2 min-w-0">
           <Layers className="w-4 h-4 text-indigo-400 shrink-0" />
           <input
+            ref={inputRef}
             type="text"
-            value={data?.title || data?.label || 'Container Frame'}
-            onChange={(e) =>
-              updateNodeData(id, { title: e.target.value, label: e.target.value })
-            }
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onFocus={() => {
+              if (!isEditingStore) {
+                setEditingNodeId(id, null);
+              }
+            }}
+            onBlur={handleCommit}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === 'Enter') {
+                handleCommit();
+                inputRef.current?.blur();
+              }
+              if (e.key === 'Escape') {
+                handleCancel();
+              }
+            }}
             onClick={(e) => e.stopPropagation()}
-            className="text-xs font-semibold text-slate-200 bg-transparent hover:bg-slate-800/50 px-1.5 py-0.5 rounded outline-none border border-transparent focus:border-indigo-500 truncate"
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              setEditingNodeId(id, null);
+            }}
+            className={`text-xs font-semibold text-slate-200 px-1.5 py-0.5 rounded outline-none border transition-colors truncate ${
+              isEditingStore
+                ? 'border-indigo-500 bg-slate-900/90'
+                : 'border-transparent bg-transparent hover:bg-slate-800/50 focus:border-indigo-500'
+            }`}
           />
           {data?.direction && (
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-indigo-300 border border-slate-700">

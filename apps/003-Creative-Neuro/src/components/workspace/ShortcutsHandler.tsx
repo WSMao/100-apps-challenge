@@ -297,159 +297,242 @@ export function navigateSelectionDirectionally(arrowKey: 'ArrowUp' | 'ArrowDown'
   return null;
 }
 
+/**
+ * Global keydown event processor.
+ * Exported for deterministic unit testing in node/happy-dom environments.
+ */
+export function handleGlobalKeyDown(e: {
+  key: string;
+  metaKey?: boolean;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+  shiftKey?: boolean;
+  target?: EventTarget | null;
+  preventDefault?: () => void;
+  isComposing?: boolean;
+}): boolean {
+  const state = useProjectStore.getState();
+  const isMod = Boolean(e.metaKey || e.ctrlKey);
+
+  // 1. Escape works globally to exit focused diagram mode, cancel inline editing, or reset tool mode
+  if (e.key === 'Escape') {
+    if (state.editingNodeId) {
+      e.preventDefault?.();
+      state.setEditingNodeId(null);
+      return true;
+    }
+    if (state.focusedDiagramId) {
+      e.preventDefault?.();
+      const focusedId = state.focusedDiagramId;
+      state.setFocusedDiagramId(null);
+      if (state.nodes[focusedId]) {
+        state.updateNodeData(focusedId, {
+          isFocused: false,
+          diagramMode: 'embedded',
+        });
+      }
+      return true;
+    }
+    if (state.toolMode !== 'select') {
+      e.preventDefault?.();
+      state.setToolMode('select');
+      return true;
+    }
+    if (state.selectedNodeIds.length > 0 || state.selectedEdgeIds.length > 0) {
+      state.setSelectedNodes([]);
+      state.setSelectedEdges([]);
+      return true;
+    }
+  }
+
+  // Guard: Do not intercept keys when user is typing in an input, textarea, or CodeMirror editor
+  if (isEditableTarget(e.target ?? null)) {
+    return false;
+  }
+
+  // Guard: When inline text editing is active for a node, suppress all canvas-level hotkeys (e.g. Delete, Tab, navigation)
+  if (state.editingNodeId) {
+    return false;
+  }
+
+  // 2. Undo / Redo (`Cmd/Ctrl + Z`, `Cmd/Ctrl + Shift + Z`, `Cmd/Ctrl + Y`)
+  if (isMod && !e.altKey) {
+    const lowerKey = e.key.toLowerCase();
+    if (lowerKey === 'z') {
+      e.preventDefault?.();
+      if (e.shiftKey) {
+        state.redo();
+      } else {
+        state.undo();
+      }
+      return true;
+    }
+    if (lowerKey === 'y') {
+      e.preventDefault?.();
+      state.redo();
+      return true;
+    }
+    if (lowerKey === 'g') {
+      e.preventDefault?.();
+      if (e.shiftKey) {
+        if (state.selectedNodeIds.length > 0) {
+          state.ungroupNodes(state.selectedNodeIds[0]);
+        }
+      } else {
+        if (state.selectedNodeIds.length > 1) {
+          state.groupSelectedNodes();
+        }
+      }
+      return true;
+    }
+  }
+
+  // 3. Alt / Option + Arrow Keys -> Directional Connected Node Creation
+  if (e.altKey && !isMod) {
+    if (e.key === 'ArrowUp') {
+      e.preventDefault?.();
+      spawnDirectionalNode('top');
+      return true;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault?.();
+      spawnDirectionalNode('bottom');
+      return true;
+    }
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault?.();
+      spawnDirectionalNode('left');
+      return true;
+    }
+    if (e.key === 'ArrowRight') {
+      e.preventDefault?.();
+      spawnDirectionalNode('right');
+      return true;
+    }
+  }
+
+  // 3.5 OP-08: Directional Selection Jump with Plain Arrow Keys (when a node is selected)
+  if (!isMod && !e.altKey && !e.shiftKey) {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      if (state.selectedNodeIds.length > 0) {
+        e.preventDefault?.();
+        navigateSelectionDirectionally(e.key as 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight');
+        return true;
+      }
+    }
+  }
+
+  // 4. Tab -> Create Child Node to the Right
+  if (e.key === 'Tab' && !isMod && !e.altKey && !e.shiftKey) {
+    if (state.selectedNodeIds.length > 0) {
+      e.preventDefault?.();
+      spawnChildNode();
+      return true;
+    }
+  }
+
+  // 5. Enter -> Sibling Node for Shape / Inline Edit for Text & Frame
+  if (e.key === 'Enter' && !isMod && !e.altKey && !e.shiftKey) {
+    if (state.selectedNodeIds.length === 1) {
+      const singleNode = state.nodes[state.selectedNodeIds[0]];
+      if (singleNode?.type === 'text' || singleNode?.type === 'frame') {
+        e.preventDefault?.();
+        state.setEditingNodeId(singleNode.id, null);
+        return true;
+      }
+      e.preventDefault?.();
+      spawnSiblingNode();
+      return true;
+    } else if (state.selectedNodeIds.length > 1) {
+      e.preventDefault?.();
+      spawnSiblingNode();
+      return true;
+    }
+  }
+
+  // 5.5 F2 or Shift+Enter -> Explicitly Activate Inline Editing
+  if ((e.key === 'F2' || (e.key === 'Enter' && e.shiftKey)) && !isMod && !e.altKey) {
+    if (state.selectedNodeIds.length === 1) {
+      e.preventDefault?.();
+      state.setEditingNodeId(state.selectedNodeIds[0], null);
+      return true;
+    }
+  }
+
+  // 6. Delete / Backspace -> Delete Selected Nodes & Edges
+  if ((e.key === 'Delete' || e.key === 'Backspace') && !isMod && !e.altKey) {
+    if (state.selectedNodeIds.length > 0 || state.selectedEdgeIds.length > 0) {
+      e.preventDefault?.();
+      state.batchDelete([...state.selectedNodeIds], [...state.selectedEdgeIds]);
+      return true;
+    }
+  }
+
+  // 6.5 Direct Type-to-Edit: Typing on a single selected node enters inline edit mode
+  if (!isMod && !e.altKey && state.selectedNodeIds.length === 1) {
+    const targetNodeId = state.selectedNodeIds[0];
+    const targetNode = state.nodes[targetNodeId];
+
+    // Only shape, text, and frame nodes support inline text editing (exclude diagram nodes)
+    if (targetNode && targetNode.type !== 'diagram') {
+      // Printable single character (letters, numbers, symbols, space)
+      if (e.key.length === 1) {
+        e.preventDefault?.();
+        state.setEditingNodeId(targetNodeId, e.key);
+        return true;
+      }
+
+      // Chinese / IME composition or Process key
+      if (e.key === 'Process' || e.isComposing) {
+        state.setEditingNodeId(targetNodeId, '');
+        return true;
+      }
+    }
+  }
+
+  // 7. Single-Key Tool Mode Shortcuts (V, R, T, C, P, F, D)
+  if (!isMod && !e.altKey && !e.shiftKey) {
+    const keyMap: Record<string, ToolMode> = {
+      v: 'select',
+      r: 'shape',
+      t: 'text',
+      c: 'connect',
+      p: 'draw',
+      f: 'frame',
+      d: 'diagram',
+    };
+    const mappedMode = keyMap[e.key.toLowerCase()];
+    if (mappedMode) {
+      e.preventDefault?.();
+      state.setToolMode(mappedMode);
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export const ShortcutsHandler: React.FC = () => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      handleGlobalKeyDown(e);
+    };
+
+    const handleCompositionStart = () => {
       const state = useProjectStore.getState();
-      const isMod = e.metaKey || e.ctrlKey;
-
-      // 1. Escape works globally to exit focused diagram mode or reset tool mode
-      if (e.key === 'Escape') {
-        if (state.focusedDiagramId) {
-          e.preventDefault();
-          const focusedId = state.focusedDiagramId;
-          state.setFocusedDiagramId(null);
-          if (state.nodes[focusedId]) {
-            state.updateNodeData(focusedId, {
-              isFocused: false,
-              diagramMode: 'embedded',
-            });
-          }
-          return;
-        }
-        if (state.toolMode !== 'select') {
-          e.preventDefault();
-          state.setToolMode('select');
-          return;
-        }
-        if (state.selectedNodeIds.length > 0 || state.selectedEdgeIds.length > 0) {
-          state.setSelectedNodes([]);
-          state.setSelectedEdges([]);
-          return;
-        }
-      }
-
-      // Guard: Do not intercept keys when user is typing in an input, textarea, or CodeMirror editor
-      if (isEditableTarget(e.target)) {
-        return;
-      }
-
-      // 2. Undo / Redo (`Cmd/Ctrl + Z`, `Cmd/Ctrl + Shift + Z`, `Cmd/Ctrl + Y`)
-      if (isMod && !e.altKey) {
-        const lowerKey = e.key.toLowerCase();
-        if (lowerKey === 'z') {
-          e.preventDefault();
-          if (e.shiftKey) {
-            state.redo();
-          } else {
-            state.undo();
-          }
-          return;
-        }
-        if (lowerKey === 'y') {
-          e.preventDefault();
-          state.redo();
-          return;
-        }
-        if (lowerKey === 'g') {
-          e.preventDefault();
-          if (e.shiftKey) {
-            if (state.selectedNodeIds.length > 0) {
-              state.ungroupNodes(state.selectedNodeIds[0]);
-            }
-          } else {
-            if (state.selectedNodeIds.length > 1) {
-              state.groupSelectedNodes();
-            }
-          }
-          return;
-        }
-      }
-
-      // 3. Alt / Option + Arrow Keys -> Directional Connected Node Creation
-      if (e.altKey && !isMod) {
-        if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          spawnDirectionalNode('top');
-          return;
-        }
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          spawnDirectionalNode('bottom');
-          return;
-        }
-        if (e.key === 'ArrowLeft') {
-          e.preventDefault();
-          spawnDirectionalNode('left');
-          return;
-        }
-        if (e.key === 'ArrowRight') {
-          e.preventDefault();
-          spawnDirectionalNode('right');
-          return;
-        }
-      }
-
-      // 3.5 OP-08: Directional Selection Jump with Plain Arrow Keys (when a node is selected)
-      if (!isMod && !e.altKey && !e.shiftKey) {
-        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-          if (state.selectedNodeIds.length > 0) {
-            e.preventDefault();
-            navigateSelectionDirectionally(e.key as 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight');
-            return;
-          }
-        }
-      }
-
-      // 4. Tab -> Create Child Node to the Right
-      if (e.key === 'Tab' && !isMod && !e.altKey && !e.shiftKey) {
-        if (state.selectedNodeIds.length > 0) {
-          e.preventDefault();
-          spawnChildNode();
-          return;
-        }
-      }
-
-      // 5. Enter -> Create Sibling Node Below
-      if (e.key === 'Enter' && !isMod && !e.altKey && !e.shiftKey) {
-        if (state.selectedNodeIds.length > 0) {
-          e.preventDefault();
-          spawnSiblingNode();
-          return;
-        }
-      }
-
-      // 6. Delete / Backspace -> Delete Selected Nodes & Edges
-      if ((e.key === 'Delete' || e.key === 'Backspace') && !isMod && !e.altKey) {
-        if (state.selectedNodeIds.length > 0 || state.selectedEdgeIds.length > 0) {
-          e.preventDefault();
-          state.batchDelete([...state.selectedNodeIds], [...state.selectedEdgeIds]);
-          return;
-        }
-      }
-
-      // 7. Single-Key Tool Mode Shortcuts (V, R, T, C, P, F, D)
-      if (!isMod && !e.altKey && !e.shiftKey) {
-        const keyMap: Record<string, ToolMode> = {
-          v: 'select',
-          r: 'shape',
-          t: 'text',
-          c: 'connect',
-          p: 'draw',
-          f: 'frame',
-          d: 'diagram',
-        };
-        const mappedMode = keyMap[e.key.toLowerCase()];
-        if (mappedMode) {
-          e.preventDefault();
-          state.setToolMode(mappedMode);
+      if (state.selectedNodeIds.length === 1) {
+        const targetNode = state.nodes[state.selectedNodeIds[0]];
+        if (targetNode && targetNode.type !== 'diagram') {
+          state.setEditingNodeId(targetNode.id, '');
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('compositionstart', handleCompositionStart);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('compositionstart', handleCompositionStart);
     };
   }, []);
 

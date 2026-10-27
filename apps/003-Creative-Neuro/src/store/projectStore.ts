@@ -72,6 +72,8 @@ export interface ProjectState {
   selectedEdgeIds: string[];
   focusedDiagramId: string | null;
   hoveredNodeId: string | null;
+  editingNodeId: string | null;
+  editingInitialValue: string | null;
   isDragging: boolean;
   isResizing: boolean;
 
@@ -134,6 +136,7 @@ export interface ProjectActions {
   setToolMode: (mode: ToolMode) => void;
   setSelectedNodes: (ids: string[]) => void;
   setSelectedEdges: (ids: string[]) => void;
+  setEditingNodeId: (id: string | null, initialValue?: string | null) => void;
   setFocusedDiagramId: (id: string | null) => void;
   setHoveredNodeId: (id: string | null) => void;
   resetToSeed: () => void;
@@ -187,6 +190,8 @@ const initialState: ProjectState = {
   selectedEdgeIds: [],
   focusedDiagramId: null,
   hoveredNodeId: null,
+  editingNodeId: null,
+  editingInitialValue: null,
   isDragging: false,
   isResizing: false,
 
@@ -405,6 +410,8 @@ export const useProjectStore = create<ProjectStore>()(
           state.selectedNodeIds = [];
           state.selectedEdgeIds = [];
           state.focusedDiagramId = null;
+          state.editingNodeId = null;
+          state.editingInitialValue = null;
           state.isDragging = false;
         });
 
@@ -465,6 +472,8 @@ export const useProjectStore = create<ProjectStore>()(
               state.selectedNodeIds = [];
               state.selectedEdgeIds = [];
               state.focusedDiagramId = null;
+              state.editingNodeId = null;
+              state.editingInitialValue = null;
 
               const boardId = state.pages[pageId].boardId;
               if (boardId && state.boards[boardId]) {
@@ -521,6 +530,8 @@ export const useProjectStore = create<ProjectStore>()(
 
           state.selectedNodeIds = [];
           state.selectedEdgeIds = [];
+          state.editingNodeId = null;
+          state.editingInitialValue = null;
           state.project.updatedAt = Date.now();
         });
       },
@@ -847,11 +858,15 @@ export const useProjectStore = create<ProjectStore>()(
             page.edgeIds = page.edgeIds.filter((eid) => !edgeDeleteSet.has(eid));
           }
 
-          // 5. Sanitize selection arrays
+          // 5. Sanitize selection arrays and editing state
           state.selectedNodeIds = state.selectedNodeIds.filter((nid) => !idSet.has(nid));
           state.selectedEdgeIds = state.selectedEdgeIds.filter(
             (eid) => !edgeDeleteSet.has(eid)
           );
+          if (state.editingNodeId && idSet.has(state.editingNodeId)) {
+            state.editingNodeId = null;
+            state.editingInitialValue = null;
+          }
 
           // 6. Update timestamps
           const page = state.pages[state.activePageId];
@@ -1052,9 +1067,13 @@ export const useProjectStore = create<ProjectStore>()(
             page.edgeIds = page.edgeIds.filter((eid) => !allEdgesToDelete.has(eid));
           }
 
-          // 5. Sanitize selection arrays
+          // 5. Sanitize selection arrays and editing state
           state.selectedNodeIds = state.selectedNodeIds.filter((nid) => !nodeIdSet.has(nid));
           state.selectedEdgeIds = state.selectedEdgeIds.filter((eid) => !allEdgesToDelete.has(eid));
+          if (state.editingNodeId && nodeIdSet.has(state.editingNodeId)) {
+            state.editingNodeId = null;
+            state.editingInitialValue = null;
+          }
 
           // 6. Timestamps
           const page = state.pages[state.activePageId];
@@ -1216,6 +1235,10 @@ export const useProjectStore = create<ProjectStore>()(
                 Array.from(nextSelected).some((id) => !currentSelected.has(id))
               ) {
                 state.selectedNodeIds = Array.from(nextSelected);
+                if (state.editingNodeId && !nextSelected.has(state.editingNodeId)) {
+                  state.editingNodeId = null;
+                  state.editingInitialValue = null;
+                }
               }
             }
 
@@ -1421,7 +1444,21 @@ export const useProjectStore = create<ProjectStore>()(
         ) {
           return;
         }
-        set({ selectedNodeIds: Array.from(expanded) });
+        const nextEditingId =
+          state.editingNodeId && expanded.has(state.editingNodeId)
+            ? state.editingNodeId
+            : null;
+        set({
+          selectedNodeIds: Array.from(expanded),
+          editingNodeId: nextEditingId,
+          editingInitialValue: nextEditingId ? state.editingInitialValue : null,
+        });
+      },
+      setEditingNodeId: (nodeId, initialValue = null) => {
+        set({
+          editingNodeId: nodeId,
+          editingInitialValue: nodeId ? initialValue : null,
+        });
       },
       setSelectedEdges: (selectedEdgeIds) => {
         const state = get();

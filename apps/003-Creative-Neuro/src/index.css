@@ -57,3 +57,11 @@ body,
 .react-flow__edge.selected {
   z-index: 99999 !important;
 }
+
+/* FN-03 & FN-04: Suppress React Flow default nodesselection rect as Creative-Neuro renders its own custom bounding box */
+.react-flow__nodesselection,
+.react-flow__nodesselection-rect {
+  display: none !important;
+  pointer-events: none !important;
+}
+

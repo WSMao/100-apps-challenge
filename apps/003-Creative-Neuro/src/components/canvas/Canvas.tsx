@@ -20,7 +20,7 @@ import {
   Background,
   BackgroundVariant,
   useReactFlow,
-  useStore,
+  useStoreApi,
   ViewportPortal,
   PanOnScrollMode,
   SelectionMode,
@@ -53,6 +53,14 @@ import FreehandOverlay from './freehand/FreehandOverlay.tsx';
 import FocusDiagramModal from '../editor/FocusDiagramModal.tsx';
 import { ContextMenu } from './ContextMenu.tsx';
 import { NodeFloatingActionBar } from './NodeFloatingActionBar.tsx';
+
+// Stable top-level module constants to prevent React Flow StoreUpdater infinite re-renders
+const SNAP_GRID: [number, number] = [16, 16];
+const PAN_ON_DRAG = [2];
+const MULTI_SELECTION_KEY_CODE = ['Meta', 'Control'];
+const ZOOM_ACTIVATION_KEY_CODE = ['Meta', 'Control'];
+const FIT_VIEW_OPTIONS = { padding: 0.2 };
+const PRO_OPTIONS = { hideAttribution: true };
 
 // Custom Node & Edge Types Registration
 const nodeTypes: NodeTypes = {
@@ -101,14 +109,12 @@ export function CanvasContent() {
   } = useProjectStore();
 
   const isDark = themeMode === 'dark';
-  const userSelectionActive = useStore((s) => s.userSelectionActive);
+  const storeApi = useStoreApi();
   const {
     screenToFlowPosition,
     zoomIn,
     zoomOut,
     fitView,
-    setNodes: setReactFlowNodes,
-    setEdges: setReactFlowEdges,
   } = useReactFlow();
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -562,11 +568,9 @@ export function CanvasContent() {
     [screenToFlowPosition]
   );
 
-  const isInternalSelectionRef = useRef(false);
-
   const handleSelectionChange = useCallback(
     ({ nodes: selNodes, edges: selEdges }: OnSelectionChangeParams) => {
-      isInternalSelectionRef.current = true;
+      const userSelectionActive = storeApi.getState().userSelectionActive;
 
       // 1. Filter nodes based on selectionFilter
       const filteredSelNodes = selNodes.filter((n) => {
@@ -592,25 +596,75 @@ export function CanvasContent() {
           })
         : [];
 
-      setSelectedNodes(filteredSelNodes.map((n) => n.id));
-      setSelectedEdges(filteredSelEdges.map((e) => e.id));
+      const targetNodeIds = filteredSelNodes.map((n) => n.id);
+      const targetEdgeIds = filteredSelEdges.map((e) => e.id);
+
+      const { selectedNodeIds: currNodeIds, selectedEdgeIds: currEdgeIds } =
+        useProjectStore.getState();
+
+      const currNodeSet = new Set(currNodeIds);
+      const targetNodeSet = new Set(targetNodeIds);
+      const nodesChanged =
+        currNodeSet.size !== targetNodeSet.size ||
+        targetNodeIds.some((id) => !currNodeSet.has(id));
+
+      if (nodesChanged) {
+        setSelectedNodes(targetNodeIds);
+      }
+
+      const currEdgeSet = new Set(currEdgeIds);
+      const targetEdgeSet = new Set(targetEdgeIds);
+      const edgesChanged =
+        currEdgeSet.size !== targetEdgeSet.size ||
+        targetEdgeIds.some((id) => !currEdgeSet.has(id));
+
+      if (edgesChanged) {
+        setSelectedEdges(targetEdgeIds);
+      }
     },
-    [setSelectedNodes, setSelectedEdges, selectionFilter, userSelectionActive]
+    [setSelectedNodes, setSelectedEdges, selectionFilter, storeApi]
   );
 
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      if (changes.some((c) => c.type === 'select')) {
-        isInternalSelectionRef.current = true;
-      }
       (onNodesChange as unknown as (changes: NodeChange[]) => void)(changes);
     },
     [onNodesChange]
   );
 
+  const handleEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      const nonSelectChanges = changes.filter((c) => c.type !== 'select');
+      if (nonSelectChanges.length > 0) {
+        (onEdgesChange as unknown as (changes: EdgeChange[]) => void)(nonSelectChanges);
+      }
+    },
+    [onEdgesChange]
+  );
+
+  const selectionEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (selectionEndTimerRef.current) {
+        clearTimeout(selectionEndTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleSelectionEnd = useCallback(() => {
+    if (selectionEndTimerRef.current) {
+      clearTimeout(selectionEndTimerRef.current);
+    }
+    selectionEndTimerRef.current = setTimeout(() => {
+      storeApi.setState({ nodesSelectionActive: false });
+    }, 0);
+  }, [storeApi]);
+
   // Filter out freehand stroke nodes and apply per-type selectable flag from selectionFilter
-  // Stable reference across selection updates to completely prevent React Flow StoreUpdater infinite loops
+  // Pass controlled selected flag with dependency on selectedNodeIds
   const reactFlowNodes = useMemo(() => {
+    const selectedSet = new Set(selectedNodeIds);
     return nodes
       .filter((n) => n.type !== 'freehand')
       .map((n) => {
@@ -618,6 +672,7 @@ export function CanvasContent() {
         const isSelectable = selectionFilter[typeKey] ?? true;
         const nodeObj: any = {
           ...n,
+          selected: selectedSet.has(n.id),
           selectable: isSelectable,
           measured: {
             width: n.measured?.width ?? n.width ?? 160,
@@ -629,75 +684,17 @@ export function CanvasContent() {
         }
         return nodeObj as Node;
       });
-  }, [nodes, selectionFilter, isDragging]);
+  }, [nodes, selectionFilter, isDragging, selectedNodeIds]);
 
   const reactFlowEdges = useMemo(() => {
+    const selectedSet = new Set(selectedEdgeIds);
     const isSelectable = selectionFilter.edge ?? true;
     return edges.map((e) => ({
       ...e,
+      selected: selectedSet.has(e.id),
       selectable: isSelectable,
     })) as unknown as Edge[];
-  }, [edges, selectionFilter.edge]);
-
-  // Programmatic selection synchronizer: only syncs external selections (e.g. keyboard navigation)
-  const lastSyncedNodeIdsRef = useRef<string[]>([]);
-  const lastSyncedEdgeIdsRef = useRef<string[]>([]);
-
-  useEffect(() => {
-    if (isInternalSelectionRef.current) {
-      isInternalSelectionRef.current = false;
-      lastSyncedNodeIdsRef.current = selectedNodeIds;
-      return;
-    }
-
-    const prev = lastSyncedNodeIdsRef.current;
-    if (
-      prev.length === selectedNodeIds.length &&
-      prev.every((id, idx) => id === selectedNodeIds[idx])
-    ) {
-      return;
-    }
-    lastSyncedNodeIdsRef.current = selectedNodeIds;
-
-    const set = new Set(selectedNodeIds);
-    setReactFlowNodes((nds) => {
-      let changed = false;
-      const next = nds.map((n) => {
-        const shouldBe = set.has(n.id);
-        if (Boolean(n.selected) !== shouldBe) {
-          changed = true;
-          return { ...n, selected: shouldBe };
-        }
-        return n;
-      });
-      return changed ? next : nds;
-    });
-  }, [selectedNodeIds, setReactFlowNodes]);
-
-  useEffect(() => {
-    const prev = lastSyncedEdgeIdsRef.current;
-    if (
-      prev.length === selectedEdgeIds.length &&
-      prev.every((id, idx) => id === selectedEdgeIds[idx])
-    ) {
-      return;
-    }
-    lastSyncedEdgeIdsRef.current = selectedEdgeIds;
-
-    const set = new Set(selectedEdgeIds);
-    setReactFlowEdges((eds) => {
-      let changed = false;
-      const next = eds.map((e) => {
-        const shouldBe = set.has(e.id);
-        if (Boolean(e.selected) !== shouldBe) {
-          changed = true;
-          return { ...e, selected: shouldBe };
-        }
-        return e;
-      });
-      return changed ? next : eds;
-    });
-  }, [selectedEdgeIds, setReactFlowEdges]);
+  }, [edges, selectionFilter.edge, selectedEdgeIds]);
 
   // FN-03 & FN-04: Multi-Selection & Group Bounding Box
   const selectionBounds = useMemo(() => {
@@ -767,9 +764,7 @@ export function CanvasContent() {
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={handleNodesChange}
-        onEdgesChange={
-          onEdgesChange as unknown as (changes: EdgeChange[]) => void
-        }
+        onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
         edgesReconnectable={true}
         onReconnect={handleReconnect}
@@ -781,28 +776,29 @@ export function CanvasContent() {
         onPaneContextMenu={handlePaneContextMenu}
         onNodeContextMenu={handleNodeContextMenu}
         onSelectionChange={handleSelectionChange}
+        onSelectionEnd={handleSelectionEnd}
         snapToGrid={true}
-        snapGrid={[16, 16]}
+        snapGrid={SNAP_GRID}
         minZoom={0.1}
         maxZoom={2.5}
         // OP-01: Right-click drag pans the canvas in all tools
-        panOnDrag={[2]}
+        panOnDrag={PAN_ON_DRAG}
         // OP-03: Left-click drag on empty canvas creates selection box
         // Requirement: Only fully enclosed objects count as selected
         selectionOnDrag={true}
         selectionMode={SelectionMode.Full}
         selectionKeyCode={null}
         // FN-03: Multi-select with Cmd/Ctrl + click
-        multiSelectionKeyCode={['Meta', 'Control']}
+        multiSelectionKeyCode={MULTI_SELECTION_KEY_CODE}
         // OP-02: Mouse wheel vertical scroll, Shift+wheel horizontal scroll
         panOnScroll={true}
         panOnScrollMode={PanOnScrollMode.Free}
         // OP-02: Cmd/Ctrl + wheel or side-wheel zooms in/out
         zoomOnScroll={false}
         zoomOnDoubleClick={false}
-        zoomActivationKeyCode={['Meta', 'Control']}
-        fitViewOptions={{ padding: 0.2 }}
-        proOptions={{ hideAttribution: true }}
+        zoomActivationKeyCode={ZOOM_ACTIVATION_KEY_CODE}
+        fitViewOptions={FIT_VIEW_OPTIONS}
+        proOptions={PRO_OPTIONS}
         colorMode={themeMode}
         elevateNodesOnSelect={true}
         elevateEdgesOnSelect={true}

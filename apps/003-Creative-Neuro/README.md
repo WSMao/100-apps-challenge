@@ -90,6 +90,9 @@ pnpm -C apps/003-Creative-Neuro build
 
 | 日期 | Agent | 工作記錄 | 下一步 | 備注 |
 | :--- | :--- | :--- | :--- | :--- |
+| 2026-10-27 | Antigravity | 實作節點周邊四向（上右下左）按鈕新增物件時自動建立連接線（Edge）與立即選中新節點（清空前一節點選取），修正 Handle ID 與 JumpConnectorEdge 反向規格相容，並於 `tests/requirements.test.ts` 新增全覆蓋測試，全量 247 項測試與生產建置 100% 通過 | 持續優化畫布連線與衍生節點操作細節 | 247/247 Tests PASS |
+| 2026-10-27 | Antigravity | 實作畫布點擊單一節點鍵盤直接輸入修改內容（Direct Type-to-Edit，支援可列印字元、空格、中文輸入法 IME Process/compositionstart、Shift+Enter/F2 明確編輯、預設佔位文字自動替換、既有自訂文字末端追加且防止誤刪、編輯期間熱鍵抑制防護、Diagram 節點排除保護、分頁切換乾淨清理），全量 242 項自動化測試 100% 通過 | 持續針對畫布互動與專案功能進行驗證優化 | 242/242 Tests PASS |
+| 2026-10-27 | Antigravity | 徹底排查並解決框選兩連接節點及其連線時之無限迴圈崩潰（在 `handleEdgesChange` 中過濾 incident edge 之 `select` 異動阻斷雙通道衝突、解耦 `userSelectionActive` 確保回呼函式參考穩定、建立組件與 Store 雙層冪等性防護網），全量 242 項自動化測試 100% 通過 | 持續針對畫布互動與專案功能進行驗證優化 | 242/242 Tests PASS |
 | 2026-10-27 | Antigravity | 深度排查並修復框選邏輯（清除手動拖曳後殘留之 dragging 標記避免異常選中）、選取工具選單操作按鈕樣式一致化、文字節點無背景色多層淨化，通過全量 183 項自動化測試與生產打包 | 持續優化畫布互動體驗與功能迭代 | 183/183 Tests PASS |
 | 2026-10-26 | Antigravity | 完成 Phase 1 All-in-One Web MVP 五層模組化全量實作（Layer 1 Zustand/Immer/Zundo/Dexie、Layer 2 四大純函數演算法引擎、Layer 3 React Flow v12 畫布與自訂節點/跳線/手繪、Layer 4 CodeMirror 6 雙向專注編輯器、Layer 5 多頁標籤/快捷鍵/Pako PNG & SVG 匯出還原），並通過全部 198 項自動化測試與生產環境建置 (`tsc -b && vite build`) | 進入瀏覽器實機體驗微調或啟動 Phase 2 AI 即時語音與雲端嵌入功能 | 198/198 Tests PASS |
 | 2026-10-25 | Antigravity | 完成啟動前總體架構審視、將 MVP 1~3 升級為「All-in-One 一次到位 Web MVP」，並確立五層模組化實作藍圖與 Vitest + E2E 雙層自動化測試策略 | 依據五層模組化藍圖初始化專案並一次實作完成 Phase 1 初版與自動化測試 | 架構契約完備 |

@@ -17,7 +17,12 @@ import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
 
 export function TextNode({ id, data: rawData, selected, width }: NodeProps) {
   const data = rawData as unknown as NeuroNode['data'];
-  const [isEditing, setIsEditing] = useState(false);
+  const isEditingStore = useProjectStore((s) => s.editingNodeId === id);
+  const editingInitialValue = useProjectStore((s) => s.editingInitialValue);
+  const setEditingNodeId = useProjectStore((s) => s.setEditingNodeId);
+
+  const [isEditingLocal, setIsEditingLocal] = useState(false);
+  const isEditing = isEditingLocal || isEditingStore;
   const [text, setText] = useState(data?.label || 'Double-click to edit');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -29,20 +34,55 @@ export function TextNode({ id, data: rawData, selected, width }: NodeProps) {
   const isNodeSelected = selected || isStoreSelected;
 
   useEffect(() => {
-    setText(data?.label || '');
-  }, [data?.label]);
+    if (!isEditing) {
+      setText(data?.label || '');
+    }
+  }, [data?.label, isEditing]);
+
+  useEffect(() => {
+    if (isEditingStore) {
+      const currentText = data?.label || '';
+      const raw = currentText.trim().toLowerCase();
+      const isPlaceholder =
+        !raw ||
+        raw === 'double-click to edit' ||
+        raw === 'type text note...' ||
+        raw === 'type text here...' ||
+        raw === 'text';
+
+      if (editingInitialValue !== null && editingInitialValue !== undefined) {
+        if (editingInitialValue === '') {
+          setText(isPlaceholder ? '' : currentText);
+        } else if (isPlaceholder) {
+          setText(editingInitialValue);
+        } else {
+          setText(currentText + editingInitialValue);
+        }
+      } else {
+        setText(currentText);
+      }
+    }
+  }, [isEditingStore, editingInitialValue, data?.label]);
 
   useEffect(() => {
     if (isEditing && textareaRef.current) {
       textareaRef.current.style.height = 'auto';
       textareaRef.current.style.height = `${Math.max(36, textareaRef.current.scrollHeight)}px`;
       textareaRef.current.focus();
-      textareaRef.current.select();
+      if (editingInitialValue !== null && editingInitialValue !== undefined) {
+        const len = textareaRef.current.value.length;
+        textareaRef.current.setSelectionRange(len, len);
+      } else {
+        textareaRef.current.select();
+      }
     }
-  }, [isEditing]);
+  }, [isEditing, editingInitialValue, text]);
 
   const handleCommit = () => {
-    setIsEditing(false);
+    setIsEditingLocal(false);
+    if (isEditingStore) {
+      setEditingNodeId(null);
+    }
     updateNodeData(id, { label: text });
   };
 
@@ -63,7 +103,8 @@ export function TextNode({ id, data: rawData, selected, width }: NodeProps) {
       }`}
       onDoubleClick={(e) => {
         e.stopPropagation();
-        setIsEditing(true);
+        setIsEditingLocal(true);
+        setEditingNodeId(id, null);
       }}
     >
       {/* Horizontal Floating Quick-Action Menu directly above node when single node is selected */}
@@ -80,12 +121,14 @@ export function TextNode({ id, data: rawData, selected, width }: NodeProps) {
           }}
           onBlur={handleCommit}
           onKeyDown={(e) => {
+            e.stopPropagation();
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
               handleCommit();
             }
             if (e.key === 'Escape') {
               setText(data?.label || '');
-              setIsEditing(false);
+              setIsEditingLocal(false);
+              setEditingNodeId(null);
             }
           }}
           style={{

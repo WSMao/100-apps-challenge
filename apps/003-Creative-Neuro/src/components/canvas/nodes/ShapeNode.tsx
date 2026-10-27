@@ -91,6 +91,86 @@ export function getShapeHandleIntersections(
   };
 }
 
+/**
+ * Spawns a new shape node in one of the 4 peripheral directions (top, right, bottom, left)
+ * relative to the source node, creates a connecting edge between them, and immediately selects
+ * the newly spawned node (clearing selection on the previous node).
+ */
+export function quickAddDirectionalNode(
+  sourceNodeId: string,
+  direction: PlacementDirection
+): { nodeId: string; edgeId?: string } | null {
+  const store = useProjectStore.getState();
+  const activePage = store.pages[store.activePageId];
+  const existingNodes = activePage
+    ? activePage.nodeIds
+        .map((nid) => store.nodes[nid])
+        .filter((n): n is NeuroNode => Boolean(n))
+    : Object.values(store.nodes);
+
+  const targetNode = store.nodes[sourceNodeId];
+  if (!targetNode) return null;
+
+  const W = targetNode.width || 160;
+  const H = targetNode.height || 60;
+
+  const candidatePos = findCollisionFreePosition(targetNode, direction, existingNodes, {
+    defaultWidth: W,
+    defaultHeight: H,
+    margin: 30,
+  });
+
+  const opposites: Record<PlacementDirection, { sourceHandle: string; targetHandle: string }> = {
+    top: { sourceHandle: 'top', targetHandle: 'bottom' },
+    right: { sourceHandle: 'right', targetHandle: 'left' },
+    bottom: { sourceHandle: 'bottom', targetHandle: 'top' },
+    left: { sourceHandle: 'left', targetHandle: 'right' },
+  };
+
+  const { sourceHandle, targetHandle } = opposites[direction];
+  const defaultRouting = store.defaultEdgeRoutingType || 'jump';
+
+  // Atomically create the connected node and edge
+  const result = store.addConnectedNode(
+    {
+      type: 'shape',
+      position: candidatePos,
+      width: W,
+      height: H,
+      parentId: targetNode.parentId,
+      extent: targetNode.extent,
+      layoutMode: 'manual',
+      data: {
+        label: 'New Node',
+        layoutMode: 'manual',
+        shapeType: targetNode.data?.shapeType || 'rounded',
+        backgroundColor: targetNode.data?.backgroundColor || '#1e293b',
+        borderColor: targetNode.data?.borderColor || '#475569',
+        color: targetNode.data?.color || '#f8fafc',
+      },
+    },
+    {
+      source: targetNode.id,
+      target: '',
+      sourceHandle,
+      targetHandle,
+      type: defaultRouting,
+      data: {
+        routingType: defaultRouting,
+        jumpArc: defaultRouting === 'jump',
+      },
+    }
+  );
+
+  // Update directional spawn memory context for subsequent shortcuts
+  store.setLastDirection(direction);
+
+  // Immediately select the newly created node, clearing selection on previous node
+  store.setSelectedNodes([result.nodeId]);
+
+  return result;
+}
+
 export function ShapeNode({
   id,
   data: rawData,
@@ -99,7 +179,12 @@ export function ShapeNode({
   height = 60,
 }: NodeProps) {
   const data = rawData as unknown as NeuroNode['data'];
-  const [isEditing, setIsEditing] = useState(false);
+  const isEditingStore = useProjectStore((s) => s.editingNodeId === id);
+  const editingInitialValue = useProjectStore((s) => s.editingInitialValue);
+  const setEditingNodeId = useProjectStore((s) => s.setEditingNodeId);
+
+  const [isEditingLocal, setIsEditingLocal] = useState(false);
+  const isEditing = isEditingLocal || isEditingStore;
   const [label, setLabel] = useState(data?.label || 'New Node');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -111,15 +196,47 @@ export function ShapeNode({
   const isNodeSelected = selected || isStoreSelected;
 
   useEffect(() => {
-    setLabel(data?.label || '');
-  }, [data?.label]);
+    if (!isEditing) {
+      setLabel(data?.label || '');
+    }
+  }, [data?.label, isEditing]);
+
+  useEffect(() => {
+    if (isEditingStore) {
+      const currentText = data?.label || '';
+      const raw = currentText.trim().toLowerCase();
+      const isPlaceholder =
+        !raw ||
+        raw === 'new node' ||
+        raw === 'empty node' ||
+        raw === 'child node' ||
+        raw === 'sibling node';
+
+      if (editingInitialValue !== null && editingInitialValue !== undefined) {
+        if (editingInitialValue === '') {
+          setLabel(isPlaceholder ? '' : currentText);
+        } else if (isPlaceholder) {
+          setLabel(editingInitialValue);
+        } else {
+          setLabel(currentText + editingInitialValue);
+        }
+      } else {
+        setLabel(currentText);
+      }
+    }
+  }, [isEditingStore, editingInitialValue, data?.label]);
 
   useEffect(() => {
     if (isEditing && inputRef.current) {
       inputRef.current.focus();
-      inputRef.current.select();
+      if (editingInitialValue !== null && editingInitialValue !== undefined) {
+        const len = inputRef.current.value.length;
+        inputRef.current.setSelectionRange(len, len);
+      } else {
+        inputRef.current.select();
+      }
     }
-  }, [isEditing]);
+  }, [isEditing, editingInitialValue, label]);
 
   const shapeType = normalizeShapeType(data?.shapeType);
   const W = width || 160;
@@ -270,58 +387,16 @@ export function ShapeNode({
   // 4-Direction Quick-Add handler
   const handleQuickAdd = useCallback(
     (direction: PlacementDirection) => {
-      const store = useProjectStore.getState();
-      const activePage = store.pages[store.activePageId];
-      const existingNodes = activePage
-        ? activePage.nodeIds
-            .map((nid) => store.nodes[nid])
-            .filter((n): n is NeuroNode => Boolean(n))
-        : Object.values(store.nodes);
-
-      const targetNode = store.nodes[id];
-      if (!targetNode) return;
-
-      const candidatePos = findCollisionFreePosition(targetNode, direction, existingNodes, {
-        defaultWidth: W,
-        defaultHeight: H,
-        margin: 30,
-      });
-
-      const newNodeId = store.addNode({
-        type: 'shape',
-        position: candidatePos,
-        width: W,
-        height: H,
-        layoutMode: 'manual',
-        data: {
-          label: 'New Node',
-          layoutMode: 'manual',
-          shapeType: data?.shapeType || 'rounded',
-          backgroundColor: data?.backgroundColor || '#1e293b',
-          borderColor: data?.borderColor || '#475569',
-          color: data?.color || '#f8fafc',
-        },
-      });
-
-      const opposites: Record<PlacementDirection, string> = {
-        top: 'bottom',
-        right: 'left',
-        bottom: 'top',
-        left: 'right',
-      };
-
-      store.addEdge({
-        source: id,
-        target: newNodeId,
-        sourceHandle: direction,
-        targetHandle: opposites[direction],
-      });
+      quickAddDirectionalNode(id, direction);
     },
-    [id, W, H, data]
+    [id]
   );
 
   const handleCommit = () => {
-    setIsEditing(false);
+    setIsEditingLocal(false);
+    if (isEditingStore) {
+      setEditingNodeId(null);
+    }
     updateNodeData(id, { label });
   };
 
@@ -337,7 +412,8 @@ export function ShapeNode({
       }`}
       onDoubleClick={(e) => {
         e.stopPropagation();
-        setIsEditing(true);
+        setIsEditingLocal(true);
+        setEditingNodeId(id, null);
       }}
     >
       {/* Horizontal Floating Quick-Action Menu directly above node when single node is selected */}
@@ -369,10 +445,12 @@ export function ShapeNode({
             onChange={(e) => setLabel(e.target.value)}
             onBlur={handleCommit}
             onKeyDown={(e) => {
+              e.stopPropagation();
               if (e.key === 'Enter') handleCommit();
               if (e.key === 'Escape') {
                 setLabel(data?.label || '');
-                setIsEditing(false);
+                setIsEditingLocal(false);
+                setEditingNodeId(null);
               }
             }}
             className="w-full bg-slate-950/90 text-white text-xs px-1.5 py-0.5 rounded border border-cyan-400 text-center outline-none"
@@ -404,7 +482,7 @@ export function ShapeNode({
           transform: 'translate(-50%, -50%)',
           translate: 'none',
         }}
-        className="!w-6 !h-6 !bg-transparent !border-0 !opacity-0 !z-10 pointer-events-none"
+        className="!w-6 !h-6 !bg-transparent !border-0 !opacity-0 !z-10"
       />
       <Handle
         type="target"
@@ -418,7 +496,7 @@ export function ShapeNode({
           transform: 'translate(-50%, -50%)',
           translate: 'none',
         }}
-        className="!w-6 !h-6 !bg-transparent !border-0 !opacity-0 !z-10 pointer-events-none"
+        className="!w-6 !h-6 !bg-transparent !border-0 !opacity-0 !z-10"
       />
       <Handle
         type="target"
@@ -432,7 +510,7 @@ export function ShapeNode({
           transform: 'translate(-50%, -50%)',
           translate: 'none',
         }}
-        className="!w-6 !h-6 !bg-transparent !border-0 !opacity-0 !z-10 pointer-events-none"
+        className="!w-6 !h-6 !bg-transparent !border-0 !opacity-0 !z-10"
       />
       <Handle
         type="target"
@@ -446,14 +524,14 @@ export function ShapeNode({
           transform: 'translate(-50%, -50%)',
           translate: 'none',
         }}
-        className="!w-6 !h-6 !bg-transparent !border-0 !opacity-0 !z-10 pointer-events-none"
+        className="!w-6 !h-6 !bg-transparent !border-0 !opacity-0 !z-10"
       />
 
       {/* Unified 4-Direction Connection Handles — Centered precisely at horizontal/vertical centerline border intersections */}
       <Handle
         type="source"
         position={Position.Top}
-        id="top-plus"
+        id="top"
         onClick={(e) => {
           e.stopPropagation();
           handleQuickAdd('top');
@@ -475,7 +553,7 @@ export function ShapeNode({
       <Handle
         type="source"
         position={Position.Right}
-        id="right-plus"
+        id="right"
         onClick={(e) => {
           e.stopPropagation();
           handleQuickAdd('right');
@@ -497,7 +575,7 @@ export function ShapeNode({
       <Handle
         type="source"
         position={Position.Bottom}
-        id="bottom-plus"
+        id="bottom"
         onClick={(e) => {
           e.stopPropagation();
           handleQuickAdd('bottom');
@@ -519,7 +597,7 @@ export function ShapeNode({
       <Handle
         type="source"
         position={Position.Left}
-        id="left-plus"
+        id="left"
         onClick={(e) => {
           e.stopPropagation();
           handleQuickAdd('left');

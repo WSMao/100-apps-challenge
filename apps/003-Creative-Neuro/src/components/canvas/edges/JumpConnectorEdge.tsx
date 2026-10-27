@@ -88,7 +88,8 @@ export function JumpConnectorEdge({
   ): Point | null => {
     const n = nodeMap.get(nodeId);
     if (!n) return null;
-    const side = handleId || defaultSide;
+    const rawSide = handleId || defaultSide;
+    const side = (rawSide ? rawSide.replace('-plus', '') : defaultSide) as 'top' | 'right' | 'bottom' | 'left';
     switch (side) {
       case 'top':
         return { x: n.x + n.width / 2, y: n.y };
