@@ -539,7 +539,7 @@ describe('Adversarial Persistence & Seed Data Stress Harness', () => {
 
       // Project contract
       expect(seed.project.id).toBe(SEED_PROJECT_ID);
-      expect(seed.project.name).toBe('Creative-Neuro Showcase');
+      expect(seed.project.name).toBe('Demo');
       expect(Array.isArray(seed.project.pageIds)).toBe(true);
       expect(seed.project.pageIds.length).toBeGreaterThan(0);
       expect(seed.project.pageIds).toContain(seed.project.activePageId);

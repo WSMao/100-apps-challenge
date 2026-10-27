@@ -31,11 +31,18 @@ import type {
   Page,
   NeuroNode,
   NeuroEdge,
+  NeuroEdgeData,
   NeuroNodeData,
   NeuroNodeType,
   ToolMode,
   Point,
   Viewport,
+  ThemeMode,
+  SpawnDirection,
+  ProjectSummary,
+  LayoutMode,
+  EdgeRoutingType,
+  SelectionFilter,
 } from '../types/index.ts';
 import { createSeedProject } from './seedData.ts';
 
@@ -66,6 +73,16 @@ export interface ProjectState {
   focusedDiagramId: string | null;
   hoveredNodeId: string | null;
   isDragging: boolean;
+  isResizing: boolean;
+
+  // --- Requirements State ---
+  themeMode: ThemeMode;
+  lastDirection: SpawnDirection;
+  pageLayoutMode: LayoutMode;
+  connectorSourceNodeId: string | null;
+  defaultEdgeRoutingType: EdgeRoutingType;
+  availableProjects: ProjectSummary[];
+  selectionFilter: SelectionFilter;
 }
 
 export interface ProjectActions {
@@ -87,11 +104,23 @@ export interface ProjectActions {
   ) => string;
   updateNodePosition: (id: string, position: Point) => void;
   updateNodeData: (id: string, data: Partial<NeuroNodeData>) => void;
+  batchUpdateNodeData: (ids: string[], data: Partial<NeuroNodeData>) => void;
   removeNode: (id: string) => void;
   addEdge: (edge: Omit<NeuroEdge, 'id'> & { id?: string }) => string;
+  updateEdgeData: (id: string, data: Partial<NeuroEdgeData>) => void;
+  batchUpdateEdgeData: (ids: string[], data: Partial<NeuroEdgeData>) => void;
+  reconnectEdge: (edgeId: string, newConnection: Connection) => void;
   removeEdge: (id: string) => void;
   undo: () => void;
   redo: () => void;
+  addConnectedNode: (
+    node: Omit<Partial<NeuroNode>, 'data'> & {
+      type?: NeuroNodeType;
+      data?: Partial<NeuroNodeData>;
+    },
+    edge?: Omit<NeuroEdge, 'id'> & { id?: string }
+  ) => { nodeId: string; edgeId?: string };
+  batchDelete: (nodeIds?: string[], edgeIds?: string[]) => void;
 
   // Extended React Flow & Workspace Actions
   onNodesChange: (changes: NodeChange<Node>[]) => void;
@@ -108,6 +137,33 @@ export interface ProjectActions {
   setFocusedDiagramId: (id: string | null) => void;
   setHoveredNodeId: (id: string | null) => void;
   resetToSeed: () => void;
+
+  // Requirements: OP-07, PM, TL, UI-04, FN
+  setLastDirection: (dir: SpawnDirection) => void;
+  setThemeMode: (mode: ThemeMode) => void;
+  setPageLayoutMode: (mode: LayoutMode) => void;
+  setNodeLayoutMode: (nodeId: string, mode: LayoutMode) => void;
+  batchSetNodeLayoutMode: (nodeIds: string[], mode: LayoutMode) => void;
+  setDefaultEdgeRoutingType: (type: EdgeRoutingType) => void;
+  handleConnectorNodeClick: (nodeId: string) => string | null;
+  resetConnector: () => void;
+  toggleNodeSelection: (nodeId: string) => void;
+  bringToFront: (nodeIdOrIds: string | string[]) => void;
+  sendToBack: (nodeIdOrIds: string | string[]) => void;
+  groupSelectedNodes: (title?: string) => string | null;
+  ungroupNodes: (frameId: string) => void;
+
+  // Project Management Actions (PM-01, PM-02)
+  createProject: (name?: string) => string;
+  switchProject: (projectId: string) => Promise<boolean>;
+  deleteProject: (projectId: string) => Promise<boolean>;
+  refreshAvailableProjects: () => Promise<void>;
+
+  // Selection Filter Actions
+  setSelectionFilter: (filter: Partial<SelectionFilter>) => void;
+  toggleSelectionFilterItem: (key: keyof SelectionFilter) => void;
+  resetSelectionFilter: () => void;
+  clearSelectionFilter: () => void;
 }
 
 export type ProjectStore = ProjectState & ProjectActions;
@@ -132,11 +188,68 @@ const initialState: ProjectState = {
   focusedDiagramId: null,
   hoveredNodeId: null,
   isDragging: false,
+  isResizing: false,
+
+  themeMode: 'light',
+  lastDirection: 'right',
+  pageLayoutMode: 'auto-elk',
+  connectorSourceNodeId: null,
+  defaultEdgeRoutingType: 'jump',
+  availableProjects: [
+    {
+      id: initialSeed.project.id,
+      name: initialSeed.project.name,
+      updatedAt: initialSeed.project.updatedAt,
+      pageCount: initialSeed.project.pageIds.length,
+    },
+  ],
+  selectionFilter: {
+    shape: true,
+    text: true,
+    edge: true,
+    frame: true,
+    diagram: true,
+  },
 };
 
 // ============================================================================
 // 3. Zustand Store Definition with Immer & Zundo
 // ============================================================================
+
+function areNodesEqualExcludingTransient(
+  a?: Record<string, NeuroNode>,
+  b?: Record<string, NeuroNode>
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const id of keysA) {
+    const na = a[id];
+    const nb = b[id];
+    if (na === nb) continue;
+    if (!na || !nb) return false;
+    if (
+      na.id !== nb.id ||
+      na.type !== nb.type ||
+      na.position.x !== nb.position.x ||
+      na.position.y !== nb.position.y ||
+      na.width !== nb.width ||
+      na.height !== nb.height ||
+      na.parentId !== nb.parentId ||
+      na.extent !== nb.extent ||
+      na.groupId !== nb.groupId ||
+      na.layoutMode !== nb.layoutMode ||
+      na.zIndex !== nb.zIndex ||
+      na.hidden !== nb.hidden ||
+      na.data !== nb.data
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
 
 export const useProjectStore = create<ProjectStore>()(
   temporal(
@@ -187,9 +300,17 @@ export const useProjectStore = create<ProjectStore>()(
                 ? record.boardIds.filter((bid) => typeof bid === 'string')
                 : boardKeys;
 
+            const rawRecordName = typeof record.name === 'string' ? record.name : 'Untitled Project';
+            const recordName =
+              rawRecordName === 'Creative-Neuro Showcase' ||
+              rawRecordName.startsWith('Creative-Neuro') ||
+              record.id === 'proj-creative-neuro-demo'
+                ? 'Demo'
+                : rawRecordName;
+
             state.project = {
               id: typeof record.id === 'string' && record.id ? record.id : `proj-${Date.now()}`,
-              name: typeof record.name === 'string' ? record.name : 'Untitled Project',
+              name: recordName,
               description: typeof record.description === 'string' ? record.description : '',
               version: typeof record.version === 'string' ? record.version : '1.0.0',
               activePageId:
@@ -230,9 +351,17 @@ export const useProjectStore = create<ProjectStore>()(
                 ? proj.boardIds.filter((bid) => typeof bid === 'string')
                 : boardKeys;
 
+            const rawProjName = typeof proj?.name === 'string' ? proj.name : 'Untitled Project';
+            const projName =
+              rawProjName === 'Creative-Neuro Showcase' ||
+              rawProjName.startsWith('Creative-Neuro') ||
+              proj?.id === 'proj-creative-neuro-demo'
+                ? 'Demo'
+                : rawProjName;
+
             state.project = {
               id: typeof proj?.id === 'string' && proj.id ? proj.id : `proj-${Date.now()}`,
-              name: typeof proj?.name === 'string' ? proj.name : 'Untitled Project',
+              name: projName,
               description: typeof proj?.description === 'string' ? proj.description : '',
               version: typeof proj?.version === 'string' ? proj.version : '1.0.0',
               activePageId:
@@ -252,6 +381,24 @@ export const useProjectStore = create<ProjectStore>()(
             state.activePageId = state.project.activePageId;
           }
 
+          // Sanitize text nodes to guarantee transparent background and border
+          for (const node of Object.values(state.nodes)) {
+            if (node && node.type === 'text') {
+              if (!node.data) node.data = { label: '', layoutMode: 'manual' };
+              if (
+                !node.data.backgroundColor ||
+                node.data.backgroundColor === '#ffffff' ||
+                node.data.backgroundColor === '#f8fafc' ||
+                node.data.backgroundColor === 'white' ||
+                node.id === 'mm-note'
+              ) {
+                node.data.backgroundColor = 'transparent';
+                node.data.borderColor = 'transparent';
+                node.data.borderWidth = 0;
+              }
+            }
+          }
+
           // Ephemeral UI State Sanitization
           state.toolMode = 'select';
           state.hoveredNodeId = null;
@@ -260,6 +407,9 @@ export const useProjectStore = create<ProjectStore>()(
           state.focusedDiagramId = null;
           state.isDragging = false;
         });
+
+        const temporal = (useProjectStore as unknown as { temporal?: { getState: () => TemporalState<unknown> } }).temporal;
+        temporal?.getState().clear();
       },
 
       addPage: (name) => {
@@ -305,20 +455,26 @@ export const useProjectStore = create<ProjectStore>()(
       },
 
       setActivePage: (pageId) => {
-        set((state) => {
-          if (state.pages[pageId]) {
-            state.activePageId = pageId;
-            state.project.activePageId = pageId;
-            state.selectedNodeIds = [];
-            state.selectedEdgeIds = [];
-            state.focusedDiagramId = null;
+        const temporal = (useProjectStore as unknown as { temporal?: { getState: () => TemporalState<unknown> } }).temporal;
+        temporal?.getState().pause();
+        try {
+          set((state) => {
+            if (state.pages[pageId]) {
+              state.activePageId = pageId;
+              state.project.activePageId = pageId;
+              state.selectedNodeIds = [];
+              state.selectedEdgeIds = [];
+              state.focusedDiagramId = null;
 
-            const boardId = state.pages[pageId].boardId;
-            if (boardId && state.boards[boardId]) {
-              state.boards[boardId].activePageId = pageId;
+              const boardId = state.pages[pageId].boardId;
+              if (boardId && state.boards[boardId]) {
+                state.boards[boardId].activePageId = pageId;
+              }
             }
-          }
-        });
+          });
+        } finally {
+          temporal?.getState().resume();
+        }
       },
 
       deletePage: (pageId) => {
@@ -403,18 +559,25 @@ export const useProjectStore = create<ProjectStore>()(
         const activePageId = get().activePageId;
 
         set((state) => {
+          const isTextType = nodeData.type === 'text';
           const defaultData: NeuroNodeData = {
-            label: nodeData.data?.label || 'New Node',
+            ...nodeData.data,
+            label: nodeData.data?.label || (isTextType ? 'Type text here...' : 'New Node'),
             layoutMode:
               nodeData.data?.layoutMode || nodeData.layoutMode || 'manual',
-            shapeType: nodeData.data?.shapeType || 'rounded',
-            backgroundColor: '#ffffff',
-            borderColor: '#94a3b8',
-            borderWidth: 1.5,
-            color: '#0f172a',
-            fontSize: 14,
-            textAlign: 'center',
-            ...nodeData.data,
+            shapeType: nodeData.data?.shapeType || (isTextType ? undefined : 'rounded'),
+            backgroundColor: isTextType
+              ? (nodeData.data?.backgroundColor || 'transparent')
+              : (nodeData.data?.backgroundColor || '#ffffff'),
+            borderColor: isTextType
+              ? (nodeData.data?.borderColor || 'transparent')
+              : (nodeData.data?.borderColor || '#94a3b8'),
+            borderWidth: isTextType
+              ? (nodeData.data?.borderWidth ?? 0)
+              : (nodeData.data?.borderWidth ?? 1.5),
+            color: nodeData.data?.color || (isTextType ? undefined : '#0f172a'),
+            fontSize: nodeData.data?.fontSize || 14,
+            textAlign: nodeData.data?.textAlign || (isTextType ? 'left' : 'center'),
           };
 
           const newNode: NeuroNode = {
@@ -443,6 +606,103 @@ export const useProjectStore = create<ProjectStore>()(
         });
 
         return id;
+      },
+
+      addConnectedNode: (nodeData, edgeData) => {
+        const nodeId =
+          nodeData.id ||
+          `node-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        const activePageId = get().activePageId;
+        const defaultRouting = get().defaultEdgeRoutingType || 'jump';
+
+        let edgeId: string | undefined;
+        if (edgeData) {
+          edgeId =
+            edgeData.id ||
+            `edge-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        }
+
+        set((state) => {
+          const isTextType = nodeData.type === 'text';
+          const defaultData: NeuroNodeData = {
+            ...nodeData.data,
+            label: nodeData.data?.label || (isTextType ? 'Type text here...' : 'New Node'),
+            layoutMode:
+              nodeData.data?.layoutMode || nodeData.layoutMode || 'manual',
+            shapeType: nodeData.data?.shapeType || (isTextType ? undefined : 'rounded'),
+            backgroundColor: isTextType
+              ? (nodeData.data?.backgroundColor || 'transparent')
+              : (nodeData.data?.backgroundColor || '#ffffff'),
+            borderColor: isTextType
+              ? (nodeData.data?.borderColor || 'transparent')
+              : (nodeData.data?.borderColor || '#94a3b8'),
+            borderWidth: isTextType
+              ? (nodeData.data?.borderWidth ?? 0)
+              : (nodeData.data?.borderWidth ?? 1.5),
+            color: nodeData.data?.color || (isTextType ? undefined : '#0f172a'),
+            fontSize: nodeData.data?.fontSize || 14,
+            textAlign: nodeData.data?.textAlign || (isTextType ? 'left' : 'center'),
+          };
+
+          const newNode: NeuroNode = {
+            id: nodeId,
+            type: nodeData.type || 'shape',
+            position: nodeData.position || { x: 100, y: 100 },
+            width: nodeData.width || 160,
+            height: nodeData.height || 60,
+            parentId: nodeData.parentId,
+            extent: nodeData.extent,
+            layoutMode: defaultData.layoutMode,
+            data: defaultData,
+            zIndex: nodeData.zIndex || 1,
+          };
+
+          state.nodes[nodeId] = newNode;
+
+          const page = state.pages[activePageId];
+          if (page) {
+            if (!page.nodeIds.includes(nodeId)) {
+              page.nodeIds.push(nodeId);
+            }
+          }
+
+          if (edgeData && edgeId) {
+            const routing = (edgeData.type as EdgeRoutingType) || defaultRouting;
+            const newEdge: NeuroEdge = {
+              id: edgeId,
+              source: edgeData.source,
+              target: edgeData.target || nodeId,
+              sourceHandle: edgeData.sourceHandle,
+              targetHandle: edgeData.targetHandle,
+              type: routing,
+              label: edgeData.label,
+              animated: edgeData.animated,
+              style: edgeData.style,
+              data: {
+                jumpArc: routing === 'jump',
+                routingType: routing,
+                ...edgeData.data,
+              },
+            };
+
+            state.edges[edgeId] = newEdge;
+            if (page) {
+              if (!page.edgeIds.includes(edgeId)) {
+                page.edgeIds.push(edgeId);
+              }
+            }
+          }
+
+          state.selectedNodeIds = [nodeId];
+          state.selectedEdgeIds = [];
+
+          if (page) {
+            page.updatedAt = Date.now();
+          }
+          state.project.updatedAt = Date.now();
+        });
+
+        return { nodeId, edgeId };
       },
 
       updateNodePosition: (id, position) => {
@@ -483,6 +743,29 @@ export const useProjectStore = create<ProjectStore>()(
             }
             state.project.updatedAt = Date.now();
           }
+        });
+      },
+
+      batchUpdateNodeData: (ids, patch) => {
+        if (!ids || ids.length === 0) return;
+        set((state) => {
+          for (const id of ids) {
+            const node = state.nodes[id];
+            if (node) {
+              node.data = {
+                ...node.data,
+                ...patch,
+              };
+              if (patch.layoutMode) {
+                node.layoutMode = patch.layoutMode;
+              }
+            }
+          }
+          const page = state.pages[state.activePageId];
+          if (page) {
+            page.updatedAt = Date.now();
+          }
+          state.project.updatedAt = Date.now();
         });
       },
 
@@ -588,6 +871,8 @@ export const useProjectStore = create<ProjectStore>()(
           edgeData.id ||
           `edge-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const activePageId = get().activePageId;
+        const defaultRouting = get().defaultEdgeRoutingType || 'jump';
+        const routing = (edgeData.type as EdgeRoutingType) || defaultRouting;
 
         set((state) => {
           const newEdge: NeuroEdge = {
@@ -596,12 +881,13 @@ export const useProjectStore = create<ProjectStore>()(
             target: edgeData.target,
             sourceHandle: edgeData.sourceHandle,
             targetHandle: edgeData.targetHandle,
-            type: edgeData.type || 'jump',
+            type: routing,
             label: edgeData.label,
             animated: edgeData.animated,
             style: edgeData.style,
             data: {
-              jumpArc: true,
+              jumpArc: routing === 'jump',
+              routingType: routing,
               ...edgeData.data,
             },
           };
@@ -639,6 +925,65 @@ export const useProjectStore = create<ProjectStore>()(
         });
       },
 
+      updateEdgeData: (id, patch) => {
+        set((state) => {
+          const edge = state.edges[id];
+          if (edge) {
+            edge.data = {
+              ...edge.data,
+              ...patch,
+            };
+            if (patch.routingType) {
+              edge.type = patch.routingType;
+            }
+            const page = state.pages[state.activePageId];
+            if (page) {
+              page.updatedAt = Date.now();
+            }
+            state.project.updatedAt = Date.now();
+          }
+        });
+      },
+
+      batchUpdateEdgeData: (ids, patch) => {
+        if (!ids || ids.length === 0) return;
+        set((state) => {
+          for (const id of ids) {
+            const edge = state.edges[id];
+            if (edge) {
+              edge.data = {
+                ...edge.data,
+                ...patch,
+              };
+              if (patch.routingType) {
+                edge.type = patch.routingType;
+              }
+            }
+          }
+          const page = state.pages[state.activePageId];
+          if (page) {
+            page.updatedAt = Date.now();
+          }
+          state.project.updatedAt = Date.now();
+        });
+      },
+
+      reconnectEdge: (edgeId, newConnection) => {
+        set((state) => {
+          const edge = state.edges[edgeId];
+          if (!edge || !newConnection.source || !newConnection.target) return;
+          edge.source = newConnection.source;
+          edge.target = newConnection.target;
+          edge.sourceHandle = newConnection.sourceHandle || undefined;
+          edge.targetHandle = newConnection.targetHandle || undefined;
+          const page = state.pages[state.activePageId];
+          if (page) {
+            page.updatedAt = Date.now();
+          }
+          state.project.updatedAt = Date.now();
+        });
+      },
+
       deleteEdges: (ids) => {
         if (!ids || ids.length === 0) return;
         const idSet = new Set(ids);
@@ -664,99 +1009,287 @@ export const useProjectStore = create<ProjectStore>()(
         });
       },
 
+      batchDelete: (nodeIds = [], edgeIds = []) => {
+        const nIds = nodeIds || [];
+        const eIds = edgeIds || [];
+        if (nIds.length === 0 && eIds.length === 0) return;
+
+        const nodeIdSet = new Set(nIds);
+        const edgeIdSet = new Set(eIds);
+
+        set((state) => {
+          // 1. Delete nodes
+          for (const id of nIds) {
+            delete state.nodes[id];
+          }
+
+          // 2. Unparent children if deleted node was container / frame
+          for (const node of Object.values(state.nodes)) {
+            if (node.parentId && nodeIdSet.has(node.parentId)) {
+              delete node.parentId;
+              delete node.extent;
+            }
+          }
+
+          // 3. Purge node IDs from all pages
+          for (const page of Object.values(state.pages)) {
+            page.nodeIds = page.nodeIds.filter((nid) => !nodeIdSet.has(nid));
+          }
+
+          // 4. Cascade delete incident edges and explicit edges
+          const allEdgesToDelete = new Set(edgeIdSet);
+          for (const [edgeId, edge] of Object.entries(state.edges)) {
+            if (nodeIdSet.has(edge.source) || nodeIdSet.has(edge.target)) {
+              allEdgesToDelete.add(edgeId);
+            }
+          }
+
+          for (const eid of allEdgesToDelete) {
+            delete state.edges[eid];
+          }
+
+          for (const page of Object.values(state.pages)) {
+            page.edgeIds = page.edgeIds.filter((eid) => !allEdgesToDelete.has(eid));
+          }
+
+          // 5. Sanitize selection arrays
+          state.selectedNodeIds = state.selectedNodeIds.filter((nid) => !nodeIdSet.has(nid));
+          state.selectedEdgeIds = state.selectedEdgeIds.filter((eid) => !allEdgesToDelete.has(eid));
+
+          // 6. Timestamps
+          const page = state.pages[state.activePageId];
+          if (page) {
+            page.updatedAt = Date.now();
+          }
+          state.project.updatedAt = Date.now();
+        });
+      },
+
       // ----------------------------------------------------------------------
       // React Flow v12 Event Handlers
       // ----------------------------------------------------------------------
 
       onNodesChange: (changes) => {
-        set((state) => {
-          const activePage = state.pages[state.activePageId];
-          if (!activePage) return;
-
-          let isCurrentlyDragging = false;
-          let hasPositionOrDimensionChange = false;
-          let hasRemoval = false;
-
-          for (const change of changes) {
-            if (change.type === 'position') {
-              if (change.dragging) {
-                isCurrentlyDragging = true;
-              }
-              if (change.position) {
-                hasPositionOrDimensionChange = true;
-              }
-            } else if (change.type === 'dimensions') {
-              hasPositionOrDimensionChange = true;
+        let hasStructuralCandidate = false;
+        const currentState = get();
+        for (const change of changes) {
+          if (change.type === 'remove') {
+            hasStructuralCandidate = true;
+            break;
+          }
+          if (change.type === 'dimensions' && change.resizing && change.dimensions) {
+            const existing = currentState.nodes[change.id];
+            if (
+              !existing ||
+              existing.width !== change.dimensions.width ||
+              existing.height !== change.dimensions.height
+            ) {
+              hasStructuralCandidate = true;
+              break;
             }
           }
-          state.isDragging = isCurrentlyDragging;
-
-          const currentNodes = activePage.nodeIds
-            .map((id) => state.nodes[id])
-            .filter((n): n is NeuroNode => Boolean(n));
-
-          const updatedNodes = applyNodeChanges(
-            changes,
-            currentNodes as unknown as Node[]
-          ) as unknown as NeuroNode[];
-          for (const node of updatedNodes) {
-            state.nodes[node.id] = node;
+          if (change.type === 'position' && change.position) {
+            const existing = currentState.nodes[change.id];
+            if (
+              !existing ||
+              existing.position.x !== change.position.x ||
+              existing.position.y !== change.position.y
+            ) {
+              hasStructuralCandidate = true;
+              break;
+            }
           }
+        }
 
-          for (const change of changes) {
-            if (change.type === 'position' && change.position) {
-              const node = state.nodes[change.id];
-              if (node) {
-                if (node.layoutMode === 'auto-elk') {
-                  node.layoutMode = 'manual';
+        const temporal = (
+          useProjectStore as unknown as {
+            temporal?: { getState: () => TemporalState<unknown> };
+          }
+        ).temporal;
+        const wasTracking = temporal?.getState().isTracking;
+        if (!hasStructuralCandidate && wasTracking) {
+          temporal?.getState().pause();
+        }
+
+        try {
+          set((state) => {
+            const activePage = state.pages[state.activePageId];
+            if (!activePage) return;
+
+            let isCurrentlyDragging = false;
+            let isCurrentlyResizing = false;
+            let hasPositionOrDimensionChange = false;
+            let hasRemoval = false;
+
+            // 1. Separate select changes and filter automated DOM measurements
+            const selectChanges: Extract<NodeChange<Node>, { type: 'select' }>[] = [];
+            const structuralChanges: NodeChange<Node>[] = [];
+
+            for (const change of changes) {
+              if (change.type === 'select') {
+                selectChanges.push(change);
+              } else if (change.type === 'dimensions') {
+                // Ignore automated ResizeObserver DOM measurements when user is not manually resizing
+                if (change.resizing) {
+                  isCurrentlyResizing = true;
+                  const existing = state.nodes[change.id];
+                  if (
+                    !existing ||
+                    !change.dimensions ||
+                    existing.width !== change.dimensions.width ||
+                    existing.height !== change.dimensions.height
+                  ) {
+                    hasPositionOrDimensionChange = true;
+                    structuralChanges.push(change);
+                  }
                 }
-                if (node.data && node.data.layoutMode === 'auto-elk') {
-                  node.data.layoutMode = 'manual';
+              } else if (change.type === 'position') {
+                if (change.dragging) {
+                  isCurrentlyDragging = true;
                 }
-              }
-            } else if (change.type === 'remove') {
-              hasRemoval = true;
-              delete state.nodes[change.id];
-
-              // Unparent child nodes if removed node was a container / frame
-              for (const node of Object.values(state.nodes)) {
-                if (node.parentId === change.id) {
-                  delete node.parentId;
-                  delete node.extent;
+                const existing = state.nodes[change.id];
+                if (existing) {
+                  if (change.dragging === false) {
+                    delete existing.dragging;
+                  } else if (change.dragging === true) {
+                    existing.dragging = true;
+                    if (existing.layoutMode === 'auto-elk') {
+                      existing.layoutMode = 'manual';
+                    }
+                    if (existing.data && existing.data.layoutMode === 'auto-elk') {
+                      existing.data.layoutMode = 'manual';
+                    }
+                  }
                 }
-              }
-
-              for (const page of Object.values(state.pages)) {
-                page.nodeIds = page.nodeIds.filter((nid) => nid !== change.id);
-              }
-
-              // Cascade delete incident edges across all pages
-              const edgesToDelete: string[] = [];
-              for (const [edgeId, edge] of Object.entries(state.edges)) {
-                if (edge.source === change.id || edge.target === change.id) {
-                  edgesToDelete.push(edgeId);
-                  delete state.edges[edgeId];
-                }
-              }
-
-              for (const page of Object.values(state.pages)) {
-                page.edgeIds = page.edgeIds.filter((eid) => !edgesToDelete.includes(eid));
-              }
-
-              // Sanitize selections
-              state.selectedNodeIds = state.selectedNodeIds.filter((nid) => nid !== change.id);
-              state.selectedEdgeIds = state.selectedEdgeIds.filter(
-                (eid) => !edgesToDelete.includes(eid)
-              );
-            } else if (change.type === 'select') {
-              if (change.selected) {
-                if (!state.selectedNodeIds.includes(change.id)) {
-                  state.selectedNodeIds.push(change.id);
+                if (change.position) {
+                  if (
+                    !existing ||
+                    existing.position.x !== change.position.x ||
+                    existing.position.y !== change.position.y
+                  ) {
+                    hasPositionOrDimensionChange = true;
+                    structuralChanges.push(change);
+                  }
+                } else {
+                  structuralChanges.push(change);
                 }
               } else {
-                state.selectedNodeIds = state.selectedNodeIds.filter(
-                  (id) => id !== change.id
+                structuralChanges.push(change);
+              }
+            }
+            state.isDragging = isCurrentlyDragging;
+            state.isResizing = isCurrentlyResizing;
+
+            // When dragging is inactive, purge any stranded dragging flags across all nodes
+            if (!isCurrentlyDragging) {
+              for (const node of Object.values(state.nodes)) {
+                if (node && 'dragging' in node) {
+                  delete node.dragging;
+                }
+              }
+            }
+
+            // 2. Handle selection changes on ephemeral state only (does NOT mutate state.nodes or produce history entries)
+            if (selectChanges.length > 0) {
+              const currentSelected = new Set(state.selectedNodeIds);
+              const nextSelected = new Set(state.selectedNodeIds);
+
+              for (const change of selectChanges) {
+                if (change.selected) {
+                  const node = state.nodes[change.id];
+                  const gid = node?.groupId || node?.data?.groupId;
+                  const toAdd = gid
+                    ? Object.values(state.nodes)
+                        .filter((n) => n.groupId === gid || n.data?.groupId === gid)
+                        .map((n) => n.id)
+                    : [change.id];
+                  for (const aid of toAdd) {
+                    nextSelected.add(aid);
+                  }
+                } else {
+                  nextSelected.delete(change.id);
+                }
+              }
+
+              if (
+                currentSelected.size !== nextSelected.size ||
+                Array.from(nextSelected).some((id) => !currentSelected.has(id))
+              ) {
+                state.selectedNodeIds = Array.from(nextSelected);
+              }
+            }
+
+            // 3. Apply structural changes (position, manual resize, remove) to state.nodes
+            if (structuralChanges.length > 0) {
+              const currentNodes = activePage.nodeIds
+                .map((id) => state.nodes[id])
+                .filter((n): n is NeuroNode => Boolean(n));
+
+              const updatedNodes = applyNodeChanges(
+                structuralChanges,
+                currentNodes as unknown as Node[]
+              ) as unknown as NeuroNode[];
+              for (const node of updatedNodes) {
+                state.nodes[node.id] = node;
+              }
+
+              for (const change of structuralChanges) {
+                if (change.type === 'position' && change.position) {
+                  const node = state.nodes[change.id];
+                  if (node) {
+                    if (node.layoutMode === 'auto-elk') {
+                      node.layoutMode = 'manual';
+                    }
+                    if (node.data && node.data.layoutMode === 'auto-elk') {
+                      node.data.layoutMode = 'manual';
+                    }
+                    if (change.dragging === false) {
+                      delete node.dragging;
+                    }
+                  }
+                } else if (change.type === 'remove') {
+                  hasRemoval = true;
+                  delete state.nodes[change.id];
+
+                // Unparent child nodes if removed node was a container / frame
+                for (const node of Object.values(state.nodes)) {
+                  if (node.parentId === change.id) {
+                    delete node.parentId;
+                    delete node.extent;
+                  }
+                }
+
+                for (const page of Object.values(state.pages)) {
+                  page.nodeIds = page.nodeIds.filter((nid) => nid !== change.id);
+                }
+
+                // Cascade delete incident edges across all pages
+                const edgesToDelete: string[] = [];
+                for (const [edgeId, edge] of Object.entries(state.edges)) {
+                  if (edge.source === change.id || edge.target === change.id) {
+                    edgesToDelete.push(edgeId);
+                    delete state.edges[edgeId];
+                  }
+                }
+
+                for (const page of Object.values(state.pages)) {
+                  page.edgeIds = page.edgeIds.filter((eid) => !edgesToDelete.includes(eid));
+                }
+
+                // Sanitize selections
+                state.selectedNodeIds = state.selectedNodeIds.filter((nid) => nid !== change.id);
+                state.selectedEdgeIds = state.selectedEdgeIds.filter(
+                  (eid) => !edgesToDelete.includes(eid)
                 );
+              }
+            }
+
+            // Post-apply safeguard: purge any stranded dragging flags across all nodes when inactive
+            if (!isCurrentlyDragging) {
+              for (const node of Object.values(state.nodes)) {
+                if (node && 'dragging' in node) {
+                  delete node.dragging;
+                }
               }
             }
           }
@@ -766,65 +1299,98 @@ export const useProjectStore = create<ProjectStore>()(
             state.project.updatedAt = Date.now();
           }
         });
-      },
+      } finally {
+        if (!hasStructuralCandidate && wasTracking) {
+          temporal?.getState().resume();
+        }
+      }
+    },
 
       onEdgesChange: (changes) => {
         set((state) => {
           const activePage = state.pages[state.activePageId];
           if (!activePage) return;
 
-          const currentEdges = activePage.edgeIds
-            .map((id) => state.edges[id])
-            .filter((e): e is NeuroEdge => Boolean(e));
-
-          const updatedEdges = applyEdgeChanges(
-            changes,
-            currentEdges as unknown as Edge[]
-          ) as unknown as NeuroEdge[];
-          for (const edge of updatedEdges) {
-            state.edges[edge.id] = edge;
-          }
-
-          let hasRemoval = false;
+          const selectChanges: Extract<EdgeChange<Edge>, { type: 'select' }>[] = [];
+          const structuralChanges: EdgeChange<Edge>[] = [];
 
           for (const change of changes) {
-            if (change.type === 'remove') {
-              hasRemoval = true;
-              delete state.edges[change.id];
-
-              for (const page of Object.values(state.pages)) {
-                page.edgeIds = page.edgeIds.filter((eid) => eid !== change.id);
-              }
-
-              state.selectedEdgeIds = state.selectedEdgeIds.filter((eid) => eid !== change.id);
-            } else if (change.type === 'select') {
-              if (change.selected) {
-                if (!state.selectedEdgeIds.includes(change.id)) {
-                  state.selectedEdgeIds.push(change.id);
-                }
-              } else {
-                state.selectedEdgeIds = state.selectedEdgeIds.filter(
-                  (id) => id !== change.id
-                );
-              }
+            if (change.type === 'select') {
+              selectChanges.push(change);
+            } else {
+              structuralChanges.push(change);
             }
           }
 
-          if (hasRemoval) {
-            activePage.updatedAt = Date.now();
-            state.project.updatedAt = Date.now();
+          // Handle select changes on ephemeral state only
+          if (selectChanges.length > 0) {
+            const currentSelected = new Set(state.selectedEdgeIds);
+            const nextSelected = new Set(state.selectedEdgeIds);
+
+            for (const change of selectChanges) {
+              if (change.selected) {
+                nextSelected.add(change.id);
+              } else {
+                nextSelected.delete(change.id);
+              }
+            }
+
+            if (
+              currentSelected.size !== nextSelected.size ||
+              Array.from(nextSelected).some((id) => !currentSelected.has(id))
+            ) {
+              state.selectedEdgeIds = Array.from(nextSelected);
+            }
+          }
+
+          if (structuralChanges.length > 0) {
+            const currentEdges = activePage.edgeIds
+              .map((id) => state.edges[id])
+              .filter((e): e is NeuroEdge => Boolean(e));
+
+            const updatedEdges = applyEdgeChanges(
+              structuralChanges,
+              currentEdges as unknown as Edge[]
+            ) as unknown as NeuroEdge[];
+            for (const edge of updatedEdges) {
+              state.edges[edge.id] = edge;
+            }
+
+            let hasRemoval = false;
+            for (const change of structuralChanges) {
+              if (change.type === 'remove') {
+                hasRemoval = true;
+                delete state.edges[change.id];
+
+                for (const page of Object.values(state.pages)) {
+                  page.edgeIds = page.edgeIds.filter((eid) => eid !== change.id);
+                }
+
+                state.selectedEdgeIds = state.selectedEdgeIds.filter((eid) => eid !== change.id);
+              }
+            }
+
+            if (hasRemoval) {
+              activePage.updatedAt = Date.now();
+              state.project.updatedAt = Date.now();
+            }
           }
         });
       },
 
       onConnect: (connection) => {
         if (!connection.source || !connection.target) return;
+        const routing = get().defaultEdgeRoutingType || 'jump';
         get().addEdge({
           source: connection.source,
           target: connection.target,
           sourceHandle: connection.sourceHandle || undefined,
           targetHandle: connection.targetHandle || undefined,
-          type: 'jump',
+          type: routing,
+          data: {
+            routingType: routing,
+            jumpArc: routing === 'jump',
+          },
         });
       },
 
@@ -833,8 +1399,42 @@ export const useProjectStore = create<ProjectStore>()(
       // ----------------------------------------------------------------------
 
       setToolMode: (toolMode) => set({ toolMode }),
-      setSelectedNodes: (selectedNodeIds) => set({ selectedNodeIds }),
-      setSelectedEdges: (selectedEdgeIds) => set({ selectedEdgeIds }),
+      setSelectedNodes: (selectedNodeIds) => {
+        const state = get();
+        const expanded = new Set<string>();
+        for (const id of selectedNodeIds) {
+          expanded.add(id);
+          const node = state.nodes[id];
+          const gid = node?.groupId || node?.data?.groupId;
+          if (gid) {
+            for (const other of Object.values(state.nodes)) {
+              if (other.groupId === gid || other.data?.groupId === gid) {
+                expanded.add(other.id);
+              }
+            }
+          }
+        }
+        const currentSet = new Set(state.selectedNodeIds);
+        if (
+          currentSet.size === expanded.size &&
+          Array.from(expanded).every((id) => currentSet.has(id))
+        ) {
+          return;
+        }
+        set({ selectedNodeIds: Array.from(expanded) });
+      },
+      setSelectedEdges: (selectedEdgeIds) => {
+        const state = get();
+        const currentSet = new Set(state.selectedEdgeIds);
+        const incomingSet = new Set(selectedEdgeIds);
+        if (
+          currentSet.size === incomingSet.size &&
+          selectedEdgeIds.every((id) => currentSet.has(id))
+        ) {
+          return;
+        }
+        set({ selectedEdgeIds });
+      },
       setFocusedDiagramId: (focusedDiagramId) => set({ focusedDiagramId }),
       setHoveredNodeId: (hoveredNodeId) => set({ hoveredNodeId }),
 
@@ -847,6 +1447,345 @@ export const useProjectStore = create<ProjectStore>()(
           seed.edges,
           seed.boards
         );
+        get().resetSelectionFilter();
+      },
+
+      // ----------------------------------------------------------------------
+      // Requirements Actions: OP-07, PM, TL, UI-04, FN
+      // ----------------------------------------------------------------------
+
+      setLastDirection: (lastDirection) => set({ lastDirection }),
+      setThemeMode: (themeMode) => set({ themeMode }),
+      setPageLayoutMode: (pageLayoutMode) => set({ pageLayoutMode }),
+
+      setNodeLayoutMode: (nodeId, mode) => {
+        set((state) => {
+          const node = state.nodes[nodeId];
+          if (node) {
+            node.layoutMode = mode;
+            if (node.data) {
+              node.data.layoutMode = mode;
+            }
+            const page = state.pages[state.activePageId];
+            if (page) page.updatedAt = Date.now();
+            state.project.updatedAt = Date.now();
+          }
+        });
+      },
+
+      batchSetNodeLayoutMode: (ids, mode) => {
+        if (!ids || ids.length === 0) return;
+        set((state) => {
+          for (const id of ids) {
+            const node = state.nodes[id];
+            if (node) {
+              node.layoutMode = mode;
+              if (node.data) {
+                node.data.layoutMode = mode;
+              }
+            }
+          }
+          const page = state.pages[state.activePageId];
+          if (page) page.updatedAt = Date.now();
+          state.project.updatedAt = Date.now();
+        });
+      },
+
+      setDefaultEdgeRoutingType: (defaultEdgeRoutingType) => set({ defaultEdgeRoutingType }),
+
+      handleConnectorNodeClick: (nodeId) => {
+        const currentSource = get().connectorSourceNodeId;
+        if (!currentSource) {
+          set({ connectorSourceNodeId: nodeId });
+          return null;
+        }
+
+        if (currentSource === nodeId) {
+          // Deselect if same node clicked
+          set({ connectorSourceNodeId: null });
+          return null;
+        }
+
+        const nodeA = get().nodes[currentSource];
+        const nodeB = get().nodes[nodeId];
+
+        let handles: { sourceHandle?: string; targetHandle?: string } = {};
+        if (nodeA && nodeB) {
+          handles = findOptimalHandlePair(nodeA, nodeB);
+        }
+
+        const routing = get().defaultEdgeRoutingType || 'jump';
+
+        // Establish edge between currentSource and nodeId with optimal handles
+        const edgeId = get().addEdge({
+          source: currentSource,
+          target: nodeId,
+          sourceHandle: handles.sourceHandle,
+          targetHandle: handles.targetHandle,
+          type: routing,
+          data: {
+            routingType: routing,
+            jumpArc: routing === 'jump',
+          },
+        });
+
+        // Reset connector source so user can continuously connect another pair
+        set({ connectorSourceNodeId: null });
+        return edgeId;
+      },
+
+      resetConnector: () => set({ connectorSourceNodeId: null }),
+
+      toggleNodeSelection: (nodeId) => {
+        set((state) => {
+          const node = state.nodes[nodeId];
+          const gid = node?.groupId || node?.data?.groupId;
+          const memberIds = gid
+            ? Object.values(state.nodes)
+                .filter((n) => n.groupId === gid || n.data?.groupId === gid)
+                .map((n) => n.id)
+            : [nodeId];
+
+          const isSelected = state.selectedNodeIds.includes(nodeId);
+          if (isSelected) {
+            state.selectedNodeIds = state.selectedNodeIds.filter(
+              (id) => !memberIds.includes(id)
+            );
+          } else {
+            for (const mid of memberIds) {
+              if (!state.selectedNodeIds.includes(mid)) {
+                state.selectedNodeIds.push(mid);
+              }
+            }
+          }
+        });
+      },
+
+      bringToFront: (nodeIdOrIds) => {
+        set((state) => {
+          const ids = Array.isArray(nodeIdOrIds) ? nodeIdOrIds : [nodeIdOrIds];
+          const allZ = Object.values(state.nodes).map((n) => n.zIndex || 0);
+          let maxZ = allZ.length > 0 ? Math.max(...allZ) : 1;
+          for (const id of ids) {
+            const target = state.nodes[id];
+            if (target) {
+              maxZ += 1;
+              target.zIndex = maxZ;
+            }
+          }
+        });
+      },
+
+      sendToBack: (nodeIdOrIds) => {
+        set((state) => {
+          const ids = Array.isArray(nodeIdOrIds) ? nodeIdOrIds : [nodeIdOrIds];
+          const allZ = Object.values(state.nodes).map((n) => n.zIndex || 0);
+          let minZ = allZ.length > 0 ? Math.min(...allZ) : 1;
+          for (const id of ids) {
+            const target = state.nodes[id];
+            if (target) {
+              minZ -= 1;
+              target.zIndex = minZ;
+            }
+          }
+        });
+      },
+
+      groupSelectedNodes: (title?: string) => {
+        const state = get();
+        const selectedIds = state.selectedNodeIds;
+        if (selectedIds.length < 2) return null;
+
+        const groupId = `group-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+        set((s) => {
+          for (const nid of selectedIds) {
+            const node = s.nodes[nid];
+            if (node) {
+              node.groupId = groupId;
+              if (node.data) {
+                node.data.groupId = groupId;
+              }
+            }
+          }
+          const activePage = s.pages[s.activePageId];
+          if (activePage) activePage.updatedAt = Date.now();
+          s.project.updatedAt = Date.now();
+        });
+
+        return groupId;
+      },
+
+      ungroupNodes: (targetIdOrGroupId: string) => {
+        set((state) => {
+          let targetGroupId: string | null = null;
+          // 1. Direct groupId check
+          const isDirectGroupId = Object.values(state.nodes).some(
+            (n) => n.groupId === targetIdOrGroupId || n.data?.groupId === targetIdOrGroupId
+          );
+          if (isDirectGroupId) {
+            targetGroupId = targetIdOrGroupId;
+          } else {
+            const targetNode = state.nodes[targetIdOrGroupId];
+            if (targetNode) {
+              targetGroupId = targetNode.groupId || targetNode.data?.groupId || null;
+            }
+          }
+
+          if (targetGroupId) {
+            for (const node of Object.values(state.nodes)) {
+              if (node.groupId === targetGroupId || node.data?.groupId === targetGroupId) {
+                delete node.groupId;
+                if (node.data) {
+                  delete node.data.groupId;
+                }
+              }
+            }
+          }
+
+          // 2. Also support legacy / container FrameNode unparenting if a FrameNode id is passed
+          const frame = state.nodes[targetIdOrGroupId];
+          if (frame && frame.type === 'frame') {
+            for (const node of Object.values(state.nodes)) {
+              if (node.parentId === targetIdOrGroupId) {
+                delete node.parentId;
+                delete node.extent;
+              }
+            }
+            delete state.nodes[targetIdOrGroupId];
+            const activePage = state.pages[state.activePageId];
+            if (activePage) {
+              activePage.nodeIds = activePage.nodeIds.filter((id) => id !== targetIdOrGroupId);
+            }
+            state.selectedNodeIds = state.selectedNodeIds.filter((id) => id !== targetIdOrGroupId);
+          }
+
+          const activePage = state.pages[state.activePageId];
+          if (activePage) activePage.updatedAt = Date.now();
+          state.project.updatedAt = Date.now();
+        });
+      },
+
+      createProject: (name = 'New Project') => {
+        const id = `proj-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        const pageId = `page-${Date.now()}-1`;
+        const boardId = `board-${Date.now()}-1`;
+
+        const newProject: Project = {
+          id,
+          name,
+          version: '1.0.0',
+          activeBoardId: boardId,
+          boardIds: [boardId],
+          activePageId: pageId,
+          pageIds: [pageId],
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+
+        const newBoard: Board = {
+          id: boardId,
+          projectId: id,
+          name: 'Main Board',
+          activePageId: pageId,
+          pageIds: [pageId],
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+
+        const newPage: Page = {
+          id: pageId,
+          projectId: id,
+          boardId,
+          title: 'Page 1',
+          name: 'Page 1',
+          order: 0,
+          viewport: { x: 0, y: 0, zoom: 1 },
+          nodeIds: [],
+          edgeIds: [],
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+
+        set((s) => {
+          s.project = newProject;
+          s.boards = { [boardId]: newBoard };
+          s.pages = { [pageId]: newPage };
+          s.nodes = {};
+          s.edges = {};
+          s.activePageId = pageId;
+          s.selectedNodeIds = [];
+          s.selectedEdgeIds = [];
+          s.focusedDiagramId = null;
+
+          // Update available project list
+          const summary: ProjectSummary = {
+            id,
+            name,
+            updatedAt: Date.now(),
+            pageCount: 1,
+          };
+          s.availableProjects = [
+            summary,
+            ...s.availableProjects.filter((p) => p.id !== id),
+          ];
+        });
+
+        const temporal = (useProjectStore as unknown as { temporal?: { getState: () => TemporalState<unknown> } }).temporal;
+        temporal?.getState().clear();
+
+        return id;
+      },
+
+      switchProject: async (projectId) => {
+        try {
+          const dbMod = await import('../db/index.ts');
+          const rec = await dbMod.db.projects.get(projectId);
+          if (rec) {
+            get().setProject(rec, rec.pages, rec.nodes, rec.edges, rec.boards);
+            return true;
+          }
+        } catch {
+          // ignore
+        }
+
+        // Fallback for in-memory / test environments
+        if (projectId === initialSeed.project.id) {
+          get().resetToSeed();
+          return true;
+        }
+        return false;
+      },
+
+      deleteProject: async (projectId) => {
+        set((s) => {
+          s.availableProjects = s.availableProjects.filter((p) => p.id !== projectId);
+        });
+        try {
+          const dbMod = await import('../db/index.ts');
+          await dbMod.db.projects.delete(projectId);
+          return true;
+        } catch {
+          return true;
+        }
+      },
+
+      refreshAvailableProjects: async () => {
+        try {
+          const dbMod = await import('../db/index.ts');
+          const allProjects = await dbMod.db.projects.toArray();
+          if (allProjects.length > 0) {
+            const summaries: ProjectSummary[] = allProjects.map((p) => ({
+              id: p.id,
+              name: p.name,
+              updatedAt: p.updatedAt,
+              pageCount: p.pageIds?.length || Object.keys(p.pages || {}).length,
+            }));
+            set({ availableProjects: summaries });
+          }
+        } catch {
+          // ignore in tests
+        }
       },
 
       // ----------------------------------------------------------------------
@@ -854,54 +1793,115 @@ export const useProjectStore = create<ProjectStore>()(
       // ----------------------------------------------------------------------
 
       undo: () => {
+        if (get().isDragging) return;
         const temporalApi = (useProjectStore as unknown as { temporal?: { getState: () => TemporalState<unknown> } }).temporal;
         if (temporalApi) {
           temporalApi.getState().undo();
           const current = get();
-          // Sanitize ghost selections if undone node/edge disappeared
-          if (
-            current.selectedNodeIds.some((id) => !current.nodes[id]) ||
-            current.selectedEdgeIds.some((id) => !current.edges[id])
-          ) {
-            set((s) => {
-              s.selectedNodeIds = s.selectedNodeIds.filter((id) => Boolean(s.nodes[id]));
-              s.selectedEdgeIds = s.selectedEdgeIds.filter((id) => Boolean(s.edges[id]));
-            });
-          }
-          // Fallback if active page was deleted in undo
-          if (!current.pages[current.activePageId]) {
-            const fallbackId = current.project.pageIds[0] || Object.keys(current.pages)[0];
-            if (fallbackId) {
+          const wasTracking = temporalApi.getState().isTracking;
+          temporalApi.getState().pause();
+          try {
+            // Sanitize ghost selections if undone node/edge disappeared
+            if (
+              current.selectedNodeIds.some((id) => !current.nodes[id]) ||
+              current.selectedEdgeIds.some((id) => !current.edges[id])
+            ) {
               set((s) => {
-                s.activePageId = fallbackId;
-                s.project.activePageId = fallbackId;
+                s.selectedNodeIds = s.selectedNodeIds.filter((id) => Boolean(s.nodes[id]));
+                s.selectedEdgeIds = s.selectedEdgeIds.filter((id) => Boolean(s.edges[id]));
               });
+            }
+            // Fallback if active page was deleted in undo
+            if (!current.pages[current.activePageId]) {
+              const fallbackId = current.project.pageIds[0] || Object.keys(current.pages)[0];
+              if (fallbackId) {
+                set((s) => {
+                  s.activePageId = fallbackId;
+                  s.project.activePageId = fallbackId;
+                });
+              }
+            }
+          } finally {
+            if (wasTracking) {
+              temporalApi.getState().resume();
+            } else {
+              temporalApi.getState().pause();
             }
           }
         }
       },
 
+      setSelectionFilter: (filter) => {
+        set((state) => {
+          state.selectionFilter = {
+            ...state.selectionFilter,
+            ...filter,
+          };
+        });
+      },
+
+      toggleSelectionFilterItem: (key) => {
+        set((state) => {
+          state.selectionFilter[key] = !state.selectionFilter[key];
+        });
+      },
+
+      resetSelectionFilter: () => {
+        set((state) => {
+          state.selectionFilter = {
+            shape: true,
+            text: true,
+            edge: true,
+            frame: true,
+            diagram: true,
+          };
+        });
+      },
+
+      clearSelectionFilter: () => {
+        set((state) => {
+          state.selectionFilter = {
+            shape: false,
+            text: false,
+            edge: false,
+            frame: false,
+            diagram: false,
+          };
+        });
+      },
+
       redo: () => {
+        if (get().isDragging) return;
         const temporalApi = (useProjectStore as unknown as { temporal?: { getState: () => TemporalState<unknown> } }).temporal;
         if (temporalApi) {
           temporalApi.getState().redo();
           const current = get();
-          if (
-            current.selectedNodeIds.some((id) => !current.nodes[id]) ||
-            current.selectedEdgeIds.some((id) => !current.edges[id])
-          ) {
-            set((s) => {
-              s.selectedNodeIds = s.selectedNodeIds.filter((id) => Boolean(s.nodes[id]));
-              s.selectedEdgeIds = s.selectedEdgeIds.filter((id) => Boolean(s.edges[id]));
-            });
-          }
-          if (!current.pages[current.activePageId]) {
-            const fallbackId = current.project.pageIds[0] || Object.keys(current.pages)[0];
-            if (fallbackId) {
+          const wasTracking = temporalApi.getState().isTracking;
+          temporalApi.getState().pause();
+          try {
+            if (
+              current.selectedNodeIds.some((id) => !current.nodes[id]) ||
+              current.selectedEdgeIds.some((id) => !current.edges[id])
+            ) {
               set((s) => {
-                s.activePageId = fallbackId;
-                s.project.activePageId = fallbackId;
+                s.selectedNodeIds = s.selectedNodeIds.filter((id) => Boolean(s.nodes[id]));
+                s.selectedEdgeIds = s.selectedEdgeIds.filter((id) => Boolean(s.edges[id]));
               });
+            }
+            if (!current.pages[current.activePageId]) {
+              const fallbackId = current.project.pageIds[0] || Object.keys(current.pages)[0];
+              if (fallbackId) {
+                set((s) => {
+                  s.activePageId = fallbackId;
+                  s.project.activePageId = fallbackId;
+                });
+              }
+            }
+          } finally {
+            if (wasTracking) {
+              temporalApi.getState().resume();
+            } else {
+              temporalApi.getState().pause();
             }
           }
         }
@@ -917,20 +1917,40 @@ export const useProjectStore = create<ProjectStore>()(
         edges: state.edges,
         activePageId: state.activePageId,
       }),
-      equality: (pastState, currentState) =>
-        pastState.project === currentState.project &&
-        pastState.boards === currentState.boards &&
-        pastState.pages === currentState.pages &&
-        pastState.nodes === currentState.nodes &&
-        pastState.edges === currentState.edges &&
-        pastState.activePageId === currentState.activePageId,
+      equality: (pastState, currentState) => {
+        const nodesEqual =
+          pastState.nodes === currentState.nodes ||
+          areNodesEqualExcludingTransient(pastState.nodes, currentState.nodes);
+        const edgesEqual = pastState.edges === currentState.edges;
+        const pagesEqual = pastState.pages === currentState.pages;
+        const boardsEqual = pastState.boards === currentState.boards;
+        const activePageEqual = pastState.activePageId === currentState.activePageId;
+        const projectEqual =
+          pastState.project === currentState.project ||
+          (pastState.project.id === currentState.project.id &&
+            pastState.project.name === currentState.project.name &&
+            pastState.project.activeBoardId === currentState.project.activeBoardId &&
+            pastState.project.activePageId === currentState.project.activePageId &&
+            pastState.project.pageIds === currentState.project.pageIds &&
+            pastState.project.boardIds === currentState.project.boardIds);
+
+        return (
+          nodesEqual &&
+          edgesEqual &&
+          pagesEqual &&
+          boardsEqual &&
+          activePageEqual &&
+          projectEqual
+        );
+      },
       limit: 100,
-      handleSet: (handleSet) => (state) => {
-        // Skip history recording while dragging to prevent frame-by-frame history bloat
-        if ((state as unknown as ProjectState).isDragging) {
+      handleSet: (handleSet) => (pastState, replace, currentState, deltaState) => {
+        const storeState = useProjectStore?.getState?.() as ProjectState | undefined;
+        // Skip history recording while dragging or resizing to prevent frame-by-frame history bloat
+        if (storeState?.isDragging || storeState?.isResizing) {
           return;
         }
-        return handleSet(state);
+        return (handleSet as any)(pastState, replace, currentState, deltaState);
       },
     }
   )
@@ -994,27 +2014,86 @@ export const useActivePage = (): Page | undefined => {
 };
 
 export const useTemporal = () => {
-  const pastStates = useStore(
+  const canUndo = useStore(
     useProjectStore.temporal,
-    (state) => state.pastStates
+    (s) => s.pastStates.length > 0
   );
-  const futureStates = useStore(
+  const canRedo = useStore(
     useProjectStore.temporal,
-    (state) => state.futureStates
+    (s) => s.futureStates.length > 0
   );
-  const { undo, redo, clear, pause, resume } = useProjectStore.temporal.getState();
+  const { clear, pause, resume } = useProjectStore.temporal.getState();
 
   return {
-    canUndo: pastStates.length > 0,
-    canRedo: futureStates.length > 0,
-    undo,
-    redo,
+    canUndo,
+    canRedo,
+    undo: () => useProjectStore.getState().undo(),
+    redo: () => useProjectStore.getState().redo(),
     clear,
     pause,
     resume,
   };
 };
 
-export const undo = () => useProjectStore.temporal.getState().undo();
-export const redo = () => useProjectStore.temporal.getState().redo();
+export const undo = () => useProjectStore.getState().undo();
+export const redo = () => useProjectStore.getState().redo();
+
+/**
+ * Calculates the pair of connection handles (top, right, bottom, left)
+ * between two nodes that has the minimum Euclidean distance.
+ */
+export function findOptimalHandlePair(
+  nodeA: NeuroNode,
+  nodeB: NeuroNode
+): {
+  sourceHandle: 'top' | 'right' | 'bottom' | 'left';
+  targetHandle: 'top' | 'right' | 'bottom' | 'left';
+} {
+  const wA = nodeA.width || 160;
+  const hA = nodeA.height || 60;
+  const posA = nodeA.position;
+
+  const wB = nodeB.width || 160;
+  const hB = nodeB.height || 60;
+  const posB = nodeB.position;
+
+  const portsA: Record<'top' | 'right' | 'bottom' | 'left', { x: number; y: number }> = {
+    top: { x: posA.x + wA / 2, y: posA.y },
+    right: { x: posA.x + wA, y: posA.y + hA / 2 },
+    bottom: { x: posA.x + wA / 2, y: posA.y + hA },
+    left: { x: posA.x, y: posA.y + hA / 2 },
+  };
+
+  const portsB: Record<'top' | 'right' | 'bottom' | 'left', { x: number; y: number }> = {
+    top: { x: posB.x + wB / 2, y: posB.y },
+    right: { x: posB.x + wB, y: posB.y + hB / 2 },
+    bottom: { x: posB.x + wB / 2, y: posB.y + hB },
+    left: { x: posB.x, y: posB.y + hB / 2 },
+  };
+
+  const sides: ('top' | 'right' | 'bottom' | 'left')[] = ['top', 'right', 'bottom', 'left'];
+
+  let bestDist = Infinity;
+  let bestPair: {
+    sourceHandle: 'top' | 'right' | 'bottom' | 'left';
+    targetHandle: 'top' | 'right' | 'bottom' | 'left';
+  } = {
+    sourceHandle: 'right',
+    targetHandle: 'left',
+  };
+
+  for (const sA of sides) {
+    for (const sB of sides) {
+      const pA = portsA[sA];
+      const pB = portsB[sB];
+      const dist = Math.hypot(pA.x - pB.x, pA.y - pB.y);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestPair = { sourceHandle: sA, targetHandle: sB };
+      }
+    }
+  }
+
+  return bestPair;
+}
 export const clearHistory = () => useProjectStore.temporal.getState().clear();

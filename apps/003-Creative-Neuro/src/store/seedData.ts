@@ -33,7 +33,7 @@ export const SEED_PAGE_IDS = {
 
 export const SEED_PROJECT: Project = {
   id: SEED_PROJECT_ID,
-  name: 'Creative-Neuro Showcase',
+  name: 'Demo',
   description: 'Phase 1 All-in-One Visual Thinking MVP (Mind Map + Flowchart + Whiteboard)',
   version: '1.0.0',
   activeBoardId: SEED_BOARD_ID,
@@ -318,7 +318,7 @@ const page1Nodes: NeuroNode[] = [
     id: 'mm-note',
     type: 'text',
     position: { x: 300, y: 440 },
-    width: 220,
+    width: 240,
     height: 80,
     layoutMode: 'manual',
     data: {
@@ -326,9 +326,6 @@ const page1Nodes: NeuroNode[] = [
       layoutMode: 'manual',
       fontSize: 12,
       color: '#64748b',
-      backgroundColor: '#f8fafc',
-      borderColor: '#e2e8f0',
-      borderWidth: 1,
       textAlign: 'left',
     },
   },

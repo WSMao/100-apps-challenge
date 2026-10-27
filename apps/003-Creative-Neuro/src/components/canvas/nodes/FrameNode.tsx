@@ -15,6 +15,7 @@ import { ChevronDown, ChevronRight, Folder, Layers } from 'lucide-react';
 import type { NeuroEdge, NeuroNode } from '../../../types/index.ts';
 import { useProjectStore } from '../../../store/useProjectStore.ts';
 import { calculateElkLayout } from '../../../engine/index.ts';
+import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
 
 export function FrameNode({
   id,
@@ -25,6 +26,9 @@ export function FrameNode({
 }: NodeProps) {
   const data = rawData as unknown as NeuroNode['data'];
   const updateNodeData = useProjectStore((s) => s.updateNodeData);
+  const isStoreSelected = useProjectStore((s) => s.selectedNodeIds.includes(id));
+  const selectedNodeCount = useProjectStore((s) => s.selectedNodeIds.length);
+  const isNodeSelected = selected || isStoreSelected;
   const isCollapsed = Boolean(data?.collapsed);
 
   // Count attached children
@@ -117,34 +121,41 @@ export function FrameNode({
     return (
       <div
         style={{ width: 180, height: 44 }}
-        className={`relative bg-slate-900/95 border border-indigo-500/60 rounded-xl px-3 flex items-center justify-between shadow-xl cursor-pointer ${
-          selected ? 'ring-2 ring-indigo-400' : ''
+        className={`group relative bg-slate-900/95 border border-indigo-500/60 rounded-xl px-3 flex items-center justify-between shadow-xl cursor-pointer ${
+          isNodeSelected ? 'ring-2 ring-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.6)]' : ''
         }`}
         onClick={handleToggleCollapse}
       >
+        {/* Horizontal Floating Quick-Action Menu directly above frame when single frame is selected */}
+        {isNodeSelected && selectedNodeCount <= 1 && <NodeFloatingActionBar nodeId={id} />}
+
         <Handle
           type="target"
           position={Position.Top}
           id="top"
-          className="!w-2 !h-2 !bg-indigo-400"
+          style={{ left: '50%', top: 0, right: 'auto', bottom: 'auto', transform: 'translate(-50%, -50%)', translate: 'none' }}
+          className="!w-2 !h-2 !bg-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity"
         />
         <Handle
           type="source"
           position={Position.Right}
           id="right"
-          className="!w-2 !h-2 !bg-indigo-400"
+          style={{ left: '100%', top: '50%', right: 'auto', bottom: 'auto', transform: 'translate(-50%, -50%)', translate: 'none' }}
+          className="!w-2 !h-2 !bg-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity"
         />
         <Handle
           type="source"
           position={Position.Bottom}
           id="bottom"
-          className="!w-2 !h-2 !bg-indigo-400"
+          style={{ left: '50%', top: '100%', right: 'auto', bottom: 'auto', transform: 'translate(-50%, -50%)', translate: 'none' }}
+          className="!w-2 !h-2 !bg-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity"
         />
         <Handle
           type="target"
           position={Position.Left}
           id="left"
-          className="!w-2 !h-2 !bg-indigo-400"
+          style={{ left: 0, top: '50%', right: 'auto', bottom: 'auto', transform: 'translate(-50%, -50%)', translate: 'none' }}
+          className="!w-2 !h-2 !bg-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity"
         />
 
         <div className="flex items-center gap-2 overflow-hidden">
@@ -169,35 +180,42 @@ export function FrameNode({
   return (
     <div
       style={{ width: W, height: H }}
-      className={`relative bg-slate-900/30 border-2 border-dashed rounded-2xl p-3 flex flex-col transition-all ${
-        selected
-          ? 'border-indigo-500 shadow-2xl shadow-indigo-500/10'
+      className={`group relative bg-slate-900/30 border-2 border-dashed rounded-2xl p-3 flex flex-col transition-all ${
+        isNodeSelected
+          ? 'border-indigo-500 shadow-2xl shadow-indigo-500/10 ring-2 ring-cyan-400'
           : 'border-slate-700/80'
       }`}
     >
+      {/* Horizontal Floating Quick-Action Menu directly above frame when single frame is selected */}
+      {isNodeSelected && selectedNodeCount <= 1 && <NodeFloatingActionBar nodeId={id} />}
+
       <Handle
         type="target"
         position={Position.Top}
         id="top"
-        className="!w-2.5 !h-2.5 !bg-slate-600"
+        style={{ left: '50%', top: 0, right: 'auto', bottom: 'auto', transform: 'translate(-50%, -50%)', translate: 'none' }}
+        className="!w-2.5 !h-2.5 !bg-slate-600 opacity-0 group-hover:opacity-100 transition-opacity"
       />
       <Handle
         type="source"
         position={Position.Right}
         id="right"
-        className="!w-2.5 !h-2.5 !bg-slate-600"
+        style={{ left: '100%', top: '50%', right: 'auto', bottom: 'auto', transform: 'translate(-50%, -50%)', translate: 'none' }}
+        className="!w-2.5 !h-2.5 !bg-slate-600 opacity-0 group-hover:opacity-100 transition-opacity"
       />
       <Handle
         type="source"
         position={Position.Bottom}
         id="bottom"
-        className="!w-2.5 !h-2.5 !bg-slate-600"
+        style={{ left: '50%', top: '100%', right: 'auto', bottom: 'auto', transform: 'translate(-50%, -50%)', translate: 'none' }}
+        className="!w-2.5 !h-2.5 !bg-slate-600 opacity-0 group-hover:opacity-100 transition-opacity"
       />
       <Handle
         type="target"
         position={Position.Left}
         id="left"
-        className="!w-2.5 !h-2.5 !bg-slate-600"
+        style={{ left: 0, top: '50%', right: 'auto', bottom: 'auto', transform: 'translate(-50%, -50%)', translate: 'none' }}
+        className="!w-2.5 !h-2.5 !bg-slate-600 opacity-0 group-hover:opacity-100 transition-opacity"
       />
 
       {/* Frame Header Bar */}

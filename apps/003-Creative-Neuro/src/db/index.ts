@@ -322,6 +322,26 @@ export function validateAndSanitizeProjectRecord(record: unknown): ProjectRecord
     !Array.isArray(r.nodes);
   const sanitizedNodes = isNodesValidObject ? (r.nodes as Record<string, NeuroNode>) : {};
 
+  // Sanitize text nodes to guarantee transparent background and border
+  if (isNodesValidObject) {
+    for (const node of Object.values(sanitizedNodes)) {
+      if (node && node.type === 'text') {
+        if (!node.data) node.data = { label: '', layoutMode: 'manual' };
+        if (
+          !node.data.backgroundColor ||
+          node.data.backgroundColor === '#ffffff' ||
+          node.data.backgroundColor === '#f8fafc' ||
+          node.data.backgroundColor === 'white' ||
+          node.id === 'mm-note'
+        ) {
+          node.data.backgroundColor = 'transparent';
+          node.data.borderColor = 'transparent';
+          node.data.borderWidth = 0;
+        }
+      }
+    }
+  }
+
   const isEdgesValidObject =
     Boolean(r.edges) &&
     typeof r.edges === 'object' &&
@@ -348,9 +368,17 @@ export function validateAndSanitizeProjectRecord(record: unknown): ProjectRecord
     activePageId = pageIds[0] || pageKeys[0];
   }
 
+  const rawName = typeof r.name === 'string' ? r.name : 'Untitled Project';
+  const name =
+    rawName === 'Creative-Neuro Showcase' ||
+    rawName.startsWith('Creative-Neuro') ||
+    r.id === 'proj-creative-neuro-demo'
+      ? 'Demo'
+      : rawName;
+
   return {
     id: r.id,
-    name: typeof r.name === 'string' ? r.name : 'Untitled Project',
+    name,
     description: typeof r.description === 'string' ? r.description : '',
     version: typeof r.version === 'string' ? r.version : '1.0.0',
     activePageId,

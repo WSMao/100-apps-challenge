@@ -21,5 +21,7 @@ Thumbs.db
 
 # 內部開發與競品調研文件（不推送至 GitHub）
 docs/市場競品調查.md
+tests/docs/report/
+
 
 

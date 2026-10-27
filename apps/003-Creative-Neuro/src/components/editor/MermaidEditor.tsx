@@ -144,6 +144,7 @@ export function MermaidEditor({
 
   // Sync state refs
   const isUserTypingRef = useRef(false);
+  const isExternalSyncRef = useRef(false);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -303,7 +304,7 @@ export function MermaidEditor({
         markdown(),
         oneDark,
         EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
+          if (update.docChanged && !isExternalSyncRef.current) {
             handleEditorChange(update.state.doc.toString());
           }
         }),
@@ -358,9 +359,14 @@ export function MermaidEditor({
     const currentCode = viewRef.current.state.doc.toString();
 
     if (newCode !== currentCode) {
-      viewRef.current.dispatch({
-        changes: { from: 0, to: currentCode.length, insert: newCode },
-      });
+      isExternalSyncRef.current = true;
+      try {
+        viewRef.current.dispatch({
+          changes: { from: 0, to: currentCode.length, insert: newCode },
+        });
+      } finally {
+        isExternalSyncRef.current = false;
+      }
     }
   }, [value, nodes, edges, activePageId, getCurrentCode]);
 

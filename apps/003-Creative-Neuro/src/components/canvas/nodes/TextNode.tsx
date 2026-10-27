@@ -13,6 +13,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { NeuroNode } from '../../../types/index.ts';
 import { useProjectStore } from '../../../store/useProjectStore.ts';
+import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
 
 export function TextNode({ id, data: rawData, selected, width }: NodeProps) {
   const data = rawData as unknown as NeuroNode['data'];
@@ -21,6 +22,11 @@ export function TextNode({ id, data: rawData, selected, width }: NodeProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const updateNodeData = useProjectStore((s) => s.updateNodeData);
+  const themeMode = useProjectStore((s) => s.themeMode);
+  const isDark = themeMode === 'dark';
+  const isStoreSelected = useProjectStore((s) => s.selectedNodeIds.includes(id));
+  const selectedNodeCount = useProjectStore((s) => s.selectedNodeIds.length);
+  const isNodeSelected = selected || isStoreSelected;
 
   useEffect(() => {
     setText(data?.label || '');
@@ -46,20 +52,23 @@ export function TextNode({ id, data: rawData, selected, width }: NodeProps) {
         minWidth: 100,
         minHeight: 32,
         width: width ? Math.max(100, width) : undefined,
-        backgroundColor: data?.backgroundColor || undefined,
-        borderColor: data?.borderColor || undefined,
-        borderWidth: data?.borderWidth || undefined,
+        backgroundColor: data?.backgroundColor || 'transparent',
+        borderColor: data?.borderColor || 'transparent',
+        borderWidth: data?.borderWidth || 0,
       }}
       className={`relative group px-3 py-2 rounded-lg transition-all ${
-        selected
-          ? 'ring-2 ring-indigo-500 bg-slate-900/70 shadow-lg'
-          : 'hover:bg-slate-900/40'
+        isNodeSelected
+          ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-900 shadow-[0_0_15px_rgba(6,182,212,0.6)]'
+          : ''
       }`}
       onDoubleClick={(e) => {
         e.stopPropagation();
         setIsEditing(true);
       }}
     >
+      {/* Horizontal Floating Quick-Action Menu directly above node when single node is selected */}
+      {isNodeSelected && selectedNodeCount <= 1 && <NodeFloatingActionBar nodeId={id} />}
+
       {isEditing ? (
         <textarea
           ref={textareaRef}
@@ -79,12 +88,18 @@ export function TextNode({ id, data: rawData, selected, width }: NodeProps) {
               setIsEditing(false);
             }
           }}
-          className="w-full bg-slate-950 text-slate-100 text-sm px-2 py-1 rounded border border-indigo-500 outline-none resize-none overflow-hidden leading-relaxed"
+          style={{
+            color: data?.color || (isDark ? '#f1f5f9' : '#0f172a'),
+            fontSize: data?.fontSize || 14,
+            fontWeight: data?.fontWeight || 'normal',
+            textAlign: data?.textAlign || 'left',
+          }}
+          className="w-full text-sm px-1.5 py-0.5 rounded border border-indigo-500/70 outline-none resize-none overflow-hidden leading-relaxed bg-transparent"
         />
       ) : (
         <p
           style={{
-            color: data?.color || '#f1f5f9',
+            color: data?.color || (isDark ? '#f1f5f9' : '#0f172a'),
             fontSize: data?.fontSize || 14,
             fontWeight: data?.fontWeight || 'normal',
             textAlign: data?.textAlign || 'left',

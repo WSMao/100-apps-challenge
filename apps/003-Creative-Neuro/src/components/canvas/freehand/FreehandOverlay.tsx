@@ -74,30 +74,34 @@ export function FreehandOverlay() {
     []
   );
   const isDrawingRef = useRef(false);
+  const erasedIdsRef = useRef<Set<string>>(new Set());
+  const [erasedCount, setErasedCount] = useState(0);
 
   const isDrawMode = toolMode === 'draw';
 
-  // Spatial Eraser check: deletes any stroke node whose points are within distance
-  const handleEraserAt = useCallback(
+  // Spatial Eraser check: accumulates any stroke node whose points are within distance
+  const accumulateEraserAt = useCallback(
     (flowPos: { x: number; y: number }) => {
       const radius = 24;
-      const nodesToDelete: string[] = [];
+      let newlyErased = false;
 
       for (const node of strokeNodes) {
+        if (erasedIdsRef.current.has(node.id)) continue;
         const pts = node.data?.points || [];
         for (const [px, py] of pts) {
           if (Math.hypot(px - flowPos.x, py - flowPos.y) <= radius) {
-            nodesToDelete.push(node.id);
+            erasedIdsRef.current.add(node.id);
+            newlyErased = true;
             break;
           }
         }
       }
 
-      if (nodesToDelete.length > 0) {
-        deleteNodes(nodesToDelete);
+      if (newlyErased) {
+        setErasedCount((c) => c + 1);
       }
     },
-    [strokeNodes, deleteNodes]
+    [strokeNodes]
   );
 
   // Pointer event handlers
@@ -111,7 +115,9 @@ export function FreehandOverlay() {
 
     if (isEraser) {
       isDrawingRef.current = true;
-      handleEraserAt(flowPos);
+      erasedIdsRef.current.clear();
+      setErasedCount(0);
+      accumulateEraserAt(flowPos);
     } else {
       isDrawingRef.current = true;
       setCurrentPoints([[flowPos.x, flowPos.y, pressure]]);
@@ -126,7 +132,7 @@ export function FreehandOverlay() {
     const pressure = e.pressure > 0 ? e.pressure : 0.5;
 
     if (isEraser) {
-      handleEraserAt(flowPos);
+      accumulateEraserAt(flowPos);
     } else {
       setCurrentPoints((prev) => [...prev, [flowPos.x, flowPos.y, pressure]]);
     }
@@ -137,7 +143,14 @@ export function FreehandOverlay() {
     isDrawingRef.current = false;
     e.stopPropagation();
 
-    if (!isEraser && currentPoints.length > 1) {
+    if (isEraser) {
+      const toDelete = Array.from(erasedIdsRef.current);
+      if (toDelete.length > 0) {
+        deleteNodes(toDelete);
+      }
+      erasedIdsRef.current.clear();
+      setErasedCount(0);
+    } else if (currentPoints.length > 1) {
       // Calculate stroke bounding box
       let minX = Infinity;
       let minY = Infinity;
@@ -172,6 +185,14 @@ export function FreehandOverlay() {
     setCurrentPoints([]);
   };
 
+  const handlePointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    isDrawingRef.current = false;
+    e.stopPropagation();
+    setCurrentPoints([]);
+    erasedIdsRef.current.clear();
+    setErasedCount(0);
+  };
+
   // Convert active points into perfect-freehand outline
   const activeStrokeOutline = useMemo(() => {
     if (currentPoints.length === 0) return '';
@@ -194,7 +215,9 @@ export function FreehandOverlay() {
           style={{ width: '100%', height: '100%', zIndex: 5 }}
         >
           {/* Render Committed Strokes */}
-          {strokeNodes.map((node) => {
+          {strokeNodes
+            .filter((node) => !erasedIdsRef.current.has(node.id))
+            .map((node) => {
             const pts = (node.data?.points || []) as Array<
               [number, number, number?]
             >;
@@ -233,7 +256,7 @@ export function FreehandOverlay() {
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
+          onPointerCancel={handlePointerCancel}
           className="absolute inset-0 z-20 cursor-crosshair"
           style={{ touchAction: 'none' }}
         />

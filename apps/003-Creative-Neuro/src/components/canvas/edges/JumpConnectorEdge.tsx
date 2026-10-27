@@ -17,9 +17,14 @@ import {
   type EdgeProps,
   useEdges,
   useNodes,
+  getSmoothStepPath,
+  getBezierPath,
+  getStraightPath,
 } from '@xyflow/react';
 import type { NeuroEdge, Point } from '../../../types/index.ts';
 import { crossProduct2D } from '../../../engine/index.ts';
+import { useProjectStore } from '../../../store/useProjectStore.ts';
+import { EdgeFloatingActionBar } from './EdgeFloatingActionBar.tsx';
 
 export interface JumpArcData {
   t: number;
@@ -35,18 +40,28 @@ export function JumpConnectorEdge({
   sourceY,
   targetX,
   targetY,
+  sourcePosition,
+  targetPosition,
   selected,
   style = {},
   markerEnd,
+  markerStart,
   label,
   data: rawData,
 }: EdgeProps) {
   const data = rawData as unknown as NeuroEdge['data'];
   const allEdges = useEdges();
   const allNodes = useNodes();
+  const selectedEdgeIds = useProjectStore((s) => s.selectedEdgeIds);
+  const isSelectedInStore = selectedEdgeIds.includes(id);
+  const isEdgeSelected = Boolean(selected || isSelectedInStore);
+  const isMultiEdge = selectedEdgeIds.length > 1;
+  const activeMenuEdgeId = isMultiEdge ? selectedEdgeIds[selectedEdgeIds.length - 1] : id;
+  const shouldShowActionBar = isEdgeSelected && (!isMultiEdge || id === activeMenuEdgeId);
 
   const jumpRadius = data?.strokeWidth ? Math.max(6, data.strokeWidth * 2.5) : 6;
   const isJumpEnabled = data?.jumpArc !== false;
+  const routingType = data?.routingType;
 
   // Build quick lookup for node centers/handles to resolve other edges' endpoints
   const nodeMap = useMemo(() => {
@@ -88,8 +103,47 @@ export function JumpConnectorEdge({
     }
   };
 
-  // Compute jump path
+  // Compute edge path according to routingType
   const { path: edgePath, labelX, labelY } = useMemo(() => {
+    // 1. Smoothstep (Orthogonal Step Line)
+    if (routingType === 'smoothstep') {
+      const [path, lx, ly] = getSmoothStepPath({
+        sourceX,
+        sourceY,
+        sourcePosition,
+        targetX,
+        targetY,
+        targetPosition,
+        borderRadius: 8,
+      });
+      return { path, labelX: lx, labelY: ly };
+    }
+
+    // 2. Bezier (Curved Smooth Line)
+    if (routingType === 'bezier') {
+      const [path, lx, ly] = getBezierPath({
+        sourceX,
+        sourceY,
+        sourcePosition,
+        targetX,
+        targetY,
+        targetPosition,
+      });
+      return { path, labelX: lx, labelY: ly };
+    }
+
+    // 3. Straight Line
+    if (routingType === 'straight') {
+      const [path, lx, ly] = getStraightPath({
+        sourceX,
+        sourceY,
+        targetX,
+        targetY,
+      });
+      return { path, labelX: lx, labelY: ly };
+    }
+
+    // 4. Default: Jump Arc Intersection Path
     const p1: Point = { x: sourceX, y: sourceY };
     const p2: Point = { x: targetX, y: targetY };
 
@@ -227,6 +281,9 @@ export function JumpConnectorEdge({
     sourceY,
     targetX,
     targetY,
+    sourcePosition,
+    targetPosition,
+    routingType,
     allEdges,
     nodeMap,
     jumpRadius,
@@ -235,7 +292,7 @@ export function JumpConnectorEdge({
 
   // Visual styling
   const strokeColor = selected
-    ? '#6366f1'
+    ? '#06b6d4'
     : data?.color || (style?.stroke as string) || '#64748b';
 
   const strokeWidth = selected
@@ -244,9 +301,9 @@ export function JumpConnectorEdge({
 
   const strokeDasharray =
     data?.lineStyle === 'dashed'
-      ? '5 5'
+      ? '6 6'
       : data?.lineStyle === 'dotted'
-      ? '2 3'
+      ? '2 4'
       : undefined;
 
   const edgeStyle: React.CSSProperties = {
@@ -254,17 +311,42 @@ export function JumpConnectorEdge({
     stroke: strokeColor,
     strokeWidth,
     strokeDasharray,
+    filter: selected ? 'drop-shadow(0 0 4px rgba(6, 182, 212, 0.5))' : undefined,
     transition: 'stroke 0.2s, stroke-width 0.2s',
   };
 
   const edgeLabel = label || data?.label;
 
+  // Resolved Arrow Markers
+  const resolvedMarkerEnd = data?.arrowEnd === false ? undefined : markerEnd;
+  const resolvedMarkerStart = data?.arrowStart ? markerStart || markerEnd : undefined;
+
   return (
     <>
-      <BaseEdge id={id} path={edgePath} style={edgeStyle} markerEnd={markerEnd} />
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        style={edgeStyle}
+        markerEnd={resolvedMarkerEnd}
+        markerStart={resolvedMarkerStart}
+      />
 
-      {edgeLabel && (
-        <EdgeLabelRenderer>
+      <EdgeLabelRenderer>
+        {/* Floating Quick Setting Menu when edge is selected */}
+        {shouldShowActionBar && (
+          <div
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -100%) translate(${labelX}px, ${labelY - 10}px)`,
+              pointerEvents: 'all',
+              zIndex: 99999,
+            }}
+          >
+            <EdgeFloatingActionBar edgeId={id} edgeIds={isMultiEdge ? selectedEdgeIds : undefined} />
+          </div>
+        )}
+
+        {edgeLabel && (
           <div
             style={{
               position: 'absolute',
@@ -275,8 +357,8 @@ export function JumpConnectorEdge({
           >
             {edgeLabel}
           </div>
-        </EdgeLabelRenderer>
-      )}
+        )}
+      </EdgeLabelRenderer>
     </>
   );
 }

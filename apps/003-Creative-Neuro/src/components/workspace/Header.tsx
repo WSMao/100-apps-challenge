@@ -11,17 +11,14 @@
  * - Export Modal trigger button
  */
 
-import React, { useState, useRef } from 'react';
-import logoImg from '../../../assets/logo.png';
+import React, { useState } from 'react';
 import {
-  Brain,
   Undo2,
   Redo2,
   Workflow,
   RotateCcw,
-  Upload,
   Download,
-  Check,
+  Settings,
 } from 'lucide-react';
 import {
   useProjectStore,
@@ -29,13 +26,11 @@ import {
 } from '../../store/projectStore.ts';
 import { calculateElkLayout } from '../../engine/index.ts';
 import { resetDatabaseToSeed } from '../../db/index.ts';
-import {
-  importFromPngOrSvgMetadata,
-  applyImportedProjectToStore,
-  registerExportStore,
-} from '../../utils/exportUtils.ts';
+import { registerExportStore } from '../../utils/exportUtils.ts';
 import { ExportModal } from './ExportModal.tsx';
+import { SettingsModal } from './SettingsModal.tsx';
 import { PageTabs } from './PageTabs.tsx';
+import { AppLogoMenu } from './AppLogoMenu.tsx';
 
 registerExportStore(useProjectStore);
 
@@ -63,14 +58,15 @@ export const Header: React.FC<HeaderProps> = ({
   const undoAction = useProjectStore((s) => s.undo);
   const redoAction = useProjectStore((s) => s.redo);
   const resetToSeed = useProjectStore((s) => s.resetToSeed);
+  const themeMode = useProjectStore((s) => s.themeMode);
+  const isDark = themeMode === 'dark';
 
   const { canUndo, canRedo } = useTemporal();
 
   const [layoutDirection, setLayoutDirection] = useState<'DOWN' | 'RIGHT'>('DOWN');
   const [isLayoutRunning, setIsLayoutRunning] = useState(false);
   const [isInternalExportOpen, setIsInternalExportOpen] = useState(false);
-  const [importFeedback, setImportFeedback] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const activeBoard = boards[project.activeBoardId];
   const activePage = pages[activePageId];
@@ -136,29 +132,6 @@ export const Header: React.FC<HeaderProps> = ({
     }
   };
 
-  const handleTriggerImport = () => {
-    if (onOpenImport) {
-      onOpenImport();
-      return;
-    }
-    fileInputRef.current?.click();
-  };
-
-  const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const restored = await importFromPngOrSvgMetadata(file);
-      applyImportedProjectToStore(restored);
-      setImportFeedback(`Loaded ${restored.project.name}`);
-      setTimeout(() => setImportFeedback(null), 2500);
-    } catch (err) {
-      console.error('[Header] Failed to import project file:', err);
-    } finally {
-      e.target.value = '';
-    }
-  };
-
   const handleTriggerExport = () => {
     if (onOpenExport) {
       onOpenExport();
@@ -172,29 +145,25 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <>
       <header
-        className="h-14 border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-4 flex items-center justify-between gap-3 z-20 shrink-0 select-none"
+        className={`h-14 border-b backdrop-blur-md px-5 flex items-center justify-between gap-3 z-40 shrink-0 select-none transition-colors duration-200 ${
+          isDark
+            ? 'border-slate-800 bg-slate-900/90 text-slate-100'
+            : 'border-slate-200 bg-white/95 text-slate-800 shadow-sm'
+        }`}
         data-testid="workspace-header"
       >
-        {/* Left: Brand Identity & Project / Board Metadata */}
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-9 h-9 rounded-xl overflow-hidden bg-slate-950 border border-slate-800 flex items-center justify-center shadow-lg shadow-cyan-500/10 shrink-0">
-            <img src={logoImg} alt="Creative-Neuro Logo" className="w-full h-full object-cover" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1
-                className="font-bold text-sm sm:text-base tracking-tight text-white truncate"
-                data-testid="project-title"
-              >
-                {project.name}
-              </h1>
-              <span className="hidden sm:inline-block text-[10px] font-semibold tracking-wide uppercase px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                {activeBoard?.name || 'Main Board'}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400 truncate">
-              {activePage?.title || 'Visual Thinking Canvas'} • Hybrid ELK + Mermaid Sync
-            </p>
+        {/* Left: Brand Identity & Project Metadata */}
+        <div className="flex items-center gap-3.5 min-w-0 ml-11 sm:ml-12">
+          <AppLogoMenu onOpenImport={onOpenImport} />
+          <div className="min-w-0 flex items-center">
+            <span
+              className="text-xs sm:text-sm font-semibold tracking-wide uppercase px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 truncate"
+              data-testid="project-title"
+            >
+              {project.name === 'Creative-Neuro Showcase' || project.name?.startsWith('Creative-Neuro') || !project.name
+                ? 'Demo'
+                : project.name}
+            </span>
           </div>
         </div>
 
@@ -277,48 +246,43 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden lg:inline">Reset Demo</span>
           </button>
 
-          {/* Direct File Import */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json,.neuro.json,.svg,.neuro.svg,.png,.neuro.png"
-            onChange={handleFileImport}
-            className="hidden"
-            data-testid="header-import-input"
-          />
-          <button
-            type="button"
-            onClick={handleTriggerImport}
-            title="Import .neuro.json, .neuro.svg, or .neuro.png"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 transition"
-            data-testid="import-project-btn"
-          >
-            {importFeedback ? (
-              <>
-                <Check className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="hidden sm:inline text-emerald-300">Imported</span>
-              </>
-            ) : (
-              <>
-                <Upload className="w-3.5 h-3.5 text-sky-400" />
-                <span className="hidden sm:inline">Import</span>
-              </>
-            )}
-          </button>
-
           {/* Export Modal Trigger */}
           <button
             type="button"
             onClick={handleTriggerExport}
             title="Export to Mermaid, JSON, SVG, or Pako PNG"
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-500/20 transition"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-500/20 transition cursor-pointer"
             data-testid="export-modal-trigger-btn"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Export</span>
           </button>
+
+          {/* UI-03: Settings Button - Positioned to the right of Export */}
+          <button
+            type="button"
+            onClick={() => setIsSettingsOpen(true)}
+            title="Settings & Workspace Preferences"
+            aria-label="Settings"
+            className={`p-1.5 rounded-lg border transition cursor-pointer ${
+              isDark
+                ? 'bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white border-slate-700/80'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 border-slate-200'
+            }`}
+            data-testid="header-settings-btn"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
         </div>
       </header>
+
+      {/* Settings Modal (UI-03, PM-01, PM-02, UI-04) */}
+      {isSettingsOpen && (
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+        />
+      )}
 
       {isInternalExportOpen && (
         <ExportModal

@@ -93,7 +93,9 @@ export type ToolMode =
 /**
  * Connector line rendering types.
  */
-export type EdgeType = 'jump' | 'smoothstep' | 'straight' | 'default';
+export type EdgeType = 'jump' | 'smoothstep' | 'bezier' | 'straight' | 'default';
+
+export type EdgeRoutingType = 'jump' | 'smoothstep' | 'bezier' | 'straight';
 
 /**
  * Diagram object interaction modes:
@@ -107,6 +109,16 @@ export type DiagramMode = 'embedded' | 'focused';
  */
 export type DiagramOrientation = 'TB' | 'LR' | 'BT' | 'RL' | 'TD';
 export type FlowDirection = DiagramOrientation;
+
+export type ThemeMode = 'light' | 'dark';
+export type SpawnDirection = 'top' | 'right' | 'bottom' | 'left';
+
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  updatedAt: number;
+  pageCount: number;
+}
 
 // ============================================================================
 // 3. Styling & Presentation Types
@@ -171,6 +183,9 @@ export interface NeuroNodeData {
   minHeight?: number;
   direction?: DiagramOrientation;
 
+  // Logical Grouping property (FN-04)
+  groupId?: string;
+
   // Page Card specific properties (inter-page navigation)
   targetPageId?: string;
 
@@ -183,6 +198,7 @@ export interface NeuroNodeData {
 export interface NeuroEdgeData {
   label?: string;
   lineStyle?: 'solid' | 'dashed' | 'dotted';
+  routingType?: EdgeRoutingType;
   arrowStart?: boolean;
   arrowEnd?: boolean;
   color?: string;
@@ -206,10 +222,12 @@ export interface NeuroNode {
   height?: number;
   parentId?: string; // Container grouping (FrameNode / DiagramNode)
   extent?: 'parent';
+  groupId?: string; // Logical Grouping (FN-04)
   layoutMode: LayoutMode;
   data: NeuroNodeData;
   selected?: boolean;
   dragging?: boolean;
+  measured?: { width?: number; height?: number };
   zIndex?: number;
   hidden?: boolean;
 }
@@ -331,4 +349,12 @@ export interface LineJumpConfig {
   jumpRadius?: number;
   endpointTolerance?: number;
   suppressColinear?: boolean;
+}
+
+export interface SelectionFilter {
+  shape: boolean;
+  text: boolean;
+  edge: boolean;
+  frame: boolean;
+  diagram: boolean;
 }

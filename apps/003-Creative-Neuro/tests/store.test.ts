@@ -21,7 +21,7 @@ describe('Creative-Neuro Layer 1 State Store (projectStore & seedData)', () => {
     it('initializes store with valid seed project and metadata', () => {
       const state = useProjectStore.getState();
       expect(state.project.id).toBe(SEED_PROJECT_ID);
-      expect(state.project.name).toBe('Creative-Neuro Showcase');
+      expect(state.project.name).toBe('Demo');
       expect(state.project.pageIds.length).toBe(3);
       expect(state.activePageId).toBe(SEED_PAGE_IDS.mindmap);
     });
@@ -267,7 +267,7 @@ describe('Creative-Neuro Layer 1 State Store (projectStore & seedData)', () => {
       const cloneB = createSeedProject();
 
       cloneA.project.name = 'Mutated Project';
-      expect(cloneB.project.name).toBe('Creative-Neuro Showcase');
+      expect(cloneB.project.name).toBe('Demo');
       expect(cloneA.project.name).not.toBe(cloneB.project.name);
     });
   });

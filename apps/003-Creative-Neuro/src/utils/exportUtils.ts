@@ -309,6 +309,12 @@ export function applyImportedProjectToStore(payload: UnifiedExportPayload): void
         payload.boards
       );
     }
+    const temporal = (
+      activeStoreAccessor as unknown as {
+        temporal?: { getState: () => { clear: () => void } };
+      }
+    ).temporal;
+    temporal?.getState().clear();
   }
 }
 

@@ -21,6 +21,7 @@ import {
   findCollisionFreePosition,
   type PlacementDirection,
 } from '../../../engine/index.ts';
+import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
 
 export type NormalizedShape =
   | 'rectangle'
@@ -51,6 +52,45 @@ export function normalizeShapeType(raw?: ShapeType | string): NormalizedShape {
   return 'rectangle';
 }
 
+/**
+ * Computes the exact intersection coordinates of the node's horizontal centerline (y = H / 2)
+ * and vertical centerline (x = W / 2) with the rendered SVG boundary of the shape.
+ */
+export function getShapeHandleIntersections(
+  W: number,
+  H: number,
+  rawShapeType?: ShapeType | string
+): {
+  top: { x: number; y: number };
+  right: { x: number; y: number };
+  bottom: { x: number; y: number };
+  left: { x: number; y: number };
+} {
+  const shapeType = normalizeShapeType(rawShapeType);
+  let leftX = 1;
+  let rightX = W - 1;
+  const topY = 1;
+  const bottomY = H - 1;
+
+  if (shapeType === 'asymmetry') {
+    leftX = 14;
+    rightX = W - 1;
+  } else if (shapeType === 'inverted_trapezoid') {
+    leftX = 8.5;
+    rightX = W - 8.5;
+  } else if (shapeType === 'parallelogram') {
+    leftX = 9.5;
+    rightX = W - 9.5;
+  }
+
+  return {
+    top: { x: W / 2, y: topY },
+    right: { x: rightX, y: H / 2 },
+    bottom: { x: W / 2, y: bottomY },
+    left: { x: leftX, y: H / 2 },
+  };
+}
+
 export function ShapeNode({
   id,
   data: rawData,
@@ -64,6 +104,11 @@ export function ShapeNode({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const updateNodeData = useProjectStore((s) => s.updateNodeData);
+  const connectorSourceNodeId = useProjectStore((s) => s.connectorSourceNodeId);
+  const selectedNodeCount = useProjectStore((s) => s.selectedNodeIds.length);
+  const isStoreSelected = useProjectStore((s) => s.selectedNodeIds.includes(id));
+  const isConnectorSource = connectorSourceNodeId === id;
+  const isNodeSelected = selected || isStoreSelected;
 
   useEffect(() => {
     setLabel(data?.label || '');
@@ -79,6 +124,12 @@ export function ShapeNode({
   const shapeType = normalizeShapeType(data?.shapeType);
   const W = width || 160;
   const H = height || 60;
+
+  // Exact intersection coordinates of horizontal/vertical centerlines with the SVG shape boundary
+  const handlePositions = useMemo(
+    () => getShapeHandleIntersections(W, H, shapeType),
+    [W, H, shapeType]
+  );
 
   // Pure SVG Geometry Generator
   const shapeSvg = useMemo(() => {
@@ -264,7 +315,6 @@ export function ShapeNode({
         target: newNodeId,
         sourceHandle: direction,
         targetHandle: opposites[direction],
-        type: 'jump',
       });
     },
     [id, W, H, data]
@@ -279,13 +329,27 @@ export function ShapeNode({
     <div
       style={{ width: W, height: H }}
       className={`relative group flex items-center justify-center cursor-pointer transition-shadow ${
-        selected ? 'ring-2 ring-indigo-500 rounded-lg shadow-lg shadow-indigo-500/25' : ''
+        isConnectorSource
+          ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-900 shadow-[0_0_15px_rgba(52,211,153,0.7)] animate-pulse rounded-lg'
+          : isNodeSelected
+          ? 'ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-900 shadow-[0_0_15px_rgba(6,182,212,0.6)] rounded-lg'
+          : ''
       }`}
       onDoubleClick={(e) => {
         e.stopPropagation();
         setIsEditing(true);
       }}
     >
+      {/* Horizontal Floating Quick-Action Menu directly above node when single node is selected */}
+      {isNodeSelected && selectedNodeCount <= 1 && <NodeFloatingActionBar nodeId={id} />}
+
+      {/* Connector Source Selection Badge */}
+      {isConnectorSource && (
+        <div className="absolute -bottom-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500 text-slate-950 shadow-md whitespace-nowrap z-40 pointer-events-none">
+          Connecting source (click target node)
+        </div>
+      )}
+
       {/* SVG Shape Geometry */}
       <svg
         width={W}
@@ -311,7 +375,7 @@ export function ShapeNode({
                 setIsEditing(false);
               }
             }}
-            className="w-full bg-slate-950/90 text-white text-xs px-1.5 py-0.5 rounded border border-indigo-500 text-center outline-none"
+            className="w-full bg-slate-950/90 text-white text-xs px-1.5 py-0.5 rounded border border-cyan-400 text-center outline-none"
           />
         ) : (
           <span
@@ -327,80 +391,152 @@ export function ShapeNode({
         )}
       </div>
 
-      {/* 4-Way Connection Handles */}
+      {/* 4-Way Inward Target Connection Handles (Centered on border intersections) */}
       <Handle
         type="target"
         position={Position.Top}
         id="top"
-        className="w-2.5 h-2.5 !bg-indigo-500 !border-2 !border-slate-900"
+        style={{
+          left: `${handlePositions.top.x}px`,
+          top: `${handlePositions.top.y}px`,
+          right: 'auto',
+          bottom: 'auto',
+          transform: 'translate(-50%, -50%)',
+          translate: 'none',
+        }}
+        className="!w-6 !h-6 !bg-transparent !border-0 !opacity-0 !z-10 pointer-events-none"
       />
       <Handle
-        type="source"
+        type="target"
         position={Position.Right}
         id="right"
-        className="w-2.5 h-2.5 !bg-indigo-500 !border-2 !border-slate-900"
+        style={{
+          left: `${handlePositions.right.x}px`,
+          top: `${handlePositions.right.y}px`,
+          right: 'auto',
+          bottom: 'auto',
+          transform: 'translate(-50%, -50%)',
+          translate: 'none',
+        }}
+        className="!w-6 !h-6 !bg-transparent !border-0 !opacity-0 !z-10 pointer-events-none"
       />
       <Handle
-        type="source"
+        type="target"
         position={Position.Bottom}
         id="bottom"
-        className="w-2.5 h-2.5 !bg-indigo-500 !border-2 !border-slate-900"
+        style={{
+          left: `${handlePositions.bottom.x}px`,
+          top: `${handlePositions.bottom.y}px`,
+          right: 'auto',
+          bottom: 'auto',
+          transform: 'translate(-50%, -50%)',
+          translate: 'none',
+        }}
+        className="!w-6 !h-6 !bg-transparent !border-0 !opacity-0 !z-10 pointer-events-none"
       />
       <Handle
         type="target"
         position={Position.Left}
         id="left"
-        className="w-2.5 h-2.5 !bg-indigo-500 !border-2 !border-slate-900"
+        style={{
+          left: `${handlePositions.left.x}px`,
+          top: `${handlePositions.left.y}px`,
+          right: 'auto',
+          bottom: 'auto',
+          transform: 'translate(-50%, -50%)',
+          translate: 'none',
+        }}
+        className="!w-6 !h-6 !bg-transparent !border-0 !opacity-0 !z-10 pointer-events-none"
       />
 
-      {/* 4-Direction Hover Quick-Add Arrows */}
-      <button
-        type="button"
+      {/* Unified 4-Direction Connection Handles — Centered precisely at horizontal/vertical centerline border intersections */}
+      <Handle
+        type="source"
+        position={Position.Top}
+        id="top-plus"
         onClick={(e) => {
           e.stopPropagation();
           handleQuickAdd('top');
         }}
-        title="Quick Add Up"
-        className="absolute -top-3 left-1/2 -translate-x-1/2 w-5 h-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition shadow-md z-20 cursor-pointer"
+        title="Click to add up, or drag to connect"
+        style={{
+          left: `${handlePositions.top.x}px`,
+          top: `${handlePositions.top.y}px`,
+          right: 'auto',
+          bottom: 'auto',
+          transform: 'translate(-50%, -50%)',
+          translate: 'none',
+        }}
+        className="!w-5 !h-5 !bg-indigo-600 hover:!bg-indigo-500 !text-white !rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-150 shadow-md z-30 cursor-crosshair !border !border-white/30"
       >
-        <Plus className="w-3.5 h-3.5" />
-      </button>
+        <Plus className="w-3.5 h-3.5 pointer-events-none" />
+      </Handle>
 
-      <button
-        type="button"
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="right-plus"
         onClick={(e) => {
           e.stopPropagation();
           handleQuickAdd('right');
         }}
-        title="Quick Add Right (Child)"
-        className="absolute top-1/2 -right-3 -translate-y-1/2 w-5 h-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition shadow-md z-20 cursor-pointer"
+        title="Click to add right, or drag to connect"
+        style={{
+          left: `${handlePositions.right.x}px`,
+          top: `${handlePositions.right.y}px`,
+          right: 'auto',
+          bottom: 'auto',
+          transform: 'translate(-50%, -50%)',
+          translate: 'none',
+        }}
+        className="!w-5 !h-5 !bg-indigo-600 hover:!bg-indigo-500 !text-white !rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-150 shadow-md z-30 cursor-crosshair !border !border-white/30"
       >
-        <Plus className="w-3.5 h-3.5" />
-      </button>
+        <Plus className="w-3.5 h-3.5 pointer-events-none" />
+      </Handle>
 
-      <button
-        type="button"
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        id="bottom-plus"
         onClick={(e) => {
           e.stopPropagation();
           handleQuickAdd('bottom');
         }}
-        title="Quick Add Down (Sibling)"
-        className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-5 h-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition shadow-md z-20 cursor-pointer"
+        title="Click to add down, or drag to connect"
+        style={{
+          left: `${handlePositions.bottom.x}px`,
+          top: `${handlePositions.bottom.y}px`,
+          right: 'auto',
+          bottom: 'auto',
+          transform: 'translate(-50%, -50%)',
+          translate: 'none',
+        }}
+        className="!w-5 !h-5 !bg-indigo-600 hover:!bg-indigo-500 !text-white !rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-150 shadow-md z-30 cursor-crosshair !border !border-white/30"
       >
-        <Plus className="w-3.5 h-3.5" />
-      </button>
+        <Plus className="w-3.5 h-3.5 pointer-events-none" />
+      </Handle>
 
-      <button
-        type="button"
+      <Handle
+        type="source"
+        position={Position.Left}
+        id="left-plus"
         onClick={(e) => {
           e.stopPropagation();
           handleQuickAdd('left');
         }}
-        title="Quick Add Left"
-        className="absolute top-1/2 -left-3 -translate-y-1/2 w-5 h-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition shadow-md z-20 cursor-pointer"
+        title="Click to add left, or drag to connect"
+        style={{
+          left: `${handlePositions.left.x}px`,
+          top: `${handlePositions.left.y}px`,
+          right: 'auto',
+          bottom: 'auto',
+          transform: 'translate(-50%, -50%)',
+          translate: 'none',
+        }}
+        className="!w-5 !h-5 !bg-indigo-600 hover:!bg-indigo-500 !text-white !rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-150 shadow-md z-30 cursor-crosshair !border !border-white/30"
       >
-        <Plus className="w-3.5 h-3.5" />
-      </button>
+        <Plus className="w-3.5 h-3.5 pointer-events-none" />
+      </Handle>
     </div>
   );
 }

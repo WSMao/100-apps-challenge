@@ -90,6 +90,7 @@ pnpm -C apps/003-Creative-Neuro build
 
 | 日期 | Agent | 工作記錄 | 下一步 | 備注 |
 | :--- | :--- | :--- | :--- | :--- |
+| 2026-10-27 | Antigravity | 深度排查並修復框選邏輯（清除手動拖曳後殘留之 dragging 標記避免異常選中）、選取工具選單操作按鈕樣式一致化、文字節點無背景色多層淨化，通過全量 183 項自動化測試與生產打包 | 持續優化畫布互動體驗與功能迭代 | 183/183 Tests PASS |
 | 2026-10-26 | Antigravity | 完成 Phase 1 All-in-One Web MVP 五層模組化全量實作（Layer 1 Zustand/Immer/Zundo/Dexie、Layer 2 四大純函數演算法引擎、Layer 3 React Flow v12 畫布與自訂節點/跳線/手繪、Layer 4 CodeMirror 6 雙向專注編輯器、Layer 5 多頁標籤/快捷鍵/Pako PNG & SVG 匯出還原），並通過全部 198 項自動化測試與生產環境建置 (`tsc -b && vite build`) | 進入瀏覽器實機體驗微調或啟動 Phase 2 AI 即時語音與雲端嵌入功能 | 198/198 Tests PASS |
 | 2026-10-25 | Antigravity | 完成啟動前總體架構審視、將 MVP 1~3 升級為「All-in-One 一次到位 Web MVP」，並確立五層模組化實作藍圖與 Vitest + E2E 雙層自動化測試策略 | 依據五層模組化藍圖初始化專案並一次實作完成 Phase 1 初版與自動化測試 | 架構契約完備 |
 | 2026-10-25 | Antigravity | 完成五大競品底層架構調研（`docs/市場競品調查.md`），並透過架構訪談確立 `Creative-Neuro` 完整技術路線與四大核心機制，同步更新至 Obsidian 筆記與 `README.md` | 初始化 React 19 + TypeScript + Vite + `@xyflow/react` 專案環境，開始實作 MVP 第 1 階段 | 專案定名為 `003-Creative-Neuro` |

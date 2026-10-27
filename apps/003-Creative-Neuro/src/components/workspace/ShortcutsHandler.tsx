@@ -40,7 +40,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 /**
- * Spawns a child node to the right of `sourceNodeId` with collision avoidance and auto-connection.
+ * Spawns a child node inheriting the user's last spawn direction orientation.
  */
 export function spawnChildNode(sourceNodeId?: string): string | null {
   const state = useProjectStore.getState();
@@ -57,38 +57,49 @@ export function spawnChildNode(sourceNodeId?: string): string | null {
         .filter((n): n is NeuroNode => Boolean(n))
     : Object.values(state.nodes);
 
-  const newPos = findCollisionFreePosition(targetNode, 'right', existingNodes);
+  const direction: PlacementDirection = state.lastDirection || 'right';
+  const newPos = findCollisionFreePosition(targetNode, direction, existingNodes);
 
-  const newChildId = state.addNode({
-    type: 'shape',
-    position: newPos,
-    width: targetNode.width ?? 160,
-    height: targetNode.height ?? 60,
-    parentId: targetNode.parentId,
-    extent: targetNode.extent,
-    layoutMode: targetNode.layoutMode,
-    data: {
-      label: 'Child Node',
-      shapeType: targetNode.data.shapeType || 'rounded',
+  const handlePairs: Record<
+    PlacementDirection,
+    { sourceHandle: string; targetHandle: string }
+  > = {
+    top: { sourceHandle: 'top', targetHandle: 'bottom' },
+    bottom: { sourceHandle: 'bottom', targetHandle: 'top' },
+    left: { sourceHandle: 'left', targetHandle: 'right' },
+    right: { sourceHandle: 'right', targetHandle: 'left' },
+  };
+
+  const { sourceHandle, targetHandle } = handlePairs[direction];
+
+  const { nodeId: newChildId } = state.addConnectedNode(
+    {
+      type: 'shape',
+      position: newPos,
+      width: targetNode.width ?? 160,
+      height: targetNode.height ?? 60,
+      parentId: targetNode.parentId,
+      extent: targetNode.extent,
       layoutMode: targetNode.layoutMode,
+      data: {
+        label: 'Child Node',
+        shapeType: targetNode.data.shapeType || 'rounded',
+        layoutMode: targetNode.layoutMode,
+      },
     },
-  });
+    {
+      source: targetNode.id,
+      target: '',
+      sourceHandle,
+      targetHandle,
+    }
+  );
 
-  state.addEdge({
-    source: targetNode.id,
-    target: newChildId,
-    sourceHandle: 'right',
-    targetHandle: 'left',
-    type: 'jump',
-  });
-
-  state.setSelectedNodes([newChildId]);
-  state.setSelectedEdges([]);
   return newChildId;
 }
 
 /**
- * Spawns a sibling node below `sourceNodeId` sharing the same parent connection (or unattached if root).
+ * Spawns a sibling node inheriting the user's last spawn direction context.
  */
 export function spawnSiblingNode(sourceNodeId?: string): string | null {
   const state = useProjectStore.getState();
@@ -111,37 +122,43 @@ export function spawnSiblingNode(sourceNodeId?: string): string | null {
         .filter((e): e is NeuroEdge => Boolean(e))
     : Object.values(state.edges);
 
-  const newPos = findCollisionFreePosition(targetNode, 'bottom', existingNodes);
+  // If lastDirection was horizontal ('right'/'left'), siblings stack vertically ('bottom')
+  // If lastDirection was vertical ('top'/'bottom'), siblings stack horizontally ('right')
+  const lastDir = state.lastDirection || 'right';
+  const siblingDir: PlacementDirection =
+    lastDir === 'top' || lastDir === 'bottom' ? 'right' : 'bottom';
 
-  const newSiblingId = state.addNode({
-    type: 'shape',
-    position: newPos,
-    width: targetNode.width ?? 160,
-    height: targetNode.height ?? 60,
-    parentId: targetNode.parentId,
-    extent: targetNode.extent,
-    layoutMode: targetNode.layoutMode,
-    data: {
-      label: 'Sibling Node',
-      shapeType: targetNode.data.shapeType || 'rounded',
-      layoutMode: targetNode.layoutMode,
-    },
-  });
+  const newPos = findCollisionFreePosition(targetNode, siblingDir, existingNodes);
 
   // Connect to shared parent if targetNode has an incoming parent edge
   const parentEdge = pageEdges.find((e) => e.target === targetNode.id);
-  if (parentEdge) {
-    state.addEdge({
-      source: parentEdge.source,
-      target: newSiblingId,
-      sourceHandle: parentEdge.sourceHandle || 'right',
-      targetHandle: parentEdge.targetHandle || 'left',
-      type: 'jump',
-    });
-  }
+  const edgeData = parentEdge
+    ? {
+        source: parentEdge.source,
+        target: '',
+        sourceHandle: parentEdge.sourceHandle || 'right',
+        targetHandle: parentEdge.targetHandle || 'left',
+      }
+    : undefined;
 
-  state.setSelectedNodes([newSiblingId]);
-  state.setSelectedEdges([]);
+  const { nodeId: newSiblingId } = state.addConnectedNode(
+    {
+      type: 'shape',
+      position: newPos,
+      width: targetNode.width ?? 160,
+      height: targetNode.height ?? 60,
+      parentId: targetNode.parentId,
+      extent: targetNode.extent,
+      layoutMode: targetNode.layoutMode,
+      data: {
+        label: 'Sibling Node',
+        shapeType: targetNode.data.shapeType || 'rounded',
+        layoutMode: targetNode.layoutMode,
+      },
+    },
+    edgeData
+  );
+
   return newSiblingId;
 }
 
@@ -158,6 +175,9 @@ export function spawnDirectionalNode(
 
   const targetNode = state.nodes[targetId];
   if (!targetNode) return null;
+
+  // Record last spawn direction for OP-07
+  state.setLastDirection(direction);
 
   const activePage = state.pages[state.activePageId];
   const existingNodes: NeuroNode[] = activePage
@@ -180,32 +200,101 @@ export function spawnDirectionalNode(
 
   const { sourceHandle, targetHandle, labelPrefix } = handlePairs[direction];
 
-  const newId = state.addNode({
-    type: 'shape',
-    position: newPos,
-    width: targetNode.width ?? 160,
-    height: targetNode.height ?? 60,
-    parentId: targetNode.parentId,
-    extent: targetNode.extent,
-    layoutMode: targetNode.layoutMode,
-    data: {
-      label: `${labelPrefix} Node`,
-      shapeType: targetNode.data.shapeType || 'rounded',
+  const { nodeId: newId } = state.addConnectedNode(
+    {
+      type: 'shape',
+      position: newPos,
+      width: targetNode.width ?? 160,
+      height: targetNode.height ?? 60,
+      parentId: targetNode.parentId,
+      extent: targetNode.extent,
       layoutMode: targetNode.layoutMode,
+      data: {
+        label: `${labelPrefix} Node`,
+        shapeType: targetNode.data.shapeType || 'rounded',
+        layoutMode: targetNode.layoutMode,
+      },
     },
-  });
+    {
+      source: targetNode.id,
+      target: '',
+      sourceHandle,
+      targetHandle,
+    }
+  );
 
-  state.addEdge({
-    source: targetNode.id,
-    target: newId,
-    sourceHandle,
-    targetHandle,
-    type: 'jump',
-  });
-
-  state.setSelectedNodes([newId]);
-  state.setSelectedEdges([]);
   return newId;
+}
+
+/**
+ * OP-08: Directional Node Selection Navigation.
+ * Moves selection focus to the closest node in the specified direction.
+ */
+export function navigateSelectionDirectionally(arrowKey: 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight'): string | null {
+  const state = useProjectStore.getState();
+  const currentId = state.selectedNodeIds[0];
+  if (!currentId) return null;
+
+  const currentNode = state.nodes[currentId];
+  if (!currentNode) return null;
+
+  const activePage = state.pages[state.activePageId];
+  const candidateIds = activePage ? activePage.nodeIds : Object.keys(state.nodes);
+
+  const cX = currentNode.position.x + (currentNode.width || 160) / 2;
+  const cY = currentNode.position.y + (currentNode.height || 60) / 2;
+
+  let bestNodeId: string | null = null;
+  let bestDist = Infinity;
+
+  for (const nid of candidateIds) {
+    if (nid === currentId) continue;
+    const node = state.nodes[nid];
+    if (!node) continue;
+
+    const nX = node.position.x + (node.width || 160) / 2;
+    const nY = node.position.y + (node.height || 60) / 2;
+
+    const dx = nX - cX;
+    const dy = nY - cY;
+
+    // Check angle / direction eligibility with strong primary axis dominance
+    let isEligible = false;
+    let score = Infinity;
+
+    if (arrowKey === 'ArrowUp' && dy < -5) {
+      if (Math.abs(dx) <= Math.abs(dy) * 1.2) {
+        isEligible = true;
+        score = Math.abs(dy) * 1.0 + Math.abs(dx) * 1.8;
+      }
+    } else if (arrowKey === 'ArrowDown' && dy > 5) {
+      if (Math.abs(dx) <= Math.abs(dy) * 1.2) {
+        isEligible = true;
+        score = Math.abs(dy) * 1.0 + Math.abs(dx) * 1.8;
+      }
+    } else if (arrowKey === 'ArrowLeft' && dx < -5) {
+      if (Math.abs(dy) <= Math.abs(dx) * 1.2) {
+        isEligible = true;
+        score = Math.abs(dx) * 1.0 + Math.abs(dy) * 1.8;
+      }
+    } else if (arrowKey === 'ArrowRight' && dx > 5) {
+      if (Math.abs(dy) <= Math.abs(dx) * 1.2) {
+        isEligible = true;
+        score = Math.abs(dx) * 1.0 + Math.abs(dy) * 1.8;
+      }
+    }
+
+    if (isEligible && score < bestDist) {
+      bestDist = score;
+      bestNodeId = nid;
+    }
+  }
+
+  if (bestNodeId) {
+    state.setSelectedNodes([bestNodeId]);
+    return bestNodeId;
+  }
+  return null;
 }
 
 export const ShortcutsHandler: React.FC = () => {
@@ -262,6 +351,19 @@ export const ShortcutsHandler: React.FC = () => {
           state.redo();
           return;
         }
+        if (lowerKey === 'g') {
+          e.preventDefault();
+          if (e.shiftKey) {
+            if (state.selectedNodeIds.length > 0) {
+              state.ungroupNodes(state.selectedNodeIds[0]);
+            }
+          } else {
+            if (state.selectedNodeIds.length > 1) {
+              state.groupSelectedNodes();
+            }
+          }
+          return;
+        }
       }
 
       // 3. Alt / Option + Arrow Keys -> Directional Connected Node Creation
@@ -288,6 +390,17 @@ export const ShortcutsHandler: React.FC = () => {
         }
       }
 
+      // 3.5 OP-08: Directional Selection Jump with Plain Arrow Keys (when a node is selected)
+      if (!isMod && !e.altKey && !e.shiftKey) {
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+          if (state.selectedNodeIds.length > 0) {
+            e.preventDefault();
+            navigateSelectionDirectionally(e.key as 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight');
+            return;
+          }
+        }
+      }
+
       // 4. Tab -> Create Child Node to the Right
       if (e.key === 'Tab' && !isMod && !e.altKey && !e.shiftKey) {
         if (state.selectedNodeIds.length > 0) {
@@ -310,12 +423,7 @@ export const ShortcutsHandler: React.FC = () => {
       if ((e.key === 'Delete' || e.key === 'Backspace') && !isMod && !e.altKey) {
         if (state.selectedNodeIds.length > 0 || state.selectedEdgeIds.length > 0) {
           e.preventDefault();
-          if (state.selectedNodeIds.length > 0) {
-            state.deleteNodes([...state.selectedNodeIds]);
-          }
-          if (state.selectedEdgeIds.length > 0) {
-            state.deleteEdges([...state.selectedEdgeIds]);
-          }
+          state.batchDelete([...state.selectedNodeIds], [...state.selectedEdgeIds]);
           return;
         }
       }

@@ -15,6 +15,7 @@ import { Workflow, Maximize2, Layers } from 'lucide-react';
 import type { NeuroNode } from '../../../types/index.ts';
 import { useProjectStore } from '../../../store/useProjectStore.ts';
 import { parseMermaid } from '../../../engine/index.ts';
+import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
 
 export function DiagramNode({
   id,
@@ -26,6 +27,9 @@ export function DiagramNode({
   const data = rawData as unknown as NeuroNode['data'];
   const setFocusedDiagramId = useProjectStore((s) => s.setFocusedDiagramId);
   const updateNodeData = useProjectStore((s) => s.updateNodeData);
+  const isStoreSelected = useProjectStore((s) => s.selectedNodeIds.includes(id));
+  const selectedNodeCount = useProjectStore((s) => s.selectedNodeIds.length);
+  const isNodeSelected = selected || isStoreSelected;
 
   const mermaidCode =
     data?.mermaidCode || 'flowchart TD\n  Start([Start]) --> End([End])';
@@ -107,8 +111,8 @@ export function DiagramNode({
     <div
       onDoubleClick={(e) => handleOpenFocus(e)}
       className={`group relative flex flex-col rounded-2xl bg-slate-900/90 border transition-all duration-200 select-none shadow-xl overflow-hidden backdrop-blur-md ${
-        selected
-          ? 'border-indigo-500 ring-2 ring-indigo-500/50 shadow-indigo-500/20'
+        isNodeSelected
+          ? 'border-cyan-400 ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-900 shadow-[0_0_15px_rgba(6,182,212,0.6)]'
           : 'border-slate-800 hover:border-slate-700 hover:shadow-2xl'
       }`}
       style={{
@@ -116,30 +120,33 @@ export function DiagramNode({
         height: H,
       }}
     >
+      {/* Horizontal Floating Quick-Action Menu directly above diagram node when single diagram is selected */}
+      {isNodeSelected && selectedNodeCount <= 1 && <NodeFloatingActionBar nodeId={id} />}
+
       {/* 4-Direction Macro Connection Handles */}
       <Handle
         type="target"
         position={Position.Top}
         id="top"
-        className="!w-2.5 !h-2.5 !bg-indigo-400 !border-2 !border-slate-900 hover:!scale-125 transition-transform"
+        className="!w-2.5 !h-2.5 !bg-indigo-400 !border-2 !border-slate-900 opacity-0 group-hover:opacity-100 hover:!scale-125 transition-all"
       />
       <Handle
         type="source"
         position={Position.Right}
         id="right"
-        className="!w-2.5 !h-2.5 !bg-indigo-400 !border-2 !border-slate-900 hover:!scale-125 transition-transform"
+        className="!w-2.5 !h-2.5 !bg-indigo-400 !border-2 !border-slate-900 opacity-0 group-hover:opacity-100 hover:!scale-125 transition-all"
       />
       <Handle
         type="source"
         position={Position.Bottom}
         id="bottom"
-        className="!w-2.5 !h-2.5 !bg-indigo-400 !border-2 !border-slate-900 hover:!scale-125 transition-transform"
+        className="!w-2.5 !h-2.5 !bg-indigo-400 !border-2 !border-slate-900 opacity-0 group-hover:opacity-100 hover:!scale-125 transition-all"
       />
       <Handle
         type="target"
         position={Position.Left}
         id="left"
-        className="!w-2.5 !h-2.5 !bg-indigo-400 !border-2 !border-slate-900 hover:!scale-125 transition-transform"
+        className="!w-2.5 !h-2.5 !bg-indigo-400 !border-2 !border-slate-900 opacity-0 group-hover:opacity-100 hover:!scale-125 transition-all"
       />
 
       {/* Card Header */}

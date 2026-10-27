@@ -7,6 +7,20 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    {
+      name: 'client-error-logger',
+      configureServer(server) {
+        server.middlewares.use('/api/log-error', (req, res) => {
+          let body = '';
+          req.on('data', (chunk) => { body += chunk; });
+          req.on('end', () => {
+            console.error('\n🔴 [BROWSER CLIENT ERROR]:', body);
+            res.statusCode = 200;
+            res.end('ok');
+          });
+        });
+      },
+    },
   ],
   resolve: {
     alias: {
@@ -20,6 +34,7 @@ export default defineConfig({
       'tests/store.test.ts',
       'tests/adversarial_store.test.ts',
       'tests/adversarialPersistence.test.ts',
+      'tests/requirements.test.ts',
     ],
   },
 });
