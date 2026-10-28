@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# 關閉並重新啟動 DashCues。加上 --build 會先重新打包再啟動。
+set -euo pipefail
+
+cd "$(dirname "$0")"
+APP="build/DashCues.app"
+
+if [[ "${1:-}" == "--build" ]]; then
+  ./Scripts/build-app.sh
+fi
+
+if [[ ! -d "$APP" ]]; then
+  echo "找不到 $APP，請先執行 ./Scripts/build-app.sh 或 ./restart --build" >&2
+  exit 1
+fi
+
+if pgrep -x DashCues >/dev/null; then
+  pkill -x DashCues || true
+  for _ in {1..30}; do
+    pgrep -x DashCues >/dev/null || break
+    sleep 0.1
+  done
+  pkill -9 -x DashCues 2>/dev/null || true
+fi
+
+open "$APP"
+echo "DashCues 已重新啟動。"

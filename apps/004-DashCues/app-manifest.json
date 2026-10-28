@@ -1,0 +1,11 @@
+{
+  "id": "004",
+  "name": "DashCues",
+  "description": "macOS 選單列快捷鍵查閱工具，可快速查看並管理各個 App 的快捷鍵地圖。",
+  "tags": ["SwiftUI", "AppKit", "macOS", "Shortcuts", "Productivity"],
+  "platform": "macOS",
+  "status": "in-progress",
+  "demoUrl": "",
+  "docUrl": "README.md",
+  "coverImage": []
+}
