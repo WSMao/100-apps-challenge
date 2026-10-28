@@ -32,6 +32,7 @@ import {
   type EdgeTypes,
   type Connection,
   type OnSelectionChangeParams,
+  type OnNodeDrag,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { ZoomIn, ZoomOut, Maximize } from 'lucide-react';
@@ -61,6 +62,21 @@ const MULTI_SELECTION_KEY_CODE = ['Meta', 'Control'];
 const ZOOM_ACTIVATION_KEY_CODE = ['Meta', 'Control'];
 const FIT_VIEW_OPTIONS = { padding: 0.2 };
 const PRO_OPTIONS = { hideAttribution: true };
+
+// Stable cache for node measured dimensions to avoid allocating new objects on every render
+const measuredCache = new Map<string, { width: number; height: number }>();
+
+function getStableMeasured(id: string, width?: number, height?: number): { width: number; height: number } {
+  const w = width ?? 160;
+  const h = height ?? 60;
+  const cached = measuredCache.get(id);
+  if (cached && cached.width === w && cached.height === h) {
+    return cached;
+  }
+  const next = { width: w, height: h };
+  measuredCache.set(id, next);
+  return next;
+}
 
 // Custom Node & Edge Types Registration
 const nodeTypes: NodeTypes = {
@@ -182,8 +198,12 @@ export function CanvasContent() {
     activePageId: string;
   } | null>(null);
 
-  const handleNodeDragStart = useCallback(() => {
+  const handleNodeDragStart: OnNodeDrag = useCallback((_event, node) => {
     const state = useProjectStore.getState();
+    if (node && !state.selectedNodeIds.includes(node.id)) {
+      state.setSelectedNodes([node.id]);
+      state.setSelectedEdges([]);
+    }
     dragStartSnapshotRef.current = {
       project: state.project,
       boards: state.boards,
@@ -787,9 +807,23 @@ function isEdgeInSelectionRect(
 
   const handleSelectionChange = useCallback(
     ({ nodes: selNodes, edges: selEdges }: OnSelectionChangeParams) => {
-      const userSelectionActive = storeApi.getState().userSelectionActive;
-      const userSelectionRect = storeApi.getState().userSelectionRect;
-      const transform = storeApi.getState().transform;
+      const storeState = storeApi.getState();
+      const userSelectionActive = storeState.userSelectionActive;
+      const nodesSelectionActive = storeState.nodesSelectionActive;
+      const userSelectionRect = storeState.userSelectionRect;
+      const transform = storeState.transform;
+      const nodeLookup = storeState.nodeLookup;
+
+      const { selectedNodeIds: currNodeIds, selectedEdgeIds: currEdgeIds, nodes: allStoreNodes } =
+        useProjectStore.getState();
+
+      // Guard 1: If Zustand has selected nodes that React Flow's nodeLookup hasn't registered yet,
+      // React Flow is emitting a transient / stale selection event during an un-batched render pass.
+      // Do NOT allow a stale onSelectionChange event to clobber the store's selection!
+      const hasUnregisteredNode = currNodeIds.some((id) => !nodeLookup.has(id));
+      if (hasUnregisteredNode) {
+        return;
+      }
 
       // 1. Filter nodes based on selectionFilter
       const filteredSelNodes = selNodes.filter((n) => {
@@ -797,7 +831,15 @@ function isEdgeInSelectionRect(
         return selectionFilter[typeKey] ?? true;
       });
 
-      const selNodeIdSet = new Set(filteredSelNodes.map((n) => n.id));
+      const targetNodeIds = filteredSelNodes.map((n) => n.id);
+
+      // Guard 2: Guard against stale references to deleted nodes
+      const hasDeletedNode = targetNodeIds.some((id) => !allStoreNodes[id]);
+      if (hasDeletedNode) {
+        return;
+      }
+
+      const selNodeIdSet = new Set(targetNodeIds);
 
       // 2. Select edges based on selectionFilter.edge AND box selection:
       let targetEdgeIds: string[] = [];
@@ -846,30 +888,21 @@ function isEdgeInSelectionRect(
         targetEdgeIds = Array.from(edgeIdSet);
       }
 
-      const targetNodeIds = filteredSelNodes.map((n) => n.id);
-
-      const { selectedNodeIds: currNodeIds, selectedEdgeIds: currEdgeIds } =
-        useProjectStore.getState();
-
-      // Guard: If store has selected nodes that React Flow's nodeLookup hasn't registered yet,
-      // React Flow is emitting a transient selection event during an un-batched render pass.
-      // Do NOT allow a stale onSelectionChange event to clobber the store's selection!
-      if (targetNodeIds.length === 0 && targetEdgeIds.length === 0) {
-        const nodeLookup = storeApi.getState().nodeLookup;
-        const hasUnregisteredNode = currNodeIds.some((id) => !nodeLookup.has(id));
-        if (hasUnregisteredNode) {
-          return;
-        }
-      }
-
       const currNodeSet = new Set(currNodeIds);
       const targetNodeSet = new Set(targetNodeIds);
       const nodesChanged =
         currNodeSet.size !== targetNodeSet.size ||
         targetNodeIds.some((id) => !currNodeSet.has(id));
 
+      const isBoxSelecting = userSelectionActive || nodesSelectionActive;
+
+      // Only allow React Flow's onSelectionChange to overwrite node selection if:
+      // - The user is actively marquee-selecting (isBoxSelecting), OR
+      // - The store currently has NO selected nodes (e.g. initial empty selection sync)
       if (nodesChanged) {
-        setSelectedNodes(targetNodeIds);
+        if (isBoxSelecting || currNodeIds.length === 0) {
+          setSelectedNodes(targetNodeIds);
+        }
       }
 
       const currEdgeSet = new Set(currEdgeIds);
@@ -879,7 +912,9 @@ function isEdgeInSelectionRect(
         targetEdgeIds.some((id) => !currEdgeSet.has(id));
 
       if (edgesChanged) {
-        setSelectedEdges(targetEdgeIds);
+        if (isBoxSelecting || currEdgeIds.length === 0) {
+          setSelectedEdges(targetEdgeIds);
+        }
       }
     },
     [setSelectedNodes, setSelectedEdges, selectionFilter, storeApi, nodes, edges]
@@ -933,14 +968,15 @@ function isEdgeInSelectionRect(
       .map((n) => {
         const typeKey = (n.type || 'shape') as keyof typeof selectionFilter;
         const isSelectable = selectionFilter[typeKey] ?? true;
+        const w = n.measured?.width ?? n.width ?? 160;
+        const h = n.measured?.height ?? n.height ?? 60;
+        const measured = getStableMeasured(n.id, w, h);
+
         const nodeObj: any = {
           ...n,
           selected: selectedSet.has(n.id),
           selectable: isSelectable,
-          measured: {
-            width: n.measured?.width ?? n.width ?? 160,
-            height: n.measured?.height ?? n.height ?? 60,
-          },
+          measured,
         };
         if (!isDragging || !n.dragging) {
           delete nodeObj.dragging;

@@ -738,6 +738,27 @@ export const useProjectStore = create<ProjectStore>()(
       },
 
       updateNodeData: (id, patch) => {
+        const currentNode = get().nodes[id];
+        if (!currentNode) return;
+        const currentData = currentNode.data as Record<string, any> | undefined;
+        let hasDataChange = false;
+        if (currentData) {
+          for (const key of Object.keys(patch)) {
+            if (key === 'layoutMode') continue;
+            if (currentData[key] !== (patch as any)[key]) {
+              hasDataChange = true;
+              break;
+            }
+          }
+        } else {
+          hasDataChange = true;
+        }
+
+        const hasLayoutChange = patch.layoutMode && currentNode.layoutMode !== patch.layoutMode;
+        if (!hasDataChange && !hasLayoutChange) {
+          return;
+        }
+
         set((state) => {
           const node = state.nodes[id];
           if (node) {

@@ -36,6 +36,25 @@ class CanvasErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBound
     return { hasError: true, error };
   }
 
+  handleRecover = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
+  handleKeyDown = (e: KeyboardEvent) => {
+    if (this.state.hasError && e.key === 'Enter') {
+      e.preventDefault();
+      this.handleRecover();
+    }
+  };
+
+  componentDidMount() {
+    window.addEventListener('keydown', this.handleKeyDown);
+  }
+
+  componentWillUnmount() {
+    window.removeEventListener('keydown', this.handleKeyDown);
+  }
+
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('Canvas Error Boundary Caught Error:', error, errorInfo);
     try {
@@ -66,10 +85,11 @@ class CanvasErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBound
               {this.state.error?.stack}
             </pre>
             <button
-              onClick={() => this.setState({ hasError: false, error: null })}
-              className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg font-medium cursor-pointer transition"
+              autoFocus
+              onClick={this.handleRecover}
+              className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg font-medium cursor-pointer transition focus:ring-2 focus:ring-rose-400 focus:outline-none"
             >
-              Click to Recover Canvas
+              Click to Recover Canvas (or press Enter)
             </button>
           </div>
         </div>

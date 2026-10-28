@@ -1,6 +1,6 @@
 /**
- * Creative-Neuro E2E Test Suite Runner
- * Runs all 4 tiers of tests and outputs TAP/summary reports
+ * Creative-Neuro Domain & Contract Test Suite Runner (Section 9.1 Level 1 & 2)
+ * Runs all 4 tiers of pure domain logic and contract drivers in Node.js
  */
 
 import { run } from 'node:test';
@@ -18,7 +18,7 @@ const files = [
 ];
 
 console.log('=================================================================');
-console.log('🚀 Running Creative-Neuro 4-Tier E2E Test Suite');
+console.log('🚀 Running Creative-Neuro 4-Tier Domain & Contract Test Suite (Node.js)');
 console.log('=================================================================');
 
 const testStream = run({

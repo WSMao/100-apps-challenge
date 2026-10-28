@@ -80,7 +80,9 @@ export function TextNode({ id, data: rawData, selected, width }: NodeProps) {
       textareaRef.current.style.height = 'auto';
       textareaRef.current.style.height = `${Math.max(36, textareaRef.current.scrollHeight)}px`;
       if (isEditing) {
-        textareaRef.current.focus({ preventScroll: true });
+        if (document.activeElement !== textareaRef.current) {
+          textareaRef.current.focus({ preventScroll: true });
+        }
         if (editingInitialValue !== null && editingInitialValue !== undefined) {
           const len = textareaRef.current.value.length;
           textareaRef.current.setSelectionRange(len, len);
@@ -88,8 +90,10 @@ export function TextNode({ id, data: rawData, selected, width }: NodeProps) {
           textareaRef.current.select();
         }
       } else if (isSingleSelected) {
-        textareaRef.current.focus({ preventScroll: true });
-        textareaRef.current.select();
+        if (document.activeElement !== textareaRef.current) {
+          textareaRef.current.focus({ preventScroll: true });
+          textareaRef.current.select();
+        }
       }
     }
   }, [shouldRenderInput, isEditing, isSingleSelected, editingInitialValue, text, isEditingLocal]);
@@ -99,8 +103,10 @@ export function TextNode({ id, data: rawData, selected, width }: NodeProps) {
     if (isEditingStore) {
       setEditingNodeId(null);
     }
-    updateNodeData(id, { label: text });
-  }, [id, text, isEditingStore, setEditingNodeId, updateNodeData]);
+    if (text !== data?.label) {
+      updateNodeData(id, { label: text });
+    }
+  }, [id, text, data?.label, isEditingStore, setEditingNodeId, updateNodeData]);
 
   return (
     <div

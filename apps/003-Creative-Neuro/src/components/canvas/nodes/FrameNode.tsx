@@ -75,7 +75,9 @@ export function FrameNode({
 
   useEffect(() => {
     if (isEditingStore && inputRef.current) {
-      inputRef.current.focus({ preventScroll: true });
+      if (document.activeElement !== inputRef.current) {
+        inputRef.current.focus({ preventScroll: true });
+      }
       if (editingInitialValue !== null && editingInitialValue !== undefined) {
         const len = inputRef.current.value.length;
         inputRef.current.setSelectionRange(len, len);
@@ -83,8 +85,10 @@ export function FrameNode({
         inputRef.current.select();
       }
     } else if (isSingleSelected && inputRef.current) {
-      inputRef.current.focus({ preventScroll: true });
-      inputRef.current.select();
+      if (document.activeElement !== inputRef.current) {
+        inputRef.current.focus({ preventScroll: true });
+        inputRef.current.select();
+      }
     }
   }, [isEditingStore, isSingleSelected, editingInitialValue, title, isEditingLocal]);
 
@@ -95,8 +99,11 @@ export function FrameNode({
     if (isEditingStore) {
       setEditingNodeId(null);
     }
-    updateNodeData(id, { title, label: title });
-  }, [id, title, isEditingStore, setEditingNodeId, updateNodeData]);
+    const currentTitle = data?.title || data?.label;
+    if (title !== currentTitle) {
+      updateNodeData(id, { title, label: title });
+    }
+  }, [id, title, data?.title, data?.label, isEditingStore, setEditingNodeId, updateNodeData]);
 
   const handleCancel = useCallback(() => {
     setIsEditingLocal(false);

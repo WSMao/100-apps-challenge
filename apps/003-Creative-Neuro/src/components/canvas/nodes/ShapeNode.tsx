@@ -242,7 +242,9 @@ export function ShapeNode({
   useEffect(() => {
     if (shouldRenderInput && inputRef.current) {
       if (isEditing) {
-        inputRef.current.focus({ preventScroll: true });
+        if (document.activeElement !== inputRef.current) {
+          inputRef.current.focus({ preventScroll: true });
+        }
         if (editingInitialValue !== null && editingInitialValue !== undefined) {
           const len = inputRef.current.value.length;
           inputRef.current.setSelectionRange(len, len);
@@ -250,8 +252,10 @@ export function ShapeNode({
           inputRef.current.select();
         }
       } else if (isSingleSelected) {
-        inputRef.current.focus({ preventScroll: true });
-        inputRef.current.select();
+        if (document.activeElement !== inputRef.current) {
+          inputRef.current.focus({ preventScroll: true });
+          inputRef.current.select();
+        }
       }
     }
   }, [shouldRenderInput, isEditing, isSingleSelected, editingInitialValue, isEditingLocal]);
@@ -415,8 +419,10 @@ export function ShapeNode({
     if (isEditingStore) {
       setEditingNodeId(null);
     }
-    updateNodeData(id, { label });
-  }, [id, label, isEditingStore, setEditingNodeId, updateNodeData]);
+    if (label !== data?.label) {
+      updateNodeData(id, { label });
+    }
+  }, [id, label, data?.label, isEditingStore, setEditingNodeId, updateNodeData]);
 
   return (
     <div

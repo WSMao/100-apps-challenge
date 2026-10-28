@@ -41,6 +41,7 @@ import {
 } from '../src/components/canvas/nodes/ShapeNode.tsx';
 import { CONNECTOR_OPTIONS } from '../src/components/workspace/Toolbar.tsx';
 import { resolveProjectName } from '../src/components/workspace/AppLogoMenu.tsx';
+import { exportCanvasAsSvg } from '../src/utils/exportUtils.ts';
 import type { NeuroNode, PlacementDirection, EdgeRoutingType } from '../src/types/index.ts';
 
 describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
@@ -2427,6 +2428,154 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
       // Deselecting on pane click clears selected edges
       store.setSelectedEdges([]);
       expect(useProjectStore.getState().selectedEdgeIds).toEqual([]);
+    });
+  });
+
+  describe('Re-entrancy & Infinite Loop Prevention (Tab/Enter & Focus/Blur Idempotency)', () => {
+    it('should be completely idempotent when updateNodeData is called with identical data', () => {
+      const store = useProjectStore.getState();
+      const testNodeId = 'mm-root';
+      const initialNode = store.nodes[testNodeId];
+      expect(initialNode).toBeDefined();
+
+      const initialProjectUpdatedAt = store.project.updatedAt;
+      const initialPageUpdatedAt = store.pages[store.activePageId].updatedAt;
+
+      // Call updateNodeData with the EXACT same label and properties
+      store.updateNodeData(testNodeId, { label: initialNode.data?.label });
+
+      // State references and timestamps should NOT be mutated on no-op
+      const afterStore = useProjectStore.getState();
+      expect(afterStore.nodes[testNodeId].data?.label).toBe(initialNode.data?.label);
+      expect(afterStore.project.updatedAt).toBe(initialProjectUpdatedAt);
+      expect(afterStore.pages[afterStore.activePageId].updatedAt).toBe(initialPageUpdatedAt);
+    });
+
+    it('should only mutate store when updateNodeData receives genuinely changed values', () => {
+      const store = useProjectStore.getState();
+      const testNodeId = 'mm-root';
+
+      // Update with a new label
+      store.updateNodeData(testNodeId, { label: 'Genuinely Modified Topic' });
+      expect(useProjectStore.getState().nodes[testNodeId].data?.label).toBe('Genuinely Modified Topic');
+
+      const modifiedProjectUpdatedAt = useProjectStore.getState().project.updatedAt;
+
+      // Immediately call with the same new label - should be a no-op (no re-entry)
+      store.updateNodeData(testNodeId, { label: 'Genuinely Modified Topic' });
+      expect(useProjectStore.getState().project.updatedAt).toBe(modifiedProjectUpdatedAt);
+    });
+
+    it('should support rapid Tab / Enter keyboard spawning sequences without infinite loops or crashes', () => {
+      const store = useProjectStore.getState();
+      const rootId = 'mm-root';
+      store.setSelectedNodes([rootId]);
+
+      // 1. First Tab: spawns child node 1 (selected)
+      handleGlobalKeyDown({ key: 'Tab', preventDefault: () => {} } as any);
+      const child1Id = useProjectStore.getState().selectedNodeIds[0];
+      expect(child1Id).toBeDefined();
+      expect(child1Id).not.toBe(rootId);
+
+      // 2. Second Tab: spawns child node 2 from child 1 (selected)
+      handleGlobalKeyDown({ key: 'Tab', preventDefault: () => {} } as any);
+      const child2Id = useProjectStore.getState().selectedNodeIds[0];
+      expect(child2Id).toBeDefined();
+      expect(child2Id).not.toBe(child1Id);
+
+      // 3. Enter: spawns sibling node from child 2 (selected)
+      handleGlobalKeyDown({ key: 'Enter', preventDefault: () => {} } as any);
+      const siblingId = useProjectStore.getState().selectedNodeIds[0];
+      expect(siblingId).toBeDefined();
+      expect(siblingId).not.toBe(child2Id);
+
+      // 4. Repeated Tab & Enter loop 10 times in sequence (stress test anti-re-entrancy)
+      for (let i = 0; i < 10; i++) {
+        handleGlobalKeyDown({ key: i % 2 === 0 ? 'Tab' : 'Enter', preventDefault: () => {} } as any);
+        expect(useProjectStore.getState().selectedNodeIds.length).toBe(1);
+      }
+
+      // Verify the graph topology remains sound and clean
+      const currentNodes = Object.keys(useProjectStore.getState().nodes);
+      expect(currentNodes.length).toBeGreaterThan(10);
+    });
+
+    it('should cleanly handle simultaneous directional quick-add calls without node corruption', () => {
+      const store = useProjectStore.getState();
+      const rootId = 'mm-root';
+
+      // Rapidly call quickAddDirectionalNode in 4 directions
+      const rightNode = quickAddDirectionalNode(rootId, 'right');
+      const bottomNode = quickAddDirectionalNode(rootId, 'bottom');
+      const leftNode = quickAddDirectionalNode(rootId, 'left');
+      const topNode = quickAddDirectionalNode(rootId, 'top');
+
+      expect(rightNode).not.toBeNull();
+      expect(bottomNode).not.toBeNull();
+      expect(leftNode).not.toBeNull();
+      expect(topNode).not.toBeNull();
+
+      // Ensure each direction produced distinct nodes and edges
+      const ids = [rightNode?.nodeId, bottomNode?.nodeId, leftNode?.nodeId, topNode?.nodeId];
+      const uniqueIds = new Set(ids);
+      expect(uniqueIds.size).toBe(4);
+    });
+
+    it('should cleanly execute Tab (child) and Enter (sibling) workflows on "Fast Keyboard Shortcuts" node without crashing', () => {
+      const store = useProjectStore.getState();
+      const nodeEntry = Object.entries(store.nodes).find(
+        ([, n]) => n.data?.label === 'Fast Keyboard Shortcuts'
+      );
+      expect(nodeEntry).toBeDefined();
+      const [shortcutsNodeId, shortcutsNode] = nodeEntry!;
+      expect(shortcutsNodeId).toBe('mm-leaf-shortcuts');
+      expect(shortcutsNode.data?.label).toBe('Fast Keyboard Shortcuts');
+
+      // 1. Select "Fast Keyboard Shortcuts"
+      store.setSelectedNodes([shortcutsNodeId]);
+      expect(useProjectStore.getState().selectedNodeIds).toEqual([shortcutsNodeId]);
+
+      // 2. Press Tab -> spawns a child node to the right of "Fast Keyboard Shortcuts"
+      handleGlobalKeyDown({ key: 'Tab', preventDefault: () => {} } as any);
+      const childNodeId = useProjectStore.getState().selectedNodeIds[0];
+      expect(childNodeId).toBeDefined();
+      expect(childNodeId).not.toBe(shortcutsNodeId);
+
+      // Verify the new child is connected to "Fast Keyboard Shortcuts"
+      const childEdges = Object.values(useProjectStore.getState().edges).filter(
+        (e) => e.source === shortcutsNodeId && e.target === childNodeId
+      );
+      expect(childEdges.length).toBe(1);
+
+      // 3. Press Enter on the new child -> spawns an aligned sibling node from "Fast Keyboard Shortcuts"
+      handleGlobalKeyDown({ key: 'Enter', preventDefault: () => {} } as any);
+      const childSiblingId = useProjectStore.getState().selectedNodeIds[0];
+      expect(childSiblingId).toBeDefined();
+      expect(childSiblingId).not.toBe(childNodeId);
+
+      // 4. Re-select "Fast Keyboard Shortcuts" and press Enter -> spawns a sibling from its parent (mm-branch-ui)
+      store.setSelectedNodes([shortcutsNodeId]);
+      handleGlobalKeyDown({ key: 'Enter', preventDefault: () => {} } as any);
+      const shortcutsSiblingId = useProjectStore.getState().selectedNodeIds[0];
+      expect(shortcutsSiblingId).toBeDefined();
+      expect(shortcutsSiblingId).not.toBe(shortcutsNodeId);
+
+      const parentEdges = Object.values(useProjectStore.getState().edges).filter(
+        (e) => e.source === 'mm-branch-ui' && e.target === shortcutsSiblingId
+      );
+      expect(parentEdges.length).toBe(1);
+
+      // 5. Stress test continuous Tab & Enter chaining starting from "Fast Keyboard Shortcuts"
+      store.setSelectedNodes([shortcutsNodeId]);
+      for (let i = 0; i < 10; i++) {
+        handleGlobalKeyDown({ key: i % 2 === 0 ? 'Tab' : 'Enter', preventDefault: () => {} } as any);
+        expect(useProjectStore.getState().selectedNodeIds.length).toBe(1);
+      }
+
+      // Verify canvas export succeeds as valid SVG string
+      const svg = exportCanvasAsSvg(useProjectStore.getState());
+      expect(svg).toBeDefined();
+      expect(svg).toContain('<svg');
     });
   });
 });

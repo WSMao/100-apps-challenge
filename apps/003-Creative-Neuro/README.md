@@ -90,6 +90,7 @@ pnpm -C apps/003-Creative-Neuro build
 
 | 日期 | Agent | 工作記錄 | 下一步 | 備注 |
 | :--- | :--- | :--- | :--- | :--- |
+| 2026-10-28 | Antigravity | 依據 `rules.md` 第 9 章測試分層規範全面重構測試體系（拆分為 Unit/Integration/Engine/Domain/Real Browser E2E 四層），徹底根治畫布選取同步乒乓死循環（修復 `Canvas.tsx` 中 `handleSelectionChange` 之 Stale 事件攔截與 `reactFlowNodes` 尺寸引用快取），並引入原生 Headless Chrome CDP 自動化測試（真實載入網頁、派發 Tab/Enter 鍵盤互動、驗證零控制台錯誤與零崩潰並自動截圖），全量 267+ 測試與真實 E2E 100% 通過 | 持續針對畫布互動與專案功能進行驗證優化 | 267+ Tests & Real E2E PASS |
 | 2026-10-28 | Antigravity | 實作英數單鍵輸入「直接取代內容」確定性攔截（onKeyDown 捕捉可列印單字元並直接執行 replace setLabel 與游標定位），徹底消除瀏覽器在預聚焦時因鼠標點擊導致反白崩塌而從末端 append 之瑕疵，確保敲擊英數字元直接取代現有文字、Space 從末端 append，中文拼音維持原生組字，全量 250 項自動化測試與生產打包 100% 通過 | 持續針對畫布互動與專案功能進行驗證優化 | 250/250 Tests PASS |
 | 2026-10-28 | Antigravity | 統一中英文與數字輸入架構：拔除雙軌分流機制，全面以 DOM 原生 `<input>` 本地輸入事件為準。修復輸入英數字時因 `useEffect` 狀態回洗導致首字被覆蓋吃掉之 Bug，並將輸入框首字游標直接維持在字元後方（避免二次全選），無論輸入中文拼音、英文字母或數字皆實現 100% 一致之直接取代與即時顯示體驗，全量 250 項自動化測試與生產打包 100% 通過 | 持續針對畫布互動與專案功能進行驗證優化 | 250/250 Tests PASS |
 | 2026-10-28 | Antigravity | 優化輸入體驗視覺細節：消除未輸入前 DOM 預全選之藍色反白遮罩（使用 `selection:bg-transparent selection:text-inherit` 達到後台全選但視覺完全無反白），並移除編輯時之黑底遮罩，改為全透明背景（`bg-transparent`）完整保留節點既有填充底色與青色輸入邊框，全量 250 項自動化測試與生產打包 100% 通過 | 持續針對畫布互動與專案功能進行驗證優化 | 250/250 Tests PASS |

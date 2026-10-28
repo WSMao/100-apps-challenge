@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 
 export default defineConfig({
+  base: './',
   plugins: [
     react(),
     tailwindcss(),
@@ -35,6 +36,7 @@ export default defineConfig({
       'tests/adversarial_store.test.ts',
       'tests/adversarialPersistence.test.ts',
       'tests/requirements.test.ts',
+      'tests/integration_canvas_lifecycle.test.ts',
     ],
   },
 });

@@ -6,6 +6,7 @@ node_modules/
 dist/
 build/
 .cache/
+.vite/
 
 # 環境變數與金鑰
 .env
