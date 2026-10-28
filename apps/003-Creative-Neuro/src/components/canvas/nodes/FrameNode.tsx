@@ -16,6 +16,10 @@ import type { NeuroEdge, NeuroNode } from '../../../types/index.ts';
 import { useProjectStore } from '../../../store/useProjectStore.ts';
 import { calculateElkLayout } from '../../../engine/index.ts';
 import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
+import {
+  spawnChildNode,
+  navigateSelectionDirectionally,
+} from '../../workspace/ShortcutsHandler.tsx';
 
 export function FrameNode({
   id,
@@ -30,6 +34,7 @@ export function FrameNode({
   const setEditingNodeId = useProjectStore((s) => s.setEditingNodeId);
 
   const [title, setTitle] = useState(data?.title || data?.label || 'Container Frame');
+  const [isEditingLocal, setIsEditingLocal] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -45,51 +50,62 @@ export function FrameNode({
       const isPlaceholder = !raw || raw === 'container frame' || raw === 'container';
 
       if (editingInitialValue !== null && editingInitialValue !== undefined) {
-        if (editingInitialValue === '') {
-          setTitle(isPlaceholder ? '' : currentText);
-        } else if (isPlaceholder) {
-          setTitle(editingInitialValue);
+        if (editingInitialValue === ' ') {
+          // Space: Append from the last character!
+          setTitle(isPlaceholder ? ' ' : currentText + ' ');
+        } else if (editingInitialValue === '') {
+          // IME composition start or clear: replace with empty string
+          setTitle('');
         } else {
-          setTitle(currentText + editingInitialValue);
+          // Direct type-to-edit: REPLACE content with typed character!
+          setTitle(editingInitialValue);
         }
-      } else {
+      } else if (!isEditingLocal) {
+        // Explicit edit mode: keep existing title
         setTitle(currentText);
       }
     }
-  }, [isEditingStore, editingInitialValue, data?.title, data?.label]);
+  }, [isEditingStore, editingInitialValue, data?.title, data?.label, isEditingLocal]);
+
+  const isStoreSelected = useProjectStore((s) => s.selectedNodeIds.includes(id));
+  const selectedNodeCount = useProjectStore((s) => s.selectedNodeIds.length);
+  const isNodeSelected = selected || isStoreSelected;
+  const isSingleSelected = isNodeSelected && selectedNodeCount === 1;
+  const isCollapsed = Boolean(data?.collapsed);
 
   useEffect(() => {
     if (isEditingStore && inputRef.current) {
-      inputRef.current.focus();
+      inputRef.current.focus({ preventScroll: true });
       if (editingInitialValue !== null && editingInitialValue !== undefined) {
         const len = inputRef.current.value.length;
         inputRef.current.setSelectionRange(len, len);
-      } else {
+      } else if (!isEditingLocal) {
         inputRef.current.select();
       }
+    } else if (isSingleSelected && inputRef.current) {
+      inputRef.current.focus({ preventScroll: true });
+      inputRef.current.select();
     }
-  }, [isEditingStore, editingInitialValue, title]);
+  }, [isEditingStore, isSingleSelected, editingInitialValue, title, isEditingLocal]);
 
-  const handleCommit = () => {
+  const updateNodeData = useProjectStore((s) => s.updateNodeData);
+
+  const handleCommit = useCallback(() => {
+    setIsEditingLocal(false);
     if (isEditingStore) {
       setEditingNodeId(null);
     }
     updateNodeData(id, { title, label: title });
-  };
+  }, [id, title, isEditingStore, setEditingNodeId, updateNodeData]);
 
-  const handleCancel = () => {
+  const handleCancel = useCallback(() => {
+    setIsEditingLocal(false);
     if (isEditingStore) {
       setEditingNodeId(null);
     }
     setTitle(data?.title || data?.label || 'Container Frame');
     inputRef.current?.blur();
-  };
-
-  const updateNodeData = useProjectStore((s) => s.updateNodeData);
-  const isStoreSelected = useProjectStore((s) => s.selectedNodeIds.includes(id));
-  const selectedNodeCount = useProjectStore((s) => s.selectedNodeIds.length);
-  const isNodeSelected = selected || isStoreSelected;
-  const isCollapsed = Boolean(data?.collapsed);
+  }, [data?.title, data?.label, isEditingStore, setEditingNodeId]);
 
   // Count attached children
   const childrenCount = useProjectStore(
@@ -290,7 +306,21 @@ export function FrameNode({
             ref={inputRef}
             type="text"
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => {
+              setIsEditingLocal(true);
+              if (!isEditingStore) {
+                setEditingNodeId(id, e.target.value);
+              }
+              setTitle(e.target.value);
+            }}
+            onCompositionStart={() => {
+              if (!isEditingStore) {
+                setEditingNodeId(id, '');
+              }
+            }}
+            onCompositionEnd={(e) => {
+              setTitle(e.currentTarget.value);
+            }}
             onFocus={() => {
               if (!isEditingStore) {
                 setEditingNodeId(id, null);
@@ -299,12 +329,111 @@ export function FrameNode({
             onBlur={handleCommit}
             onKeyDown={(e) => {
               e.stopPropagation();
-              if (e.key === 'Enter') {
-                handleCommit();
-                inputRef.current?.blur();
+              if (e.nativeEvent.isComposing) return;
+
+              // Space key when single selected: append space
+              if (e.key === ' ' && !isEditingStore) {
+                e.preventDefault();
+                setEditingNodeId(id, ' ');
+                const newTitle = (title || '') + ' ';
+                setTitle(newTitle);
+                requestAnimationFrame(() => {
+                  if (inputRef.current) {
+                    inputRef.current.focus({ preventScroll: true });
+                    inputRef.current.setSelectionRange(newTitle.length, newTitle.length);
+                  }
+                });
+                return;
               }
+
+              // Printable single character when not editing: DIRECTLY REPLACE CONTENT!
+              if (e.key.length === 1 && !isEditingStore && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                const isIme =
+                  e.key === 'Process' ||
+                  Boolean((e as any).isComposing) ||
+                  (e as any).keyCode === 229 ||
+                  e.nativeEvent.isComposing;
+                if (!isIme) {
+                  e.preventDefault();
+                  setIsEditingLocal(true);
+                  setEditingNodeId(id, e.key);
+                  setTitle(e.key);
+                  requestAnimationFrame(() => {
+                    if (inputRef.current) {
+                      inputRef.current.focus({ preventScroll: true });
+                      inputRef.current.setSelectionRange(1, 1);
+                    }
+                  });
+                  return;
+                }
+              }
+
+              // Tab: Spawn child node
+              if (e.key === 'Tab') {
+                e.preventDefault();
+                handleCommit();
+                spawnChildNode(id);
+                return;
+              }
+
+              // Enter key: commit if editing, activate if not
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                if (isEditingStore) {
+                  handleCommit();
+                  inputRef.current?.blur();
+                } else {
+                  setEditingNodeId(id, null);
+                }
+                return;
+              }
+
+              // Escape
               if (e.key === 'Escape') {
-                handleCancel();
+                e.preventDefault();
+                if (isEditingStore) {
+                  handleCancel();
+                } else {
+                  useProjectStore.getState().setSelectedNodes([]);
+                }
+                return;
+              }
+
+              // Delete / Backspace when not editing
+              if ((e.key === 'Delete' || e.key === 'Backspace') && !isEditingStore) {
+                e.preventDefault();
+                useProjectStore.getState().batchDelete([id], []);
+                return;
+              }
+
+              // Arrow navigation when not editing
+              if (!isEditingStore && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+                if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                  e.preventDefault();
+                  navigateSelectionDirectionally(
+                    e.key as 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight'
+                  );
+                  return;
+                }
+              }
+
+              // Undo / Redo
+              if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+                const lowerKey = e.key.toLowerCase();
+                if (lowerKey === 'z') {
+                  e.preventDefault();
+                  if (e.shiftKey) {
+                    useProjectStore.getState().redo();
+                  } else {
+                    useProjectStore.getState().undo();
+                  }
+                  return;
+                }
+                if (lowerKey === 'y') {
+                  e.preventDefault();
+                  useProjectStore.getState().redo();
+                  return;
+                }
               }
             }}
             onClick={(e) => e.stopPropagation()}
@@ -314,8 +443,8 @@ export function FrameNode({
             }}
             className={`text-xs font-semibold text-slate-200 px-1.5 py-0.5 rounded outline-none border transition-colors truncate ${
               isEditingStore
-                ? 'border-indigo-500 bg-slate-900/90'
-                : 'border-transparent bg-transparent hover:bg-slate-800/50 focus:border-indigo-500'
+                ? 'border-indigo-500 bg-transparent pointer-events-auto caret-cyan-400 selection:bg-indigo-500/30'
+                : 'border-transparent bg-transparent hover:bg-slate-800/50 focus:border-indigo-500 selection:bg-transparent selection:text-inherit'
             }`}
           />
           {data?.direction && (

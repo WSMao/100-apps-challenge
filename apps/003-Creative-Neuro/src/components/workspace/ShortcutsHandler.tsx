@@ -14,10 +14,11 @@
  */
 
 import React, { useEffect } from 'react';
-import type { NeuroNode, NeuroEdge, ToolMode } from '../../types/index.ts';
+import type { NeuroNode, NeuroEdge, ToolMode, EdgeRoutingType } from '../../types/index.ts';
 import { useProjectStore } from '../../store/projectStore.ts';
 import {
   findCollisionFreePosition,
+  findSiblingPosition,
   type PlacementDirection,
 } from '../../engine/index.ts';
 
@@ -40,9 +41,11 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 /**
- * Spawns a child node inheriting the user's last spawn direction orientation.
+ * Spawns a child node from the target/selected node in `lastDirection` (defaulting to 'right').
+ * Automatically connects an edge from source to target with matching handles,
+ * and updates selection to the newly created child node.
  */
-export function spawnChildNode(sourceNodeId?: string): string | null {
+export function spawnChildNode(sourceNodeId?: string, label: string = 'Child Node'): string | null {
   const state = useProjectStore.getState();
   const targetId = sourceNodeId || state.selectedNodeIds[0];
   if (!targetId) return null;
@@ -57,6 +60,7 @@ export function spawnChildNode(sourceNodeId?: string): string | null {
         .filter((n): n is NeuroNode => Boolean(n))
     : Object.values(state.nodes);
 
+  // Inherit last directional spawn orientation (defaults to 'right')
   const direction: PlacementDirection = state.lastDirection || 'right';
   const newPos = findCollisionFreePosition(targetNode, direction, existingNodes);
 
@@ -72,6 +76,16 @@ export function spawnChildNode(sourceNodeId?: string): string | null {
 
   const { sourceHandle, targetHandle } = handlePairs[direction];
 
+  const pageEdges: NeuroEdge[] = activePage
+    ? activePage.edgeIds
+        .map((id) => state.edges[id])
+        .filter((e): e is NeuroEdge => Boolean(e))
+    : Object.values(state.edges);
+  const incomingEdge = pageEdges.find((e) => e.target === targetNode.id);
+  const routingType = incomingEdge?.type || (state.defaultEdgeRoutingType || 'smoothstep');
+  const edgeColor = incomingEdge?.data?.color;
+  const strokeWidth = incomingEdge?.data?.strokeWidth;
+
   const { nodeId: newChildId } = state.addConnectedNode(
     {
       type: 'shape',
@@ -82,9 +96,13 @@ export function spawnChildNode(sourceNodeId?: string): string | null {
       extent: targetNode.extent,
       layoutMode: targetNode.layoutMode,
       data: {
-        label: 'Child Node',
+        label,
         shapeType: targetNode.data.shapeType || 'rounded',
         layoutMode: targetNode.layoutMode,
+        backgroundColor: targetNode.data.backgroundColor,
+        borderColor: targetNode.data.borderColor,
+        borderWidth: targetNode.data.borderWidth,
+        color: targetNode.data.color,
       },
     },
     {
@@ -92,16 +110,28 @@ export function spawnChildNode(sourceNodeId?: string): string | null {
       target: '',
       sourceHandle,
       targetHandle,
+      type: routingType,
+      data: {
+        color: edgeColor,
+        strokeWidth: strokeWidth,
+      },
     }
   );
+
+  // Switch selection to new child node for immediate typing & continuous tree branching
+  state.setSelectedNodes([newChildId]);
 
   return newChildId;
 }
 
 /**
- * Spawns a sibling node inheriting the user's last spawn direction context.
+ * Spawns a sibling node:
+ * Finds the parent node of the current node, and connects the new sibling to that parent.
+ * The geometric candidate position is anchored to targetNode (the selected node) using findSiblingPosition.
+ * If the current node has no parent (e.g. root node), spawns a child node (Main Topic) connected to targetNode.
+ * Automatically updates selection to the newly created sibling node.
  */
-export function spawnSiblingNode(sourceNodeId?: string): string | null {
+export function spawnSiblingNode(sourceNodeId?: string, label: string = 'Sibling Node'): string | null {
   const state = useProjectStore.getState();
   const targetId = sourceNodeId || state.selectedNodeIds[0];
   if (!targetId) return null;
@@ -110,37 +140,63 @@ export function spawnSiblingNode(sourceNodeId?: string): string | null {
   if (!targetNode) return null;
 
   const activePage = state.pages[state.activePageId];
-  const existingNodes: NeuroNode[] = activePage
-    ? activePage.nodeIds
-        .map((id) => state.nodes[id])
-        .filter((n): n is NeuroNode => Boolean(n))
-    : Object.values(state.nodes);
-
   const pageEdges: NeuroEdge[] = activePage
     ? activePage.edgeIds
         .map((id) => state.edges[id])
         .filter((e): e is NeuroEdge => Boolean(e))
     : Object.values(state.edges);
 
-  // If lastDirection was horizontal ('right'/'left'), siblings stack vertically ('bottom')
-  // If lastDirection was vertical ('top'/'bottom'), siblings stack horizontally ('right')
-  const lastDir = state.lastDirection || 'right';
-  const siblingDir: PlacementDirection =
-    lastDir === 'top' || lastDir === 'bottom' ? 'right' : 'bottom';
-
-  const newPos = findCollisionFreePosition(targetNode, siblingDir, existingNodes);
-
-  // Connect to shared parent if targetNode has an incoming parent edge
+  // 1. Find parent node of current node
   const parentEdge = pageEdges.find((e) => e.target === targetNode.id);
-  const edgeData = parentEdge
-    ? {
-        source: parentEdge.source,
-        target: '',
-        sourceHandle: parentEdge.sourceHandle || 'right',
-        targetHandle: parentEdge.targetHandle || 'left',
-      }
-    : undefined;
+  const parentNode = parentEdge ? state.nodes[parentEdge.source] : null;
 
+  // 2. Root Node (No Parent) Handling:
+  // If !parentNode || !parentEdge, spawn a child node (Main Topic) connected to targetNode
+  if (!parentNode || !parentEdge) {
+    return spawnChildNode(targetNode.id, 'Main Topic');
+  }
+
+  // 3. Determine branch direction
+  let branchDir: PlacementDirection = state.lastDirection || 'right';
+  if (
+    parentEdge.sourceHandle &&
+    ['left', 'right', 'top', 'bottom'].includes(parentEdge.sourceHandle)
+  ) {
+    branchDir = parentEdge.sourceHandle as PlacementDirection;
+  } else if (parentNode) {
+    const dx = targetNode.position.x - parentNode.position.x;
+    const dy = targetNode.position.y - parentNode.position.y;
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        branchDir = dx < 0 ? 'left' : 'right';
+      } else {
+        branchDir = dy < 0 ? 'top' : 'bottom';
+      }
+    }
+  }
+
+  const existingNodes: NeuroNode[] = activePage
+    ? activePage.nodeIds
+        .map((id) => state.nodes[id])
+        .filter((n): n is NeuroNode => Boolean(n))
+    : Object.values(state.nodes);
+
+  // 4. Find collision-free sibling position anchored to targetNode
+  const newPos = findSiblingPosition(targetNode, branchDir, existingNodes);
+
+  // 5. Determine source and target handles
+  const sourceHandle =
+    parentEdge.sourceHandle ||
+    (branchDir === 'left' ? 'left' : branchDir === 'top' ? 'top' : branchDir === 'bottom' ? 'bottom' : 'right');
+  const targetHandle =
+    parentEdge.targetHandle ||
+    (branchDir === 'left' ? 'right' : branchDir === 'top' ? 'bottom' : branchDir === 'bottom' ? 'top' : 'left');
+
+  const routingType = parentEdge.type || (parentEdge.data?.routingType as EdgeRoutingType) || 'smoothstep';
+  const edgeColor = parentEdge.data?.color;
+  const strokeWidth = parentEdge.data?.strokeWidth;
+
+  // 6. Create connected sibling node
   const { nodeId: newSiblingId } = state.addConnectedNode(
     {
       type: 'shape',
@@ -151,13 +207,31 @@ export function spawnSiblingNode(sourceNodeId?: string): string | null {
       extent: targetNode.extent,
       layoutMode: targetNode.layoutMode,
       data: {
-        label: 'Sibling Node',
+        label,
         shapeType: targetNode.data.shapeType || 'rounded',
         layoutMode: targetNode.layoutMode,
+        backgroundColor: targetNode.data.backgroundColor,
+        borderColor: targetNode.data.borderColor,
+        borderWidth: targetNode.data.borderWidth,
+        color: targetNode.data.color,
       },
     },
-    edgeData
+    {
+      source: parentNode.id,
+      target: '',
+      sourceHandle,
+      targetHandle,
+      type: routingType,
+      data: {
+        color: edgeColor,
+        strokeWidth: strokeWidth,
+      },
+    }
   );
+
+  // 7. Select newly created sibling node & update lastDirection
+  state.setSelectedNodes([newSiblingId]);
+  state.setLastDirection(branchDir);
 
   return newSiblingId;
 }
@@ -222,6 +296,9 @@ export function spawnDirectionalNode(
       targetHandle,
     }
   );
+
+  // Switch selection to the newly spawned directional node
+  state.setSelectedNodes([newId]);
 
   return newId;
 }
@@ -422,7 +499,7 @@ export function handleGlobalKeyDown(e: {
     }
   }
 
-  // 4. Tab -> Create Child Node to the Right
+  // 4. Tab -> Create Child Node to the Right (per README.md)
   if (e.key === 'Tab' && !isMod && !e.altKey && !e.shiftKey) {
     if (state.selectedNodeIds.length > 0) {
       e.preventDefault?.();
@@ -475,16 +552,32 @@ export function handleGlobalKeyDown(e: {
 
     // Only shape, text, and frame nodes support inline text editing (exclude diagram nodes)
     if (targetNode && targetNode.type !== 'diagram') {
-      // Printable single character (letters, numbers, symbols, space)
-      if (e.key.length === 1) {
+      // Space key: Append from the last character of existing text
+      if (e.key === ' ') {
         e.preventDefault?.();
-        state.setEditingNodeId(targetNodeId, e.key);
+        state.setEditingNodeId(targetNodeId, ' ');
         return true;
       }
 
-      // Chinese / IME composition or Process key
-      if (e.key === 'Process' || e.isComposing) {
+      // Chinese / IME composition or Process key (keyCode 229, Process, isComposing, or non-ASCII)
+      const isIme =
+        e.key === 'Process' ||
+        Boolean(e.isComposing) ||
+        (e as KeyboardEvent).keyCode === 229 ||
+        /[^\x00-\x7F]/.test(e.key);
+
+      if (isIme) {
+        // DO NOT directly receive or display that key as committed text.
+        // Enter inline edit mode with clean replacement state so the OS IME stays in composition state
+        // and never loses the first character.
         state.setEditingNodeId(targetNodeId, '');
+        return true;
+      }
+
+      // Printable single character (English letters, numbers, symbols): Directly replace content
+      if (e.key.length === 1) {
+        e.preventDefault?.();
+        state.setEditingNodeId(targetNodeId, e.key);
         return true;
       }
     }

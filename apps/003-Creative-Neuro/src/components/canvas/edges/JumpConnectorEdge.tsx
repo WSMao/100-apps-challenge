@@ -292,11 +292,11 @@ export function JumpConnectorEdge({
   ]);
 
   // Visual styling
-  const strokeColor = selected
+  const strokeColor = isEdgeSelected
     ? '#06b6d4'
     : data?.color || (style?.stroke as string) || '#64748b';
 
-  const strokeWidth = selected
+  const strokeWidth = isEdgeSelected
     ? Math.max(2.5, (data?.strokeWidth || 1.5) + 1)
     : data?.strokeWidth || (style?.strokeWidth as number) || 1.5;
 
@@ -312,7 +312,7 @@ export function JumpConnectorEdge({
     stroke: strokeColor,
     strokeWidth,
     strokeDasharray,
-    filter: selected ? 'drop-shadow(0 0 4px rgba(6, 182, 212, 0.5))' : undefined,
+    filter: isEdgeSelected ? 'drop-shadow(0 0 4px rgba(6, 182, 212, 0.5))' : undefined,
     transition: 'stroke 0.2s, stroke-width 0.2s',
   };
 
@@ -330,6 +330,7 @@ export function JumpConnectorEdge({
         style={edgeStyle}
         markerEnd={resolvedMarkerEnd}
         markerStart={resolvedMarkerStart}
+        interactionWidth={24}
       />
 
       <EdgeLabelRenderer>
@@ -353,6 +354,22 @@ export function JumpConnectorEdge({
               position: 'absolute',
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
               pointerEvents: 'all',
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              const store = useProjectStore.getState();
+              if (store.toolMode === 'select') {
+                const isMulti = e.metaKey || e.ctrlKey || e.shiftKey;
+                if (isMulti) {
+                  const next = store.selectedEdgeIds.includes(id)
+                    ? store.selectedEdgeIds.filter((eid) => eid !== id)
+                    : [...store.selectedEdgeIds, id];
+                  store.setSelectedEdges(next);
+                } else {
+                  store.setSelectedEdges([id]);
+                  store.setSelectedNodes([]);
+                }
+              }
             }}
             className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-900/90 text-slate-200 border border-slate-700/80 shadow-md backdrop-blur select-none cursor-pointer hover:border-indigo-500 transition-colors"
           >

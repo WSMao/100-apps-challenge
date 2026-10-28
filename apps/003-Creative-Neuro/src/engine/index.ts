@@ -48,6 +48,7 @@ export {
 
 export {
   findCollisionFreePosition,
+  findSiblingPosition,
   calculateFrameAutoGrowth,
   type PlacementDirection,
 } from './placement/smartPlacement.ts';

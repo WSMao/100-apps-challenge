@@ -16,6 +16,7 @@ import {
   checkAABBCollision,
   getMinkowskiSumBox,
   findCollisionFreePosition,
+  findSiblingPosition,
   calculateFrameAutoGrowth,
 } from '../../src/engine/index.ts';
 import type { BoundingBox, NeuroNode } from '../../src/types/index.ts';
@@ -249,6 +250,118 @@ describe('Engine 3: Collision-Free Smart Placement Unit Tests', () => {
       assert.ok(typeof pos.x === 'number');
       assert.ok(typeof pos.y === 'number');
       assert.ok(duration < 10, `Placement search took ${duration.toFixed(2)}ms (budget: < 10ms)`);
+    });
+  });
+
+  describe('7. Dedicated Sibling Placement Engine (findSiblingPosition)', () => {
+    const branchA: NeuroNode = {
+      id: 'branch_a',
+      type: 'shape',
+      position: { x: 680, y: 140 },
+      width: 160,
+      height: 60,
+      layoutMode: 'manual',
+      data: { label: 'Branch A', layoutMode: 'manual' },
+    };
+
+    it('M3-SIB-01: horizontal tree growth (right) anchors sibling directly below targetNode', () => {
+      // For horizontal tree, candidate starts at candX = target.x (680), candY = target.y + targetH + 24 = 140 + 60 + 24 = 224
+      const pos = findSiblingPosition(branchA, 'right', [branchA]);
+      assert.strictEqual(pos.x, 680);
+      assert.strictEqual(pos.y, 224);
+    });
+
+    it('M3-SIB-02: horizontal tree growth (left) anchors sibling directly below targetNode', () => {
+      const pos = findSiblingPosition(branchA, 'left', [branchA]);
+      assert.strictEqual(pos.x, 680);
+      assert.strictEqual(pos.y, 224);
+    });
+
+    it('M3-SIB-03: vertical tree growth (bottom/top) anchors sibling horizontally to the right', () => {
+      // For vertical tree, candidate starts at candX = target.x + targetW + 24 = 680 + 160 + 24 = 864, candY = target.y = 140
+      const posBottom = findSiblingPosition(branchA, 'bottom', [branchA]);
+      assert.strictEqual(posBottom.x, 864);
+      assert.strictEqual(posBottom.y, 140);
+
+      const posTop = findSiblingPosition(branchA, 'top', [branchA]);
+      assert.strictEqual(posTop.x, 864);
+      assert.strictEqual(posTop.y, 140);
+    });
+
+    it('M3-SIB-04: steps past existing sibling obstacles (Branch B & Branch C)', () => {
+      const branchB: NeuroNode = {
+        id: 'branch_b',
+        type: 'shape',
+        position: { x: 680, y: 224 },
+        width: 160,
+        height: 60,
+        layoutMode: 'manual',
+        data: { label: 'Branch B', layoutMode: 'manual' },
+      };
+
+      const branchC: NeuroNode = {
+        id: 'branch_c',
+        type: 'shape',
+        position: { x: 680, y: 308 },
+        width: 160,
+        height: 60,
+        layoutMode: 'manual',
+        data: { label: 'Branch C', layoutMode: 'manual' },
+      };
+
+      // Press Enter on Branch A when Branch B and Branch C occupy (680, 224) and (680, 308)
+      // Next candidate slot is 308 + 60 + 24 = 392
+      const pos = findSiblingPosition(branchA, 'right', [branchA, branchB, branchC]);
+      assert.strictEqual(pos.x, 680);
+      assert.strictEqual(pos.y, 392);
+    });
+
+    it('M3-SIB-05: respects custom margin config in sibling candidate position and step', () => {
+      // With margin = 32, candidate is 140 + 60 + 32 = 232
+      const pos = findSiblingPosition(branchA, 'right', [branchA], { margin: 32 });
+      assert.strictEqual(pos.x, 680);
+      assert.strictEqual(pos.y, 232);
+    });
+
+    it('M3-SIB-06: vertical tree stepping skips horizontal obstacle to the right', () => {
+      const obstacle: NeuroNode = {
+        id: 'obs_right',
+        type: 'shape',
+        position: { x: 864, y: 140 },
+        width: 160,
+        height: 60,
+        layoutMode: 'manual',
+        data: { label: 'Obs', layoutMode: 'manual' },
+      };
+      // Vertical tree: initial candidate is 864. Since 864 is occupied, steps to 864 + 160 + 24 = 1048
+      const pos = findSiblingPosition(branchA, 'bottom', [branchA, obstacle]);
+      assert.strictEqual(pos.x, 1048);
+      assert.strictEqual(pos.y, 140);
+    });
+
+    it('M3-SIB-07: ignores container frame and diagram nodes when checking sibling collision', () => {
+      const frameNode: NeuroNode = {
+        id: 'frame_1',
+        type: 'frame',
+        position: { x: 600, y: 100 },
+        width: 400,
+        height: 400,
+        layoutMode: 'manual',
+        data: { label: 'Frame Container', layoutMode: 'manual' },
+      };
+      const diagramNode: NeuroNode = {
+        id: 'diagram_1',
+        type: 'diagram',
+        position: { x: 680, y: 224 },
+        width: 160,
+        height: 60,
+        layoutMode: 'manual',
+        data: { label: 'Diagram', layoutMode: 'manual' },
+      };
+      // Candidate at (680, 224) overlaps frame and diagram, but both are excluded from obstacles
+      const pos = findSiblingPosition(branchA, 'right', [branchA, frameNode, diagramNode]);
+      assert.strictEqual(pos.x, 680);
+      assert.strictEqual(pos.y, 224);
     });
   });
 });

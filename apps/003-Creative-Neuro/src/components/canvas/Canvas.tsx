@@ -41,7 +41,7 @@ import {
   useActivePageNodes,
   useActivePageEdges,
 } from '../../store/useProjectStore.ts';
-import type { NeuroNode } from '../../types/index.ts';
+import type { NeuroNode, NeuroEdge, Point } from '../../types/index.ts';
 import { calculateFrameAutoGrowth } from '../../engine/index.ts';
 
 import ShapeNode from './nodes/ShapeNode.tsx';
@@ -119,6 +119,12 @@ export function CanvasContent() {
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const rightClickStartRef = useRef<{ x: number; y: number } | null>(null);
+  const pendingContextMenuRef = useRef<{
+    clientX: number;
+    clientY: number;
+    targetNodeId: string | null;
+  } | null>(null);
+  const readyToOpenContextMenuRef = useRef<boolean>(false);
   const lastPaneClickRef = useRef<{ time: number; x: number; y: number } | null>(null);
   const lastDoubleClickSpawnRef = useRef<number>(0);
 
@@ -190,6 +196,130 @@ export function CanvasContent() {
     useProjectStore.setState({ isDragging: true });
   }, []);
 
+  // Context Menu opener helper
+  const openContextMenu = useCallback(
+    (clientX: number, clientY: number, targetNodeId: string | null) => {
+      const flowPos = screenToFlowPosition({
+        x: clientX,
+        y: clientY,
+      });
+
+      setContextMenu({
+        x: clientX,
+        y: clientY,
+        flowX: flowPos.x,
+        flowY: flowPos.y,
+        targetNodeId,
+      });
+    },
+    [screenToFlowPosition]
+  );
+
+  // Mouse Down: Record initial point for right-click pan vs contextmenu discrimination
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button === 2) {
+      rightClickStartRef.current = { x: e.clientX, y: e.clientY };
+      pendingContextMenuRef.current = null;
+      readyToOpenContextMenuRef.current = false;
+    }
+  }, []);
+
+  const handleRightClickRelease = useCallback(
+    (clientX: number, clientY: number) => {
+      const start = rightClickStartRef.current;
+      rightClickStartRef.current = null;
+
+      if (start) {
+        const dist = Math.hypot(clientX - start.x, clientY - start.y);
+        if (dist > 5) {
+          // It was a pan drag gesture, do not open context menu
+          pendingContextMenuRef.current = null;
+          readyToOpenContextMenuRef.current = false;
+          return;
+        }
+      }
+
+      // If contextmenu already fired (e.g. on macOS mousedown), show menu upon release
+      if (pendingContextMenuRef.current) {
+        const { clientX: px, clientY: py, targetNodeId } = pendingContextMenuRef.current;
+        pendingContextMenuRef.current = null;
+        readyToOpenContextMenuRef.current = false;
+        openContextMenu(px, py, targetNodeId);
+      } else {
+        // If contextmenu hasn't fired yet (e.g. Windows mouseup first), flag ready
+        readyToOpenContextMenuRef.current = true;
+        setTimeout(() => {
+          readyToOpenContextMenuRef.current = false;
+        }, 300);
+      }
+    },
+    [openContextMenu]
+  );
+
+  const handleMouseUp = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button === 2) {
+        handleRightClickRelease(e.clientX, e.clientY);
+      }
+    },
+    [handleRightClickRelease]
+  );
+
+  // Pane Context Menu (OP-01): Defers opening until right button is released
+  const handlePaneContextMenu = useCallback(
+    (event: MouseEvent | React.MouseEvent) => {
+      event.preventDefault();
+      const start = rightClickStartRef.current;
+      if (start) {
+        const dist = Math.hypot(event.clientX - start.x, event.clientY - start.y);
+        if (dist > 5) {
+          return;
+        }
+      }
+
+      if (readyToOpenContextMenuRef.current) {
+        readyToOpenContextMenuRef.current = false;
+        pendingContextMenuRef.current = null;
+        openContextMenu(event.clientX, event.clientY, null);
+      } else {
+        pendingContextMenuRef.current = {
+          clientX: event.clientX,
+          clientY: event.clientY,
+          targetNodeId: null,
+        };
+      }
+    },
+    [openContextMenu]
+  );
+
+  // Node Context Menu (OP-01): Defers opening until right button is released
+  const handleNodeContextMenu = useCallback(
+    (event: MouseEvent | React.MouseEvent, node: Node) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const start = rightClickStartRef.current;
+      if (start) {
+        const dist = Math.hypot(event.clientX - start.x, event.clientY - start.y);
+        if (dist > 5) {
+          return;
+        }
+      }
+
+      if (readyToOpenContextMenuRef.current) {
+        readyToOpenContextMenuRef.current = false;
+        pendingContextMenuRef.current = null;
+        openContextMenu(event.clientX, event.clientY, node.id);
+      } else {
+        pendingContextMenuRef.current = {
+          clientX: event.clientX,
+          clientY: event.clientY,
+          targetNodeId: node.id,
+        };
+      }
+    },
+    [openContextMenu]
+  );
+
   // Global drag safety net: ensures temporal is never stuck paused if pointer capture drops
   useEffect(() => {
     let timerId: ReturnType<typeof setTimeout> | null = null;
@@ -214,13 +344,31 @@ export function CanvasContent() {
     window.addEventListener('pointerup', handleGlobalDragCancel);
     window.addEventListener('mouseup', handleGlobalDragCancel);
     window.addEventListener('pointercancel', handleGlobalDragCancel);
+
+    const handleGlobalMouseDown = (e: MouseEvent) => {
+      if (e.button === 2) {
+        rightClickStartRef.current = { x: e.clientX, y: e.clientY };
+        pendingContextMenuRef.current = null;
+        readyToOpenContextMenuRef.current = false;
+      }
+    };
+    const handleGlobalMouseUp = (e: MouseEvent) => {
+      if (e.button === 2) {
+        handleRightClickRelease(e.clientX, e.clientY);
+      }
+    };
+    window.addEventListener('mousedown', handleGlobalMouseDown, true);
+    window.addEventListener('mouseup', handleGlobalMouseUp, true);
+
     return () => {
       if (timerId) clearTimeout(timerId);
       window.removeEventListener('pointerup', handleGlobalDragCancel);
       window.removeEventListener('mouseup', handleGlobalDragCancel);
       window.removeEventListener('pointercancel', handleGlobalDragCancel);
+      window.removeEventListener('mousedown', handleGlobalMouseDown, true);
+      window.removeEventListener('mouseup', handleGlobalMouseUp, true);
     };
-  }, []);
+  }, [handleRightClickRelease]);
 
   const handleNodeDragStop = useCallback(
     (_event: unknown, _draggedNode: Node, allDraggedNodes?: Node[]) => {
@@ -492,85 +640,156 @@ export function CanvasContent() {
     [spawnFloatingNodeAtClientPos]
   );
 
-  // Connector Tool Node Click Handler (TL-01) & Group Selection Click (FN-04)
+  // Connector Tool Node Click Handler (TL-01) & Single/Group Node Selection Click (FN-04)
   const handleNodeClick = useCallback(
-    (_event: React.MouseEvent, node: Node) => {
+    (event: React.MouseEvent, node: Node) => {
       if (toolMode === 'connect') {
         handleConnectorNodeClick(node.id);
-      } else if (toolMode === 'select') {
+        return;
+      }
+      if (toolMode === 'select') {
+        const isMulti = event.metaKey || event.ctrlKey || event.shiftKey;
         const targetNode = nodes.find((n) => n.id === node.id);
         const gid = targetNode?.groupId || targetNode?.data?.groupId;
         if (gid) {
           const groupMemberIds = nodes
             .filter((n) => n.groupId === gid || n.data?.groupId === gid)
             .map((n) => n.id);
-          setSelectedNodes(groupMemberIds);
+          if (isMulti) {
+            const next = Array.from(new Set([...selectedNodeIds, ...groupMemberIds]));
+            setSelectedNodes(next);
+          } else {
+            setSelectedNodes(groupMemberIds);
+            setSelectedEdges([]);
+          }
+        } else {
+          if (isMulti) {
+            const next = selectedNodeIds.includes(node.id)
+              ? selectedNodeIds.filter((id) => id !== node.id)
+              : [...selectedNodeIds, node.id];
+            setSelectedNodes(next);
+          } else {
+            setSelectedNodes([node.id]);
+            setSelectedEdges([]);
+          }
         }
       }
     },
-    [toolMode, handleConnectorNodeClick, nodes, setSelectedNodes]
+    [toolMode, handleConnectorNodeClick, nodes, selectedNodeIds, setSelectedNodes, setSelectedEdges]
   );
 
-  // Mouse Down: Record initial point for right-click pan vs contextmenu discrimination
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button === 2) {
-      rightClickStartRef.current = { x: e.clientX, y: e.clientY };
-    }
-  }, []);
+  // Single/Multi Edge Selection Click Handler
+  const handleEdgeClick = useCallback(
+    (event: React.MouseEvent, edge: Edge) => {
+      if (toolMode === 'select') {
+        const isSelectable = selectionFilter.edge ?? true;
+        if (!isSelectable) return;
 
-  // Pane Context Menu (OP-01)
-  const handlePaneContextMenu = useCallback(
-    (event: MouseEvent | React.MouseEvent) => {
-      event.preventDefault();
-      const start = rightClickStartRef.current;
-      if (start) {
-        const dist = Math.hypot(event.clientX - start.x, event.clientY - start.y);
-        if (dist > 5) {
-          // It was a pan drag gesture, do not open context menu
-          return;
+        const isMulti = event.metaKey || event.ctrlKey || event.shiftKey;
+        if (isMulti) {
+          const next = selectedEdgeIds.includes(edge.id)
+            ? selectedEdgeIds.filter((id) => id !== edge.id)
+            : [...selectedEdgeIds, edge.id];
+          setSelectedEdges(next);
+        } else {
+          setSelectedEdges([edge.id]);
+          setSelectedNodes([]);
         }
       }
-
-      const flowPos = screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY,
-      });
-
-      setContextMenu({
-        x: event.clientX,
-        y: event.clientY,
-        flowX: flowPos.x,
-        flowY: flowPos.y,
-        targetNodeId: null,
-      });
     },
-    [screenToFlowPosition]
+    [toolMode, selectionFilter.edge, selectedEdgeIds, setSelectedEdges, setSelectedNodes]
   );
 
-  // Node Context Menu (OP-01)
-  const handleNodeContextMenu = useCallback(
-    (event: MouseEvent | React.MouseEvent, node: Node) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const flowPos = screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY,
-      });
+interface BoundingRect {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
 
-      setContextMenu({
-        x: event.clientX,
-        y: event.clientY,
-        flowX: flowPos.x,
-        flowY: flowPos.y,
-        targetNodeId: node.id,
-      });
-    },
-    [screenToFlowPosition]
+function isPointInRect(pt: Point, rect: BoundingRect): boolean {
+  return pt.x >= rect.minX && pt.x <= rect.maxX && pt.y >= rect.minY && pt.y <= rect.maxY;
+}
+
+function lineSegmentsCross(a1: Point, a2: Point, b1: Point, b2: Point): boolean {
+  const d1 = (b2.x - b1.x) * (a1.y - b1.y) - (b2.y - b1.y) * (a1.x - b1.x);
+  const d2 = (b2.x - b1.x) * (a2.y - b1.y) - (b2.y - b1.y) * (a2.x - b1.x);
+  const d3 = (a2.x - a1.x) * (b1.y - a1.y) - (a2.y - a1.y) * (b1.x - a1.x);
+  const d4 = (a2.x - a1.x) * (b2.y - a1.y) - (a2.y - a1.y) * (b2.x - a1.x);
+
+  return (
+    ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+    ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
   );
+}
+
+function isSegmentIntersectingRect(p1: Point, p2: Point, rect: BoundingRect): boolean {
+  if (isPointInRect(p1, rect) || isPointInRect(p2, rect)) return true;
+  if (Math.max(p1.x, p2.x) < rect.minX || Math.min(p1.x, p2.x) > rect.maxX) return false;
+  if (Math.max(p1.y, p2.y) < rect.minY || Math.min(p1.y, p2.y) > rect.maxY) return false;
+
+  const rTL = { x: rect.minX, y: rect.minY };
+  const rTR = { x: rect.maxX, y: rect.minY };
+  const rBR = { x: rect.maxX, y: rect.maxY };
+  const rBL = { x: rect.minX, y: rect.maxY };
+
+  return (
+    lineSegmentsCross(p1, p2, rTL, rTR) ||
+    lineSegmentsCross(p1, p2, rTR, rBR) ||
+    lineSegmentsCross(p1, p2, rBR, rBL) ||
+    lineSegmentsCross(p1, p2, rBL, rTL)
+  );
+}
+
+function getNodeEndpoint(node: NeuroNode, handleId?: string | null, isSource = false): Point {
+  const x = node.position.x;
+  const y = node.position.y;
+  const w = node.width ?? 160;
+  const h = node.height ?? 60;
+  const side = handleId ? handleId.replace('-plus', '') : isSource ? 'bottom' : 'top';
+  switch (side) {
+    case 'top':
+      return { x: x + w / 2, y };
+    case 'bottom':
+      return { x: x + w / 2, y: y + h };
+    case 'left':
+      return { x, y: y + h / 2 };
+    case 'right':
+      return { x: x + w, y: y + h / 2 };
+    default:
+      return { x: x + w / 2, y: y + h / 2 };
+  }
+}
+
+function isEdgeInSelectionRect(
+  edge: Edge | NeuroEdge,
+  nodeMap: Map<string, NeuroNode>,
+  rect: BoundingRect
+): boolean {
+  const src = nodeMap.get(edge.source);
+  const tgt = nodeMap.get(edge.target);
+  if (!src || !tgt) return false;
+
+  const p1 = getNodeEndpoint(src, edge.sourceHandle, true);
+  const p2 = getNodeEndpoint(tgt, edge.targetHandle, false);
+
+  const midX = (p1.x + p2.x) / 2;
+  const pMid1 = { x: midX, y: p1.y };
+  const pMid2 = { x: midX, y: p2.y };
+
+  return (
+    isSegmentIntersectingRect(p1, p2, rect) ||
+    isSegmentIntersectingRect(p1, pMid1, rect) ||
+    isSegmentIntersectingRect(pMid1, pMid2, rect) ||
+    isSegmentIntersectingRect(pMid2, p2, rect)
+  );
+}
 
   const handleSelectionChange = useCallback(
     ({ nodes: selNodes, edges: selEdges }: OnSelectionChangeParams) => {
       const userSelectionActive = storeApi.getState().userSelectionActive;
+      const userSelectionRect = storeApi.getState().userSelectionRect;
+      const transform = storeApi.getState().transform;
 
       // 1. Filter nodes based on selectionFilter
       const filteredSelNodes = selNodes.filter((n) => {
@@ -580,27 +799,68 @@ export function CanvasContent() {
 
       const selNodeIdSet = new Set(filteredSelNodes.map((n) => n.id));
 
-      // 2. Filter edges based on selectionFilter.edge AND box selection enclosing rule:
-      // - If selectionFilter.edge is false, NO edges can be selected.
-      // - If user is actively box-selecting (userSelectionActive is true):
-      //   A line segment is ONLY selected if BOTH its source AND target nodes are also inside the selection!
-      //   (If only one end is inside, the line extends outside the selection box, so it is NOT fully enclosed!)
-      // - If user clicked directly (userSelectionActive is false):
-      //   Allow selecting the clicked edge(s).
-      const filteredSelEdges = selectionFilter.edge
-        ? selEdges.filter((e) => {
-            if (userSelectionActive) {
-              return selNodeIdSet.has(e.source) && selNodeIdSet.has(e.target);
+      // 2. Select edges based on selectionFilter.edge AND box selection:
+      let targetEdgeIds: string[] = [];
+      if (selectionFilter.edge ?? true) {
+        const edgeIdSet = new Set<string>();
+
+        // Include edges passed directly by React Flow (e.g. from single-click or React Flow internal events)
+        for (const e of selEdges) {
+          edgeIdSet.add(e.id);
+        }
+
+        // If user is actively box selecting, check if userSelectionRect intersects any active page edges
+        if (
+          userSelectionActive &&
+          userSelectionRect &&
+          userSelectionRect.width > 2 &&
+          userSelectionRect.height > 2
+        ) {
+          const [tx, ty, zoom] = transform;
+          const rect: BoundingRect = {
+            minX: (userSelectionRect.x - tx) / zoom,
+            minY: (userSelectionRect.y - ty) / zoom,
+            maxX: (userSelectionRect.x + userSelectionRect.width - tx) / zoom,
+            maxY: (userSelectionRect.y + userSelectionRect.height - ty) / zoom,
+          };
+
+          const nodeMap = new Map<string, NeuroNode>();
+          for (const n of nodes) {
+            nodeMap.set(n.id, n);
+          }
+
+          for (const e of edges) {
+            if (isEdgeInSelectionRect(e, nodeMap, rect)) {
+              edgeIdSet.add(e.id);
             }
-            return true;
-          })
-        : [];
+          }
+        }
+
+        // If both endpoints are enclosed by selected nodes, ensure connecting edge is also selected
+        for (const e of edges) {
+          if (selNodeIdSet.has(e.source) && selNodeIdSet.has(e.target)) {
+            edgeIdSet.add(e.id);
+          }
+        }
+
+        targetEdgeIds = Array.from(edgeIdSet);
+      }
 
       const targetNodeIds = filteredSelNodes.map((n) => n.id);
-      const targetEdgeIds = filteredSelEdges.map((e) => e.id);
 
       const { selectedNodeIds: currNodeIds, selectedEdgeIds: currEdgeIds } =
         useProjectStore.getState();
+
+      // Guard: If store has selected nodes that React Flow's nodeLookup hasn't registered yet,
+      // React Flow is emitting a transient selection event during an un-batched render pass.
+      // Do NOT allow a stale onSelectionChange event to clobber the store's selection!
+      if (targetNodeIds.length === 0 && targetEdgeIds.length === 0) {
+        const nodeLookup = storeApi.getState().nodeLookup;
+        const hasUnregisteredNode = currNodeIds.some((id) => !nodeLookup.has(id));
+        if (hasUnregisteredNode) {
+          return;
+        }
+      }
 
       const currNodeSet = new Set(currNodeIds);
       const targetNodeSet = new Set(targetNodeIds);
@@ -622,12 +882,15 @@ export function CanvasContent() {
         setSelectedEdges(targetEdgeIds);
       }
     },
-    [setSelectedNodes, setSelectedEdges, selectionFilter, storeApi]
+    [setSelectedNodes, setSelectedEdges, selectionFilter, storeApi, nodes, edges]
   );
 
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      (onNodesChange as unknown as (changes: NodeChange[]) => void)(changes);
+      const nonSelectChanges = changes.filter((c) => c.type !== 'select');
+      if (nonSelectChanges.length > 0) {
+        (onNodesChange as unknown as (changes: NodeChange[]) => void)(nonSelectChanges);
+      }
     },
     [onNodesChange]
   );
@@ -757,6 +1020,7 @@ export function CanvasContent() {
       }}
       onDoubleClick={handlePaneDoubleClick}
       onMouseDown={handleMouseDown}
+      onMouseUp={handleMouseUp}
     >
       <ReactFlow
         nodes={reactFlowNodes}
@@ -773,6 +1037,7 @@ export function CanvasContent() {
         onPaneClick={handlePaneClick}
         onDoubleClick={handlePaneDoubleClick}
         onNodeClick={handleNodeClick}
+        onEdgeClick={handleEdgeClick}
         onPaneContextMenu={handlePaneContextMenu}
         onNodeContextMenu={handleNodeContextMenu}
         onSelectionChange={handleSelectionChange}

@@ -175,3 +175,82 @@ export function calculateFrameAutoGrowth(
     height: Math.max(currentH, maxY),
   };
 }
+
+/**
+ * Calculates a non-overlapping candidate position for a newly spawned sibling node anchored to targetNode.
+ * Conforms to keyboard brainstorming specifications:
+ * - When branchDir is 'right' or 'left' (horizontal tree growth):
+ *   Candidate starts at candX = targetNode.position.x, candY = targetNode.position.y + targetH + 24.
+ *   Step vector is stepX = 0, stepY = newHeight + 24 (stacks vertically below targetNode).
+ * - When branchDir is 'bottom' or 'top' (vertical tree growth):
+ *   Candidate starts at candX = targetNode.position.x + targetW + 24, candY = targetNode.position.y.
+ *   Step vector is stepX = newWidth + 24, stepY = 0 (stacks horizontally to the right of targetNode).
+ * - Uses AABB collision detection against obstacles (existingNodes excluding frames and diagrams) to find the first collision-free slot.
+ */
+export function findSiblingPosition(
+  targetNode: NeuroNode,
+  branchDir: PlacementDirection,
+  existingNodes: NeuroNode[],
+  config: PlacementConfig = {}
+): Point {
+  const margin = config.margin ?? 24;
+  const newWidth = config.defaultWidth ?? (targetNode.width ?? 160);
+  const newHeight = config.defaultHeight ?? (targetNode.height ?? 60);
+  const maxIterations = config.maxIterations ?? 50;
+
+  const targetW = targetNode.width ?? 160;
+  const targetH = targetNode.height ?? 60;
+
+  // Filter obstacles to relevant canvas nodes (ignore targetNode itself, frames, and diagrams)
+  const obstacles: BoundingBox[] = existingNodes
+    .filter((n) => n.id !== targetNode.id && n.type !== 'frame' && n.type !== 'diagram')
+    .map((n) => ({
+      x: n.position.x,
+      y: n.position.y,
+      width: n.width ?? 160,
+      height: n.height ?? 60,
+    }));
+
+  let candX: number;
+  let candY: number;
+  let stepX: number;
+  let stepY: number;
+
+  if (branchDir === 'right' || branchDir === 'left') {
+    // Horizontal tree growth: stacks vertically below targetNode
+    candX = targetNode.position.x;
+    candY = targetNode.position.y + targetH + margin;
+    stepX = 0;
+    stepY = newHeight + margin;
+  } else {
+    // 'bottom' or 'top' (vertical tree growth): stacks horizontally to the right of targetNode
+    candX = targetNode.position.x + targetW + margin;
+    candY = targetNode.position.y;
+    stepX = newWidth + margin;
+    stepY = 0;
+  }
+
+  // Linear ray stepping in the search direction
+  for (let i = 0; i < maxIterations; i++) {
+    const candidateBox: BoundingBox = {
+      x: candX,
+      y: candY,
+      width: newWidth,
+      height: newHeight,
+    };
+
+    const hasCollision = obstacles.some((obs) =>
+      checkAABBCollision(candidateBox, obs, margin)
+    );
+
+    if (!hasCollision) {
+      return { x: candX, y: candY };
+    }
+
+    candX += stepX;
+    candY += stepY;
+  }
+
+  return { x: candX, y: candY };
+}
+

@@ -60,34 +60,141 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
   // Section 1: Operations & Shortcuts (OP-07, OP-08)
   // ==========================================================================
   describe('Operations & Keyboard Flow', () => {
-    it('OP-07: Tab and Enter should remember and inherit the last directional spawn orientation', () => {
+    it('OP-07: Tab spawns child in lastDirection, Enter spawns sibling from parent in lastDirection, and auto-selects new node', () => {
       const store = useProjectStore.getState();
       const rootId = 'mm-root';
       store.setSelectedNodes([rootId]);
+      store.setLastDirection('right');
 
-      // 1. User presses ⌥ + Up (spawns in 'top' direction)
-      const topNodeId = spawnDirectionalNode('top');
+      const rootNode = store.nodes[rootId];
+      expect(rootNode).toBeDefined();
+
+      // 1. Tab -> Spawns Child Node from current node in lastDirection ('right') and auto-selects it
+      const child1Id = spawnChildNode(rootId);
+      expect(child1Id).toBeTruthy();
+      const child1Node = useProjectStore.getState().nodes[child1Id!];
+      expect(child1Node).toBeDefined();
+      expect(child1Node.position.x).toBeGreaterThan(rootNode.position.x);
+      expect(useProjectStore.getState().selectedNodeIds).toEqual([child1Id]);
+
+      // 2. Enter on child1 -> Finds parent (rootId) and spawns another child of parent in lastDirection ('right') -> Sibling!
+      const child2Id = spawnSiblingNode(child1Id!);
+      expect(child2Id).toBeTruthy();
+      const child2Node = useProjectStore.getState().nodes[child2Id!];
+      expect(child2Node).toBeDefined();
+      // Positioned below child1 in the right column
+      expect(child2Node.position.y).toBeGreaterThan(child1Node.position.y);
+      expect(useProjectStore.getState().selectedNodeIds).toEqual([child2Id]);
+
+      // Check edge from shared parent (rootId) to child2
+      const edges = Object.values(useProjectStore.getState().edges);
+      const child2Edge = edges.find((e) => e.target === child2Id);
+      expect(child2Edge).toBeDefined();
+      expect(child2Edge?.source).toBe(rootId);
+
+      // 3. User presses ⌥ + Up (spawns in 'top' direction, sets lastDirection to 'top', and selects it)
+      store.setSelectedNodes([rootId]);
+      const topNodeId = spawnDirectionalNode('top', rootId);
       expect(topNodeId).toBeTruthy();
       expect(useProjectStore.getState().lastDirection).toBe('top');
+      expect(useProjectStore.getState().selectedNodeIds).toEqual([topNodeId]);
 
-      // 2. Now user selects topNode and hits Tab (Child)
-      // It should inherit 'top' direction instead of defaulting to 'right'
+      // 4. Tab from topNode inherits lastDirection ('top') -> spawns child above topNode!
       const childOfTop = spawnChildNode(topNodeId!);
       expect(childOfTop).toBeTruthy();
       const nodeTop = useProjectStore.getState().nodes[topNodeId!];
-      const nodeChild = useProjectStore.getState().nodes[childOfTop!];
-      // Should be above topNode (y is smaller)
-      expect(nodeChild.position.y).toBeLessThan(nodeTop.position.y);
+      const nodeChildOfTop = useProjectStore.getState().nodes[childOfTop!];
+      expect(nodeChildOfTop.position.y).toBeLessThan(nodeTop.position.y);
+      expect(useProjectStore.getState().selectedNodeIds).toEqual([childOfTop]);
 
-      // 3. User spawns left node with ⌥ + Left
+      // 5. Enter on childOfTop -> Finds parent (topNodeId) and spawns another child of parent in lastDirection ('top') -> Sibling!
+      const siblingOfChildOfTop = spawnSiblingNode(childOfTop!);
+      expect(siblingOfChildOfTop).toBeTruthy();
+      const allEdges = Object.values(useProjectStore.getState().edges);
+      const siblingEdge = allEdges.find((e) => e.target === siblingOfChildOfTop);
+      expect(siblingEdge).toBeDefined();
+      expect(siblingEdge?.source).toBe(topNodeId);
+      expect(useProjectStore.getState().selectedNodeIds).toEqual([siblingOfChildOfTop]);
+
+      // 6. Root Node (No Parent) Enter behavior:
+      // When Root topic is selected and has no incoming parent edge, pressing Enter spawns a child node (Main Topic) connected to Root
       store.setSelectedNodes([rootId]);
-      const leftNodeId = spawnDirectionalNode('left');
-      expect(useProjectStore.getState().lastDirection).toBe('left');
+      const rootChildId = spawnSiblingNode(rootId);
+      expect(rootChildId).toBeTruthy();
+      const rootChildNode = useProjectStore.getState().nodes[rootChildId!];
+      expect(rootChildNode).toBeDefined();
+      expect(rootChildNode.data.label).toBe('Main Topic');
+      const rootChildEdge = Object.values(useProjectStore.getState().edges).find((e) => e.target === rootChildId);
+      expect(rootChildEdge).toBeDefined();
+      expect(rootChildEdge?.source).toBe(rootId);
+      expect(useProjectStore.getState().selectedNodeIds).toEqual([rootChildId]);
 
-      // 4. Enter (Sibling) should follow the perpendicular or last direction context
-      const siblingOfLeft = spawnSiblingNode(leftNodeId!);
-      expect(siblingOfLeft).toBeTruthy();
-      expect(useProjectStore.getState().nodes[siblingOfLeft!]).toBeDefined();
+      // 7. Geometric Anchor Sibling Placement:
+      // In a clean page: parent is Root at (300, 320) and Branch A is at (680, 140) with Branch B (680, 224) and Branch C (680, 308):
+      // Pressing Enter on Branch A anchors candidate to Branch A, steps past Branch B & C, and places new sibling at (680, 392)
+      const siblingPageId = store.addPage('Sibling Test Page');
+      store.setActivePage(siblingPageId);
+
+      const testRootId = store.addNode({
+        position: { x: 300, y: 320 },
+        width: 160,
+        height: 60,
+        data: { label: 'Root Topic', layoutMode: 'manual' },
+      });
+      const branchAId = store.addNode({
+        position: { x: 680, y: 140 },
+        width: 160,
+        height: 60,
+        data: { label: 'Branch A', layoutMode: 'manual' },
+      });
+      store.addEdge({
+        source: testRootId,
+        target: branchAId,
+        sourceHandle: 'right',
+        targetHandle: 'left',
+      });
+      const branchBId = store.addNode({
+        position: { x: 680, y: 224 },
+        width: 160,
+        height: 60,
+        data: { label: 'Branch B', layoutMode: 'manual' },
+      });
+      store.addEdge({
+        source: testRootId,
+        target: branchBId,
+        sourceHandle: 'right',
+        targetHandle: 'left',
+      });
+      const branchCId = store.addNode({
+        position: { x: 680, y: 308 },
+        width: 160,
+        height: 60,
+        data: { label: 'Branch C', layoutMode: 'manual' },
+      });
+      store.addEdge({
+        source: testRootId,
+        target: branchCId,
+        sourceHandle: 'right',
+        targetHandle: 'left',
+      });
+
+      // Press Enter on Branch A:
+      store.setSelectedNodes([branchAId]);
+      const newSiblingId = spawnSiblingNode(branchAId);
+      expect(newSiblingId).toBeTruthy();
+      const newSiblingNode = useProjectStore.getState().nodes[newSiblingId!];
+      expect(newSiblingNode).toBeDefined();
+      // Must be anchored to Branch A's column and placed below Branch C (y = 392)
+      expect(newSiblingNode.position.x).toBe(680);
+      expect(newSiblingNode.position.y).toBe(392);
+
+      // Must be connected from parent (testRootId) to newSiblingId with matching handles
+      const newSiblingEdge = Object.values(useProjectStore.getState().edges).find((e) => e.target === newSiblingId);
+      expect(newSiblingEdge).toBeDefined();
+      expect(newSiblingEdge?.source).toBe(testRootId);
+      expect(newSiblingEdge?.sourceHandle).toBe('right');
+      expect(newSiblingEdge?.targetHandle).toBe('left');
+      expect(useProjectStore.getState().selectedNodeIds).toEqual([newSiblingId]);
     });
 
     it('OP-08: Arrow keys should navigate selection directionally to the nearest neighbor node', () => {
@@ -259,7 +366,7 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
       expect(useProjectStore.getState().editingNodeId).toBe(frameId);
       handleGlobalKeyDown({ key: 'Escape' });
 
-      // 8. ShapeNode: pressing Enter spawns a sibling node (does NOT enter inline edit mode)
+      // 8. Enter spawns a sibling node per README.md (does NOT enter inline edit mode)
       store.setSelectedNodes([shapeId]);
       const initialNodeCount = Object.keys(useProjectStore.getState().nodes).length;
       handleGlobalKeyDown({ key: 'Enter' });
@@ -2237,6 +2344,89 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
       expect(useProjectStore.getState().edges[result!.edgeId!]).toBeUndefined();
       expect(Object.keys(useProjectStore.getState().nodes).length).toBe(nodeCountBefore);
       expect(Object.keys(useProjectStore.getState().edges).length).toBe(edgeCountBefore);
+    });
+
+    it('should correctly distinguish between direct typing (replace) and Space (append)', () => {
+      const store = useProjectStore.getState();
+      const testNodeId = 'mm-root';
+
+      // 1. Direct typing single character 'A' on selected node -> Replace mode (editingInitialValue = 'A')
+      store.setSelectedNodes([testNodeId]);
+      handleGlobalKeyDown({ key: 'A' });
+      expect(useProjectStore.getState().editingNodeId).toBe(testNodeId);
+      expect(useProjectStore.getState().editingInitialValue).toBe('A');
+
+      // Cancel edit mode
+      handleGlobalKeyDown({ key: 'Escape' });
+      expect(useProjectStore.getState().editingNodeId).toBeNull();
+      expect(useProjectStore.getState().editingInitialValue).toBeNull();
+
+      // 2. Space key on selected node -> Append mode (editingInitialValue = ' ')
+      store.setSelectedNodes([testNodeId]);
+      handleGlobalKeyDown({ key: ' ' });
+      expect(useProjectStore.getState().editingNodeId).toBe(testNodeId);
+      expect(useProjectStore.getState().editingInitialValue).toBe(' ');
+
+      // Cancel edit mode
+      handleGlobalKeyDown({ key: 'Escape' });
+      expect(useProjectStore.getState().editingNodeId).toBeNull();
+      expect(useProjectStore.getState().editingInitialValue).toBeNull();
+
+      // 3. F2 / Explicit edit -> Full edit mode (editingInitialValue = null)
+      store.setSelectedNodes([testNodeId]);
+      handleGlobalKeyDown({ key: 'F2' });
+      expect(useProjectStore.getState().editingNodeId).toBe(testNodeId);
+      expect(useProjectStore.getState().editingInitialValue).toBeNull();
+      handleGlobalKeyDown({ key: 'Escape' });
+      // 4. Chinese IME composition (keyCode 229 or key 'Process' or isComposing)
+      // Enters edit mode with empty string so the first character stays in the IME state
+      store.setSelectedNodes([testNodeId]);
+      handleGlobalKeyDown({ key: 'n', keyCode: 229 } as any);
+      expect(useProjectStore.getState().editingNodeId).toBe(testNodeId);
+      expect(useProjectStore.getState().editingInitialValue).toBe('');
+      handleGlobalKeyDown({ key: 'Escape' });
+
+      // Direct Chinese character typing
+      store.setSelectedNodes([testNodeId]);
+      handleGlobalKeyDown({ key: '你' });
+      expect(useProjectStore.getState().editingNodeId).toBe(testNodeId);
+      expect(useProjectStore.getState().editingInitialValue).toBe('');
+      handleGlobalKeyDown({ key: 'Escape' });
+    });
+
+    it('should properly isolate node and edge selection on click', () => {
+      const store = useProjectStore.getState();
+      const nodeId = 'mm-root';
+      const edgeId = 'mm-edge-1';
+
+      // Single node selection clears edges
+      store.setSelectedNodes([nodeId]);
+      store.setSelectedEdges([]);
+      expect(useProjectStore.getState().selectedNodeIds).toEqual([nodeId]);
+      expect(useProjectStore.getState().selectedEdgeIds).toEqual([]);
+
+      // Single edge selection clears nodes
+      store.setSelectedEdges([edgeId]);
+      store.setSelectedNodes([]);
+      expect(useProjectStore.getState().selectedEdgeIds).toEqual([edgeId]);
+      expect(useProjectStore.getState().selectedNodeIds).toEqual([]);
+
+      // Multi edge selection preserves edges
+      store.setSelectedEdges(['mm-edge-1', 'mm-edge-2']);
+      expect(useProjectStore.getState().selectedEdgeIds).toEqual(['mm-edge-1', 'mm-edge-2']);
+    });
+
+    it('should support edge box-selection when selection box encloses or intersects edge line', () => {
+      const store = useProjectStore.getState();
+      const edgeId = 'mm-edge-1';
+
+      // Setting selected edges via box-selection updates selectedEdgeIds
+      store.setSelectedEdges([edgeId]);
+      expect(useProjectStore.getState().selectedEdgeIds).toContain(edgeId);
+
+      // Deselecting on pane click clears selected edges
+      store.setSelectedEdges([]);
+      expect(useProjectStore.getState().selectedEdgeIds).toEqual([]);
     });
   });
 });

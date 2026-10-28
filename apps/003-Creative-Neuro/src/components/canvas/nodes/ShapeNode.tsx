@@ -22,6 +22,12 @@ import {
   type PlacementDirection,
 } from '../../../engine/index.ts';
 import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
+import {
+  spawnChildNode,
+  spawnSiblingNode,
+  spawnDirectionalNode,
+  navigateSelectionDirectionally,
+} from '../../workspace/ShortcutsHandler.tsx';
 
 export type NormalizedShape =
   | 'rectangle'
@@ -194,6 +200,8 @@ export function ShapeNode({
   const isStoreSelected = useProjectStore((s) => s.selectedNodeIds.includes(id));
   const isConnectorSource = connectorSourceNodeId === id;
   const isNodeSelected = selected || isStoreSelected;
+  const isSingleSelected = isNodeSelected && selectedNodeCount === 1;
+  const shouldRenderInput = isSingleSelected || isEditing;
 
   useEffect(() => {
     if (!isEditing) {
@@ -203,6 +211,7 @@ export function ShapeNode({
 
   useEffect(() => {
     if (isEditingStore) {
+      setIsEditingLocal(true);
       const currentText = data?.label || '';
       const raw = currentText.trim().toLowerCase();
       const isPlaceholder =
@@ -213,30 +222,39 @@ export function ShapeNode({
         raw === 'sibling node';
 
       if (editingInitialValue !== null && editingInitialValue !== undefined) {
-        if (editingInitialValue === '') {
-          setLabel(isPlaceholder ? '' : currentText);
-        } else if (isPlaceholder) {
-          setLabel(editingInitialValue);
+        if (editingInitialValue === ' ') {
+          // Space: Append from the last character!
+          setLabel(isPlaceholder ? ' ' : currentText + ' ');
+        } else if (editingInitialValue === '') {
+          // IME composition start or clear: replace with empty string
+          setLabel('');
         } else {
-          setLabel(currentText + editingInitialValue);
+          // Direct type-to-edit: REPLACE content with typed character!
+          setLabel(editingInitialValue);
         }
-      } else {
+      } else if (!isEditingLocal) {
+        // Explicit edit mode (F2 / Shift+Enter / double click): keep existing text
         setLabel(currentText);
       }
     }
-  }, [isEditingStore, editingInitialValue, data?.label]);
+  }, [isEditingStore, editingInitialValue, data?.label, isEditingLocal]);
 
   useEffect(() => {
-    if (isEditing && inputRef.current) {
-      inputRef.current.focus();
-      if (editingInitialValue !== null && editingInitialValue !== undefined) {
-        const len = inputRef.current.value.length;
-        inputRef.current.setSelectionRange(len, len);
-      } else {
+    if (shouldRenderInput && inputRef.current) {
+      if (isEditing) {
+        inputRef.current.focus({ preventScroll: true });
+        if (editingInitialValue !== null && editingInitialValue !== undefined) {
+          const len = inputRef.current.value.length;
+          inputRef.current.setSelectionRange(len, len);
+        } else if (!isEditingLocal) {
+          inputRef.current.select();
+        }
+      } else if (isSingleSelected) {
+        inputRef.current.focus({ preventScroll: true });
         inputRef.current.select();
       }
     }
-  }, [isEditing, editingInitialValue, label]);
+  }, [shouldRenderInput, isEditing, isSingleSelected, editingInitialValue, isEditingLocal]);
 
   const shapeType = normalizeShapeType(data?.shapeType);
   const W = width || 160;
@@ -392,13 +410,13 @@ export function ShapeNode({
     [id]
   );
 
-  const handleCommit = () => {
+  const handleCommit = useCallback(() => {
     setIsEditingLocal(false);
     if (isEditingStore) {
       setEditingNodeId(null);
     }
     updateNodeData(id, { label });
-  };
+  }, [id, label, isEditingStore, setEditingNodeId, updateNodeData]);
 
   return (
     <div
@@ -436,24 +454,166 @@ export function ShapeNode({
       </svg>
 
       {/* Label / Inline Input */}
-      <div className="relative z-10 px-3 text-center pointer-events-auto max-w-[90%]">
-        {isEditing ? (
+      <div className="relative z-10 px-3 text-center pointer-events-auto max-w-[90%] w-full flex items-center justify-center">
+        {shouldRenderInput ? (
           <input
             ref={inputRef}
             type="text"
             value={label}
-            onChange={(e) => setLabel(e.target.value)}
+            onChange={(e) => {
+              setIsEditingLocal(true);
+              if (!isEditingStore) {
+                setEditingNodeId(id, e.target.value);
+              }
+              setLabel(e.target.value);
+            }}
+            onCompositionStart={() => {
+              setIsEditingLocal(true);
+              if (!isEditingStore) {
+                setEditingNodeId(id, '');
+              }
+            }}
+            onCompositionEnd={(e) => {
+              setLabel(e.currentTarget.value);
+            }}
             onBlur={handleCommit}
             onKeyDown={(e) => {
               e.stopPropagation();
-              if (e.key === 'Enter') handleCommit();
+              if (e.nativeEvent.isComposing) return;
+
+              // Space key when single selected: append space to the end
+              if (e.key === ' ' && !isEditing) {
+                e.preventDefault();
+                setIsEditingLocal(true);
+                setEditingNodeId(id, ' ');
+                const newLabel = (label || '') + ' ';
+                setLabel(newLabel);
+                requestAnimationFrame(() => {
+                  if (inputRef.current) {
+                    inputRef.current.focus({ preventScroll: true });
+                    inputRef.current.setSelectionRange(newLabel.length, newLabel.length);
+                  }
+                });
+                return;
+              }
+
+              // Printable single character when not editing: DIRECTLY REPLACE CONTENT!
+              if (e.key.length === 1 && !isEditing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                const isIme =
+                  e.key === 'Process' ||
+                  Boolean((e as any).isComposing) ||
+                  (e as any).keyCode === 229 ||
+                  e.nativeEvent.isComposing;
+                if (!isIme) {
+                  e.preventDefault();
+                  setIsEditingLocal(true);
+                  setEditingNodeId(id, e.key);
+                  setLabel(e.key);
+                  requestAnimationFrame(() => {
+                    if (inputRef.current) {
+                      inputRef.current.focus({ preventScroll: true });
+                      inputRef.current.setSelectionRange(1, 1);
+                    }
+                  });
+                  return;
+                }
+              }
+
+              // Tab: Spawn child node to the right
+              if (e.key === 'Tab') {
+                e.preventDefault();
+                handleCommit();
+                spawnChildNode(id);
+                return;
+              }
+
+              // Enter: Spawn sibling if not editing, commit if editing
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                if (!isEditing) {
+                  handleCommit();
+                  spawnSiblingNode(id);
+                } else {
+                  handleCommit();
+                }
+                return;
+              }
+
+              // Escape: Cancel edit or deselect
               if (e.key === 'Escape') {
-                setLabel(data?.label || '');
-                setIsEditingLocal(false);
-                setEditingNodeId(null);
+                e.preventDefault();
+                if (isEditing) {
+                  setLabel(data?.label || '');
+                  setIsEditingLocal(false);
+                  setEditingNodeId(null);
+                } else {
+                  useProjectStore.getState().setSelectedNodes([]);
+                }
+                return;
+              }
+
+              // Delete / Backspace when not editing: delete selected node
+              if ((e.key === 'Delete' || e.key === 'Backspace') && !isEditing) {
+                e.preventDefault();
+                useProjectStore.getState().batchDelete([id], []);
+                return;
+              }
+
+              // Alt + Arrow: Spawn directional node
+              if (e.altKey && !e.metaKey && !e.ctrlKey) {
+                const dirMap: Record<string, PlacementDirection> = {
+                  ArrowUp: 'top',
+                  ArrowDown: 'bottom',
+                  ArrowLeft: 'left',
+                  ArrowRight: 'right',
+                };
+                if (dirMap[e.key]) {
+                  e.preventDefault();
+                  spawnDirectionalNode(dirMap[e.key], id);
+                  return;
+                }
+              }
+
+              // Plain Arrow Keys when not editing: Directional Selection Jump
+              if (!isEditing && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+                if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                  e.preventDefault();
+                  navigateSelectionDirectionally(
+                    e.key as 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight'
+                  );
+                  return;
+                }
+              }
+
+              // Undo / Redo
+              if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+                const lowerKey = e.key.toLowerCase();
+                if (lowerKey === 'z') {
+                  e.preventDefault();
+                  if (e.shiftKey) {
+                    useProjectStore.getState().redo();
+                  } else {
+                    useProjectStore.getState().undo();
+                  }
+                  return;
+                }
+                if (lowerKey === 'y') {
+                  e.preventDefault();
+                  useProjectStore.getState().redo();
+                  return;
+                }
               }
             }}
-            className="w-full bg-slate-950/90 text-white text-xs px-1.5 py-0.5 rounded border border-cyan-400 text-center outline-none"
+            className={`w-full text-center outline-none transition-all ${
+              isEditing
+                ? 'bg-transparent text-white text-xs px-1.5 py-0.5 rounded border border-cyan-400 pointer-events-auto caret-cyan-400 shadow-sm selection:bg-cyan-500/30'
+                : 'bg-transparent border-none pointer-events-none caret-transparent leading-tight select-none shadow-none ring-0 focus:ring-0 focus:outline-none selection:bg-transparent selection:text-inherit'
+            }`}
+            style={{
+              color: data?.color || '#f8fafc',
+              fontSize: data?.fontSize || 13,
+              fontWeight: data?.fontWeight || 'normal',
+            }}
           />
         ) : (
           <span
