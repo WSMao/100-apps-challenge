@@ -1,0 +1,11 @@
+{
+  "id": "003",
+  "name": "Creative-Neuro",
+  "description": "融合 Xmind 絲滑互動、Mermaid 雙向語法同步與無限白板自由連接的 Any Chart 視覺化思考工具",
+  "tags": ["React", "TypeScript", "ReactFlow", "ELK", "Mermaid", "AI", "Web"],
+  "platform": "Web",
+  "status": "in-progress",
+  "demoUrl": "",
+  "docUrl": "README.md",
+  "coverImage": []
+}

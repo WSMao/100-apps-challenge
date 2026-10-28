@@ -1,0 +1,67 @@
+@import "@xyflow/react/dist/style.css";
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --canvas-bg: #090d16;
+    --canvas-grid: #1e293b;
+    --accent-primary: #6366f1;
+  }
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: #020617;
+  color: #f8fafc;
+}
+
+/* Custom scrollbars for side panels and CodeMirror */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.4);
+}
+
+/* OP-03: Modern crisp selection rectangle for left-click box selection */
+.react-flow__selection {
+  background-color: rgba(6, 182, 212, 0.12) !important;
+  border: 1.5px dashed #06b6d4 !important;
+  border-radius: 6px !important;
+  box-shadow: 0 0 16px rgba(6, 182, 212, 0.25) !important;
+  pointer-events: none !important;
+  z-index: 50 !important;
+}
+
+/* Ensure selected nodes, edges, and floating action bars are always on the topmost layer */
+.react-flow__node.selected {
+  z-index: 99999 !important;
+}
+.react-flow__edge.selected {
+  z-index: 99999 !important;
+}
+
+/* FN-03 & FN-04: Suppress React Flow default nodesselection rect as Creative-Neuro renders its own custom bounding box */
+.react-flow__nodesselection,
+.react-flow__nodesselection-rect {
+  display: none !important;
+  pointer-events: none !important;
+}
+
