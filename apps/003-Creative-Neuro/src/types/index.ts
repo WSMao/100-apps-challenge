@@ -319,7 +319,7 @@ export interface StoredEdge extends NeuroEdge {
 
 export interface ElkLayoutOptions {
   algorithm?: 'layered' | 'mrtree';
-  direction?: 'RIGHT' | 'DOWN' | 'LEFT' | 'UP';
+  direction?: 'RIGHT' | 'DOWN' | 'LEFT' | 'UP' | FlowDirection | string;
   nodeSpacing?: number;
   layerSpacing?: number;
 }

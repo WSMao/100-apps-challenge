@@ -452,6 +452,17 @@ export function exportCanvasAsSvg(
     const strokeWidth = e.data?.strokeWidth || e.style?.strokeWidth || 2;
 
     const arcs = jumpMap.get(e.id);
+    const hasArrowEnd = e.data?.arrowEnd !== false;
+    const hasArrowStart = Boolean(e.data?.arrowStart);
+    const markerEndAttr = hasArrowEnd ? ' marker-end="url(#neuro-arrow)"' : '';
+    const markerStartAttr = hasArrowStart ? ' marker-start="url(#neuro-arrow)"' : '';
+    const strokeDash =
+      e.data?.lineStyle === 'dashed'
+        ? ' stroke-dasharray="6 6"'
+        : e.data?.lineStyle === 'dotted'
+        ? ' stroke-dasharray="2 4"'
+        : '';
+
     let pathEl: string;
     if (arcs && arcs.length > 0) {
       const dParts = [`M ${x1.toFixed(2)} ${y1.toFixed(2)}`];
@@ -459,9 +470,9 @@ export function exportCanvasAsSvg(
         dParts.push(arc.svgArcCommand);
       }
       dParts.push(`L ${x2.toFixed(2)} ${y2.toFixed(2)}`);
-      pathEl = `<path d="${dParts.join(' ')}" fill="none" stroke="${stroke}" stroke-width="${strokeWidth}" marker-end="url(#neuro-arrow)"/>`;
+      pathEl = `<path d="${dParts.join(' ')}" fill="none" stroke="${stroke}" stroke-width="${strokeWidth}"${strokeDash}${markerEndAttr}${markerStartAttr}/>`;
     } else {
-      pathEl = `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${stroke}" stroke-width="${strokeWidth}" marker-end="url(#neuro-arrow)"/>`;
+      pathEl = `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${stroke}" stroke-width="${strokeWidth}"${strokeDash}${markerEndAttr}${markerStartAttr}/>`;
     }
 
     const edgeLabel = e.data?.label || e.label;

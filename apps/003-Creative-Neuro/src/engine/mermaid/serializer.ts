@@ -56,16 +56,21 @@ export function formatNodeToken(node: NeuroNode): string {
 export function formatEdgeToken(edge: NeuroEdge): string {
   const stroke = edge.data?.lineStyle || 'solid';
   const hasArrowEnd = edge.data?.arrowEnd !== false;
+  const hasArrowStart = Boolean(edge.data?.arrowStart);
   const label = edge.data?.label || edge.label;
 
   let arrowSyntax = '-->';
-  if (stroke === 'dotted') {
-    arrowSyntax = hasArrowEnd ? '-.->' : '-.-';
-  } else if (stroke === 'dashed') {
-    arrowSyntax = hasArrowEnd ? '-.->' : '-.-';
+  if (stroke === 'dotted' || stroke === 'dashed') {
+    if (hasArrowStart && hasArrowEnd) arrowSyntax = '<-.->';
+    else if (hasArrowStart && !hasArrowEnd) arrowSyntax = '<-.-';
+    else if (!hasArrowStart && hasArrowEnd) arrowSyntax = '-.->';
+    else arrowSyntax = '-.-';
   } else {
     // solid
-    arrowSyntax = hasArrowEnd ? '-->' : '---';
+    if (hasArrowStart && hasArrowEnd) arrowSyntax = '<-->';
+    else if (hasArrowStart && !hasArrowEnd) arrowSyntax = '<--';
+    else if (!hasArrowStart && hasArrowEnd) arrowSyntax = '-->';
+    else arrowSyntax = '---';
   }
 
   if (label) {

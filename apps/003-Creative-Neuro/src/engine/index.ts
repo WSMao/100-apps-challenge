@@ -34,6 +34,7 @@ export {
 // 2. ELK Layout Engine
 export {
   calculateElkLayout,
+  calculateElkLayoutSync,
   normalizeDirection,
   type ElkSubGraphFoldOptions,
 } from './layout/elkEngine.ts';

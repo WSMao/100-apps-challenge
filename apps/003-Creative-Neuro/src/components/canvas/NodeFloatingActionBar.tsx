@@ -23,6 +23,7 @@ import type { NeuroNode, ShapeType } from '../../types/index.ts';
 export interface NodeFloatingActionBarProps {
   nodeId?: string;
   nodeIds?: string[];
+  isStacked?: boolean;
 }
 
 const SHAPE_ITEMS: { type: ShapeType; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -36,7 +37,11 @@ const SHAPE_ITEMS: { type: ShapeType; label: string; icon: React.ComponentType<{
   { type: 'subroutine', label: 'Subroutine', icon: Columns3 },
 ];
 
-export const NodeFloatingActionBar: React.FC<NodeFloatingActionBarProps> = ({ nodeId, nodeIds }) => {
+export const NodeFloatingActionBar: React.FC<NodeFloatingActionBarProps> = ({
+  nodeId,
+  nodeIds,
+  isStacked = false,
+}) => {
   const nodes = useProjectStore((s) => s.nodes);
   const updateNodeData = useProjectStore((s) => s.updateNodeData);
   const batchUpdateNodeData = useProjectStore((s) => s.batchUpdateNodeData);
@@ -82,13 +87,18 @@ export const NodeFloatingActionBar: React.FC<NodeFloatingActionBarProps> = ({ no
   const isUniformShape = shapeNodes.every((n) => (n.data?.shapeType || 'rounded') === firstShape);
   const currentShape = isUniformShape ? firstShape : 'shapes';
 
+  const positionClasses = isStacked
+    ? 'flex items-center gap-1 px-2 py-1 rounded-xl shadow-2xl border transition-all select-none pointer-events-auto'
+    : 'absolute -top-12 left-1/2 -translate-x-1/2 flex items-center gap-1 px-2 py-1 rounded-xl shadow-2xl border transition-all select-none pointer-events-auto';
+
   return (
     <div
-      className={`absolute -top-12 left-1/2 -translate-x-1/2 flex items-center gap-1 px-2 py-1 rounded-xl shadow-2xl border z-[99999] transition-all select-none pointer-events-auto ${
+      className={`${positionClasses} z-[999999] ${
         isDark
           ? 'bg-slate-900 border-slate-700 text-slate-100'
           : 'bg-white border-slate-200 text-slate-800 shadow-slate-200/50'
       }`}
+      style={{ zIndex: 999999 }}
       onClick={(e) => e.stopPropagation()}
       data-testid="node-floating-action-bar"
       data-is-multi={isMulti ? 'true' : 'false'}

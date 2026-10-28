@@ -53,11 +53,18 @@ export function JumpConnectorEdge({
   const allEdges = useEdges();
   const allNodes = useNodes();
   const selectedEdgeIds = useProjectStore((s) => s.selectedEdgeIds);
+  const selectedNodeIds = useProjectStore((s) => s.selectedNodeIds);
+  const themeMode = useProjectStore((s) => s.themeMode);
+  const isDark = themeMode === 'dark';
   const isSelectedInStore = selectedEdgeIds.includes(id);
   const isEdgeSelected = Boolean(selected || isSelectedInStore);
   const isMultiEdge = selectedEdgeIds.length > 1;
   const activeMenuEdgeId = isMultiEdge ? selectedEdgeIds[selectedEdgeIds.length - 1] : id;
-  const shouldShowActionBar = isEdgeSelected && (!isMultiEdge || id === activeMenuEdgeId);
+  const hasMultiNodeSelection = selectedNodeIds.length > 1;
+  const shouldShowActionBar =
+    isEdgeSelected &&
+    (!isMultiEdge || id === activeMenuEdgeId) &&
+    !hasMultiNodeSelection;
 
   const jumpRadius = data?.strokeWidth ? Math.max(6, data.strokeWidth * 2.5) : 6;
   const isJumpEnabled = data?.jumpArc !== false;
@@ -318,12 +325,65 @@ export function JumpConnectorEdge({
 
   const edgeLabel = label || data?.label;
 
-  // Resolved Arrow Markers
-  const resolvedMarkerEnd = data?.arrowEnd === false ? undefined : markerEnd;
-  const resolvedMarkerStart = data?.arrowStart ? markerStart || markerEnd : undefined;
+  // Resolved Arrow Markers with resilient SVG marker fallbacks
+  const fallbackMarkerEndId = `neuro-marker-end-${id}`;
+  const fallbackMarkerStartId = `neuro-marker-start-${id}`;
+  const needsFallbackMarkerEnd = data?.arrowEnd !== false && !markerEnd;
+  const needsFallbackMarkerStart = Boolean(data?.arrowStart) && !markerStart && !markerEnd;
+
+  const resolvedMarkerEnd =
+    data?.arrowEnd === false
+      ? undefined
+      : markerEnd || `url(#${fallbackMarkerEndId})`;
+
+  const resolvedMarkerStart =
+    data?.arrowStart
+      ? markerStart || markerEnd || `url(#${fallbackMarkerStartId})`
+      : undefined;
 
   return (
     <>
+      {(needsFallbackMarkerEnd || needsFallbackMarkerStart) && (
+        <defs>
+          {needsFallbackMarkerEnd && (
+            <marker
+              id={fallbackMarkerEndId}
+              viewBox="0 0 10 10"
+              refX="6"
+              refY="5"
+              markerWidth="7"
+              markerHeight="7"
+              orient="auto-start-reverse"
+            >
+              <polyline
+                points="0 1, 10 5, 0 9, 2 5"
+                fill={strokeColor}
+                stroke={strokeColor}
+                strokeLinejoin="round"
+              />
+            </marker>
+          )}
+          {needsFallbackMarkerStart && (
+            <marker
+              id={fallbackMarkerStartId}
+              viewBox="0 0 10 10"
+              refX="6"
+              refY="5"
+              markerWidth="7"
+              markerHeight="7"
+              orient="auto-start-reverse"
+            >
+              <polyline
+                points="0 1, 10 5, 0 9, 2 5"
+                fill={strokeColor}
+                stroke={strokeColor}
+                strokeLinejoin="round"
+              />
+            </marker>
+          )}
+        </defs>
+      )}
+
       <BaseEdge
         id={id}
         path={edgePath}
@@ -333,6 +393,40 @@ export function JumpConnectorEdge({
         interactionWidth={24}
       />
 
+      {/* Endpoints hollow circles when edge is selected indicating reconnectable handles */}
+      {isEdgeSelected && (
+        <g className="react-flow__edge-endpoints" data-testid={`edge-endpoints-${id}`}>
+          {/* Source endpoint hollow circle */}
+          <circle
+            cx={sourceX}
+            cy={sourceY}
+            r={5}
+            fill={isDark ? '#0f172a' : '#ffffff'}
+            stroke="#06b6d4"
+            strokeWidth={2}
+            className="react-flow__edge-endpoint react-flow__edge-endpoint-source pointer-events-none"
+            data-testid={`edge-endpoint-source-${id}`}
+            style={{
+              filter: 'drop-shadow(0 0 3px rgba(6, 182, 212, 0.4))',
+            }}
+          />
+          {/* Target endpoint hollow circle */}
+          <circle
+            cx={targetX}
+            cy={targetY}
+            r={5}
+            fill={isDark ? '#0f172a' : '#ffffff'}
+            stroke="#06b6d4"
+            strokeWidth={2}
+            className="react-flow__edge-endpoint react-flow__edge-endpoint-target pointer-events-none"
+            data-testid={`edge-endpoint-target-${id}`}
+            style={{
+              filter: 'drop-shadow(0 0 3px rgba(6, 182, 212, 0.4))',
+            }}
+          />
+        </g>
+      )}
+
       <EdgeLabelRenderer>
         {/* Floating Quick Setting Menu when edge is selected */}
         {shouldShowActionBar && (
@@ -341,7 +435,7 @@ export function JumpConnectorEdge({
               position: 'absolute',
               transform: `translate(-50%, -100%) translate(${labelX}px, ${labelY - 10}px)`,
               pointerEvents: 'all',
-              zIndex: 99999,
+              zIndex: 999999,
             }}
           >
             <EdgeFloatingActionBar edgeId={id} edgeIds={isMultiEdge ? selectedEdgeIds : undefined} />

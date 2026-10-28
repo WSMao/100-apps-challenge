@@ -50,12 +50,58 @@ body,
   z-index: 50 !important;
 }
 
-/* Ensure selected nodes, edges, and floating action bars are always on the topmost layer */
+/* Ensure selected nodes, edges, bounding boxes and floating action bars are always on the topmost layer */
 .react-flow__node.selected {
   z-index: 99999 !important;
 }
 .react-flow__edge.selected {
   z-index: 99999 !important;
+}
+[data-testid="selection-bounding-box"] {
+  z-index: 999999 !important;
+}
+[data-testid="multi-selection-action-bars"] {
+  z-index: 999999 !important;
+}
+[data-testid="node-floating-action-bar"] {
+  z-index: 999999 !important;
+}
+[data-testid="edge-floating-action-bar"] {
+  z-index: 999999 !important;
+}
+
+/* Edge reconnect endpoint handles - only visible when edge is selected */
+.react-flow__edge .react-flow__edgeupdater {
+  display: none !important;
+}
+
+.react-flow__edge.selected .react-flow__edgeupdater {
+  display: block !important;
+  fill: #ffffff !important;
+  stroke: #06b6d4 !important;
+  stroke-width: 2px !important;
+  r: 5px !important;
+  cursor: grab !important;
+  pointer-events: all !important;
+  transition: r 0.15s ease, fill 0.15s ease, stroke 0.15s ease;
+  filter: drop-shadow(0 0 3px rgba(6, 182, 212, 0.4));
+}
+
+.dark .react-flow__edge.selected .react-flow__edgeupdater,
+[data-theme='dark'] .react-flow__edge.selected .react-flow__edgeupdater {
+  fill: #0f172a !important;
+  stroke: #06b6d4 !important;
+}
+
+.react-flow__edge.selected .react-flow__edgeupdater:hover {
+  fill: #06b6d4 !important;
+  stroke: #ffffff !important;
+  r: 6.5px !important;
+  cursor: grab !important;
+}
+
+.react-flow__edge.selected .react-flow__edgeupdater:active {
+  cursor: grabbing !important;
 }
 
 /* FN-03 & FN-04: Suppress React Flow default nodesselection rect as Creative-Neuro renders its own custom bounding box */

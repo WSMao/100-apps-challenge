@@ -24,6 +24,7 @@ import {
   ViewportPortal,
   PanOnScrollMode,
   SelectionMode,
+  MarkerType,
   type Node,
   type Edge,
   type NodeChange,
@@ -54,6 +55,7 @@ import FreehandOverlay from './freehand/FreehandOverlay.tsx';
 import FocusDiagramModal from '../editor/FocusDiagramModal.tsx';
 import { ContextMenu } from './ContextMenu.tsx';
 import { NodeFloatingActionBar } from './NodeFloatingActionBar.tsx';
+import { EdgeFloatingActionBar } from './edges/EdgeFloatingActionBar.tsx';
 
 // Stable top-level module constants to prevent React Flow StoreUpdater infinite re-renders
 const SNAP_GRID: [number, number] = [16, 16];
@@ -126,6 +128,12 @@ export function CanvasContent() {
 
   const isDark = themeMode === 'dark';
   const storeApi = useStoreApi();
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).__CREATIVE_NEURO_STORE__ = useProjectStore;
+    }
+  }, []);
   const {
     screenToFlowPosition,
     zoomIn,
@@ -988,12 +996,38 @@ function isEdgeInSelectionRect(
   const reactFlowEdges = useMemo(() => {
     const selectedSet = new Set(selectedEdgeIds);
     const isSelectable = selectionFilter.edge ?? true;
-    return edges.map((e) => ({
-      ...e,
-      selected: selectedSet.has(e.id),
-      selectable: isSelectable,
-    })) as unknown as Edge[];
-  }, [edges, selectionFilter.edge, selectedEdgeIds]);
+    return edges.map((e) => {
+      const isSelected = selectedSet.has(e.id);
+      const strokeColor = isSelected
+        ? '#06b6d4'
+        : e.data?.color || (e.style?.stroke as string) || (themeMode === 'dark' ? '#94a3b8' : '#64748b');
+
+      const hasArrowEnd = e.data?.arrowEnd !== false;
+      const hasArrowStart = Boolean(e.data?.arrowStart);
+
+      return {
+        ...e,
+        selected: selectedSet.has(e.id),
+        selectable: isSelectable,
+        markerEnd: hasArrowEnd
+          ? {
+              type: MarkerType.ArrowClosed,
+              color: strokeColor,
+              width: 14,
+              height: 14,
+            }
+          : undefined,
+        markerStart: hasArrowStart
+          ? {
+              type: MarkerType.ArrowClosed,
+              color: strokeColor,
+              width: 14,
+              height: 14,
+            }
+          : undefined,
+      };
+    }) as unknown as Edge[];
+  }, [edges, selectionFilter.edge, selectedEdgeIds, themeMode]);
 
   // FN-03 & FN-04: Multi-Selection & Group Bounding Box
   const selectionBounds = useMemo(() => {
@@ -1067,6 +1101,7 @@ function isEdgeInSelectionRect(
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
         edgesReconnectable={true}
+        reconnectRadius={0}
         onReconnect={handleReconnect}
         onNodeDragStart={handleNodeDragStart}
         onNodeDragStop={handleNodeDragStop}
@@ -1122,8 +1157,9 @@ function isEdgeInSelectionRect(
                 transform: `translate(${selectionBounds.x}px, ${selectionBounds.y}px)`,
                 width: `${selectionBounds.width}px`,
                 height: `${selectionBounds.height}px`,
+                zIndex: 999999,
               }}
-              className="absolute top-0 left-0 pointer-events-none rounded-2xl border-2 border-dashed border-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.3)] z-[99999] transition-all duration-75"
+              className="absolute top-0 left-0 pointer-events-none rounded-2xl border-2 border-dashed border-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.3)] z-[999999] transition-all duration-75"
               data-testid="selection-bounding-box"
               data-is-group={selectionBounds.isGroup ? 'true' : 'false'}
             >
@@ -1135,8 +1171,22 @@ function isEdgeInSelectionRect(
                 )}
               </div>
 
-              {/* Single Unified Floating Action Bar for Batch Multi-Selection */}
-              <NodeFloatingActionBar nodeIds={selectedNodeIds} />
+              {/* Stacked Unified Floating Action Bars for Batch Multi-Selection */}
+              <div
+                className="absolute -top-9 left-1/2 -translate-x-1/2 -translate-y-full flex flex-col items-center gap-2 pointer-events-auto z-[999999]"
+                style={{ zIndex: 999999 }}
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                data-testid="multi-selection-action-bars"
+              >
+                {/* 1. Top: Edge Floating Action Bar (連接線快速選單，由上而下排第一) */}
+                {selectedEdgeIds.length > 0 && (
+                  <EdgeFloatingActionBar edgeIds={selectedEdgeIds} />
+                )}
+
+                {/* 2. Below it: Node Floating Action Bar (節點快速選單，由上而下排第二) */}
+                <NodeFloatingActionBar nodeIds={selectedNodeIds} isStacked={true} />
+              </div>
             </div>
           </ViewportPortal>
         )}

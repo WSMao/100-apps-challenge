@@ -250,8 +250,316 @@ async function runE2EScenario() {
     fs.writeFileSync(postSsPath, Buffer.from(postSs.result.data, 'base64'));
     console.log(`  ✓ Captured post-interaction screenshot: ${path.relative(appRoot, postSsPath)} (${fs.statSync(postSsPath).size} bytes)`);
 
+    // Step 8: Verify Edge Selection and Arrowhead Options Toggle
+    console.log('\n[E2E Step 8] Testing Edge Floating Action Bar: Arrow options (Forward, Bidirectional, None)...');
+    const selectEdgeRes = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const edgeEl = document.querySelector(".react-flow__edge");
+          if (!edgeEl) return { success: false, reason: "No edge found" };
+          const pathEl = edgeEl.querySelector("path.react-flow__edge-path") || edgeEl.querySelector("path");
+          if (!pathEl) return { success: false, reason: "No edge path found" };
+          const rect = pathEl.getBoundingClientRect();
+          pathEl.dispatchEvent(new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            clientX: rect.left + rect.width / 2,
+            clientY: rect.top + rect.height / 2
+          }));
+          return { success: true, edgeId: edgeEl.getAttribute("data-id") };
+        })()
+      `,
+      returnByValue: true,
+    });
+    console.log(`  ✓ Edge selected via DOM click: ${selectEdgeRes.result?.result?.value?.edgeId}`);
+    await new Promise((r) => setTimeout(r, 400));
+
+    // Verify hollow circle handles appear at endpoints when selected
+    const hollowHandlesCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const edgeEl = document.querySelector(".react-flow__edge.selected");
+          if (!edgeEl) return { success: false, reason: "No selected edge found" };
+          const sourceHandle = edgeEl.querySelector(".react-flow__edge-endpoint-source");
+          const targetHandle = edgeEl.querySelector(".react-flow__edge-endpoint-target");
+          if (!sourceHandle || !targetHandle) {
+            return {
+              success: false,
+              reason: "Hollow circle endpoint handles missing",
+              hasSource: Boolean(sourceHandle),
+              hasTarget: Boolean(targetHandle),
+            };
+          }
+          const sourceStroke = sourceHandle.getAttribute("stroke");
+          const targetStroke = targetHandle.getAttribute("stroke");
+          const sourceR = sourceHandle.getAttribute("r");
+          const targetR = targetHandle.getAttribute("r");
+          return {
+            success: true,
+            sourceStroke,
+            targetStroke,
+            sourceR,
+            targetR,
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+    console.log(`  ✓ Endpoint hollow handles: source (r=${hollowHandlesCheck.result?.result?.value?.sourceR}, stroke=${hollowHandlesCheck.result?.result?.value?.sourceStroke}), target (r=${hollowHandlesCheck.result?.result?.value?.targetR}, stroke=${hollowHandlesCheck.result?.result?.value?.targetStroke})`);
+    if (!hollowHandlesCheck.result?.result?.value?.success) {
+      throw new Error(`Endpoint hollow circles check failed: ${hollowHandlesCheck.result?.result?.value?.reason}`);
+    }
+
+    // Capture screenshot showing selected edge with hollow circles
+    const hollowSs = await pageSend('Page.captureScreenshot', { format: 'png' });
+    const hollowSsPath = path.join(screenshotsDir, '04_edge_selected_hollow_circles.png');
+    fs.writeFileSync(hollowSsPath, Buffer.from(hollowSs.result.data, 'base64'));
+    console.log(`  ✓ Captured selected edge with hollow circles screenshot: ${path.relative(appRoot, hollowSsPath)} (${fs.statSync(hollowSsPath).size} bytes)`);
+
+    // 8a. Toggle to Bidirectional Arrow
+    const bidirRes = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const btn = document.querySelector("[data-testid='edge-arrow-bidirectional']");
+          if (!btn) return { success: false, reason: "Bidirectional arrow button not visible" };
+          btn.click();
+          return { success: true };
+        })()
+      `,
+      returnByValue: true,
+    });
+    if (!bidirRes.result?.result?.value?.success) {
+      throw new Error(`Failed to click bidirectional arrow button: ${bidirRes.result?.result?.value?.reason}`);
+    }
+    await new Promise((r) => setTimeout(r, 300));
+
+    const bidirMarkerCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const edgeEl = document.querySelector(".react-flow__edge.selected") || document.querySelector(".react-flow__edge");
+          const pathEl = edgeEl?.querySelector("path.react-flow__edge-path");
+          const markerStart = pathEl?.getAttribute("marker-start");
+          const markerEnd = pathEl?.getAttribute("marker-end");
+          return { markerStart, markerEnd, hasBoth: Boolean(markerStart && markerEnd) };
+        })()
+      `,
+      returnByValue: true,
+    });
+    console.log(`  ✓ Bidirectional arrow state: marker-start="${bidirMarkerCheck.result?.result?.value?.markerStart}", marker-end="${bidirMarkerCheck.result?.result?.value?.markerEnd}"`);
+    if (!bidirMarkerCheck.result?.result?.value?.hasBoth) {
+      throw new Error('Bidirectional arrow marker check failed: expected both marker-start and marker-end!');
+    }
+
+    // 8b. Toggle to No Arrow
+    const noneRes = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const btn = document.querySelector("[data-testid='edge-arrow-none']");
+          if (!btn) return { success: false, reason: "No arrow button not visible" };
+          btn.click();
+          return { success: true };
+        })()
+      `,
+      returnByValue: true,
+    });
+    if (!noneRes.result?.result?.value?.success) {
+      throw new Error(`Failed to click no-arrow button: ${noneRes.result?.result?.value?.reason}`);
+    }
+    await new Promise((r) => setTimeout(r, 300));
+
+    const noneMarkerCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const edgeEl = document.querySelector(".react-flow__edge.selected") || document.querySelector(".react-flow__edge");
+          const pathEl = edgeEl?.querySelector("path.react-flow__edge-path");
+          const markerStart = pathEl?.getAttribute("marker-start");
+          const markerEnd = pathEl?.getAttribute("marker-end");
+          return { markerStart, markerEnd, hasNone: !markerStart && !markerEnd };
+        })()
+      `,
+      returnByValue: true,
+    });
+    console.log(`  ✓ No arrow state: marker-start="${noneMarkerCheck.result?.result?.value?.markerStart}", marker-end="${noneMarkerCheck.result?.result?.value?.markerEnd}"`);
+    if (!noneMarkerCheck.result?.result?.value?.hasNone) {
+      throw new Error('No-arrow marker check failed: expected neither marker-start nor marker-end!');
+    }
+
+    // 8c. Toggle back to Forward Arrow
+    const forwardRes = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const btn = document.querySelector("[data-testid='edge-arrow-forward']");
+          if (!btn) return { success: false, reason: "Forward arrow button not visible" };
+          btn.click();
+          return { success: true };
+        })()
+      `,
+      returnByValue: true,
+    });
+    if (!forwardRes.result?.result?.value?.success) {
+      throw new Error(`Failed to click forward arrow button: ${forwardRes.result?.result?.value?.reason}`);
+    }
+    await new Promise((r) => setTimeout(r, 300));
+
+    const fwdMarkerCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const edgeEl = document.querySelector(".react-flow__edge.selected") || document.querySelector(".react-flow__edge");
+          const pathEl = edgeEl?.querySelector("path.react-flow__edge-path");
+          const markerStart = pathEl?.getAttribute("marker-start");
+          const markerEnd = pathEl?.getAttribute("marker-end");
+          return { markerStart, markerEnd, hasForwardOnly: !markerStart && Boolean(markerEnd) };
+        })()
+      `,
+      returnByValue: true,
+    });
+    console.log(`  ✓ Forward arrow state: marker-start="${fwdMarkerCheck.result?.result?.value?.markerStart}", marker-end="${fwdMarkerCheck.result?.result?.value?.markerEnd}"`);
+    if (!fwdMarkerCheck.result?.result?.value?.hasForwardOnly) {
+      throw new Error('Forward arrow marker check failed: expected only marker-end!');
+    }
+
+    // Capture arrow options screenshot
+    const arrowSs = await pageSend('Page.captureScreenshot', { format: 'png' });
+    const arrowSsPath = path.join(screenshotsDir, '03_edge_arrow_markers.png');
+    fs.writeFileSync(arrowSsPath, Buffer.from(arrowSs.result.data, 'base64'));
+    console.log(`  ✓ Captured edge arrow markers screenshot: ${path.relative(appRoot, arrowSsPath)} (${fs.statSync(arrowSsPath).size} bytes)`);
+
+    // Step 9: Multi-Selection (Nodes + Edges) Stacked Action Bars verification
+    console.log('\n[E2E Step 9] Testing Multi-selection of both nodes & edge: stacked floating action bars above bounding box...');
+    const multiSelRes = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          if (window.__CREATIVE_NEURO_STORE__) {
+            const store = window.__CREATIVE_NEURO_STORE__.getState();
+            store.setSelectedNodes(['mm-root', 'mm-branch-state']);
+            store.setSelectedEdges(['e-mm-root-state']);
+            return { success: true };
+          }
+          return { success: false, reason: "Store not found on window" };
+        })()
+      `,
+      returnByValue: true,
+    });
+    console.log(`  ✓ Multi-selection applied via store:`, multiSelRes.result?.result?.value);
+    await new Promise((r) => setTimeout(r, 400));
+
+    // Verify stacked action bars in real Chrome DOM
+    const stackedCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const container = document.querySelector("[data-testid='multi-selection-action-bars']");
+          const bbox = document.querySelector("[data-testid='selection-bounding-box']");
+          if (!container || !bbox) {
+            return { success: false, reason: "Container or bounding box missing", hasContainer: Boolean(container), hasBbox: Boolean(bbox) };
+          }
+
+          const edgeBar = container.querySelector("[data-testid='edge-floating-action-bar']");
+          const nodeBar = container.querySelector("[data-testid='node-floating-action-bar']");
+          if (!edgeBar || !nodeBar) {
+            return { success: false, reason: "EdgeBar or NodeBar missing in stacked container", hasEdgeBar: Boolean(edgeBar), hasNodeBar: Boolean(nodeBar) };
+          }
+
+          const edgeRect = edgeBar.getBoundingClientRect();
+          const nodeRect = nodeBar.getBoundingClientRect();
+          const bboxRect = bbox.getBoundingClientRect();
+
+          // Verify top-to-bottom order: Edge bar is above Node bar, and both are above the bounding box
+          const isEdgeAboveNode = edgeRect.bottom <= nodeRect.top + 10;
+          const isNodeAboveBbox = nodeRect.top <= bboxRect.top + 10;
+          const zIndexVal = window.getComputedStyle(container).zIndex;
+          const isZTop = zIndexVal === "999999" || parseInt(zIndexVal, 10) >= 99999;
+
+          return {
+            success: isEdgeAboveNode && isNodeAboveBbox && isZTop,
+            isEdgeAboveNode,
+            isNodeAboveBbox,
+            isZTop,
+            edgeTop: edgeRect.top,
+            nodeTop: nodeRect.top,
+            bboxTop: bboxRect.top,
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+    console.log(`  ✓ Stacked action bars check:`, stackedCheck.result?.result?.value);
+    if (!stackedCheck.result?.result?.value?.success) {
+      throw new Error(`Stacked action bars verification failed: ${JSON.stringify(stackedCheck.result?.result?.value)}`);
+    }
+
+    // Capture screenshot showing stacked action bars above selection bounding box
+    const stackedSs = await pageSend('Page.captureScreenshot', { format: 'png' });
+    const stackedSsPath = path.join(screenshotsDir, '05_multi_selection_stacked_action_bars.png');
+    fs.writeFileSync(stackedSsPath, Buffer.from(stackedSs.result.data, 'base64'));
+    console.log(`  ✓ Captured multi-selection stacked action bars screenshot: ${path.relative(appRoot, stackedSsPath)} (${fs.statSync(stackedSsPath).size} bytes)`);
+
+    // Step 10: Testing Diagram & Mermaid ELK Auto-Layout in Focus Mode
+    console.log('\n[E2E Step 10] Testing Diagram & Mermaid ELK Auto-Layout in Focus Mode...');
+    const focusDiagramRes = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          if (!window.__CREATIVE_NEURO_STORE__) return { success: false, reason: "Store missing" };
+          const store = window.__CREATIVE_NEURO_STORE__.getState();
+          // Switch to Page 2 which contains fc-diagram-card
+          store.setActivePage('page-2');
+          store.setFocusedDiagramId('fc-diagram-card');
+          return { success: true };
+        })()
+      `,
+      returnByValue: true,
+    });
+    console.log('  ✓ Focused into diagram fc-diagram-card:', focusDiagramRes.result?.result?.value);
+    await new Promise((r) => setTimeout(r, 600));
+
+    // Check modal visibility and sub-nodes ELK hierarchical positions
+    const elkHierarchyCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const modal = document.querySelector("[data-testid='focus-diagram-modal']");
+          if (!modal) return { success: false, reason: "Focus diagram modal not found in DOM" };
+
+          const autoLayoutBtn = modal.querySelector("[data-testid='focus-diagram-auto-layout']");
+          if (!autoLayoutBtn) return { success: false, reason: "Auto Layout button missing" };
+
+          // Trigger Auto Layout click
+          autoLayoutBtn.click();
+
+          // Check sub-canvas nodes
+          const subNodes = Array.from(modal.querySelectorAll(".react-flow__node"));
+          if (subNodes.length === 0) return { success: false, reason: "No sub-nodes rendered on sub-canvas" };
+
+          const rects = subNodes.map((n) => {
+            const r = n.getBoundingClientRect();
+            return { id: n.getAttribute("data-id") || "", top: r.top, left: r.left };
+          });
+
+          return {
+            success: true,
+            nodeCount: subNodes.length,
+            rects,
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+    console.log('  ✓ Diagram ELK layout check:', elkHierarchyCheck.result?.result?.value);
+    if (!elkHierarchyCheck.result?.result?.value?.success) {
+      throw new Error(`Diagram ELK layout verification failed: ${elkHierarchyCheck.result?.result?.value?.reason}`);
+    }
+
+    // Capture screenshot of Diagram in Focus Mode with ELK Auto-Layout
+    const diagramSs = await pageSend('Page.captureScreenshot', { format: 'png' });
+    const diagramSsPath = path.join(screenshotsDir, '06_diagram_mermaid_elk_layout.png');
+    fs.writeFileSync(diagramSsPath, Buffer.from(diagramSs.result.data, 'base64'));
+    console.log(`  ✓ Captured diagram ELK layout screenshot: ${path.relative(appRoot, diagramSsPath)} (${fs.statSync(diagramSsPath).size} bytes)`);
+
+    // Close diagram modal via Escape key
+    await pageSend('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Escape', windowsVirtualKeyCode: 27 });
+    await pageSend('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', windowsVirtualKeyCode: 27 });
+    await new Promise((r) => setTimeout(r, 400));
+
     // Verify Error Boundary state
-    console.log('\n[E2E Step 8] Validating browser crash & error-boundary guarantees:');
+    console.log('\n[E2E Step 11] Validating browser crash & error-boundary guarantees:');
     const errorBoundaryCheck = await pageSend('Runtime.evaluate', {
       expression: `
         Boolean(

@@ -58,11 +58,12 @@ export const EdgeFloatingActionBar: React.FC<EdgeFloatingActionBarProps> = ({ ed
 
   return (
     <div
-      className={`flex items-center gap-1 px-2 py-1 rounded-xl shadow-2xl border text-xs select-none transition-all z-[99999] pointer-events-auto ${
+      className={`flex items-center gap-1 px-2 py-1 rounded-xl shadow-2xl border text-xs select-none transition-all z-[999999] pointer-events-auto ${
         isDark
           ? 'bg-slate-900 border-slate-700 text-slate-100'
           : 'bg-white border-slate-200 text-slate-800 shadow-slate-200/50'
       }`}
+      style={{ zIndex: 999999 }}
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       data-testid="edge-floating-action-bar"
