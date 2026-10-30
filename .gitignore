@@ -10,6 +10,7 @@ lerna-debug.log*
 # Dependencies
 node_modules/
 apps/*/node_modules/
+.pnpm-store/
 dist/
 apps/*/dist/
 build/
