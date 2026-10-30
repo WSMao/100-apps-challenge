@@ -39,6 +39,7 @@ import {
   parseMermaid,
   reconcileMermaidAST,
   serializeMermaid,
+  calculateElkLayoutSync,
 } from '../../engine/index.ts';
 import type { NeuroNode, NeuroEdge, FlowDirection } from '../../types/index.ts';
 import { MermaidEditor } from './MermaidEditor.tsx';
@@ -107,13 +108,20 @@ export function FocusDiagramModal() {
 
     try {
       const ast = parseMermaid(mermaid);
+      const effectiveDir = (ast.direction || orient || 'TB') as FlowDirection;
+      setDirection(effectiveDir);
       const reconciled = reconcileMermaidAST(ast, savedSubNodes || []);
-      setNodes(reconciled.nodes);
-      setEdges(
-        savedSubEdges && savedSubEdges.length > 0
-          ? savedSubEdges
-          : reconciled.edges
+      const layoutResult = calculateElkLayoutSync(
+        reconciled.nodes,
+        savedSubEdges && savedSubEdges.length > 0 ? savedSubEdges : reconciled.edges,
+        {
+          direction: effectiveDir,
+          nodeSpacing: 50,
+          layerSpacing: 80,
+        }
       );
+      setNodes(layoutResult.nodes);
+      setEdges(layoutResult.edges);
     } catch {
       setNodes(savedSubNodes || []);
       setEdges(savedSubEdges || []);
@@ -162,25 +170,31 @@ export function FocusDiagramModal() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [focusedDiagramId, handleClose]);
 
-  // CodeMirror -> Sub-Canvas Sync
+  // CodeMirror -> Sub-Canvas Sync with ELK Auto-Layout
   const handleCodeChange = useCallback(
     (newCode: string) => {
       setCode(newCode);
       try {
         const ast = parseMermaid(newCode);
         setSyntaxError(null);
+        const newDir = (ast.direction || direction || 'TB') as FlowDirection;
         if (ast.direction) setDirection(ast.direction);
 
         const result = reconcileMermaidAST(ast, nodes);
-        setNodes(result.nodes);
-        setEdges(result.edges);
+        const layoutResult = calculateElkLayoutSync(result.nodes, result.edges, {
+          direction: newDir,
+          nodeSpacing: 50,
+          layerSpacing: 80,
+        });
+        setNodes(layoutResult.nodes);
+        setEdges(layoutResult.edges);
       } catch (err: unknown) {
         setSyntaxError(
           err instanceof Error ? err.message : 'Invalid Mermaid syntax'
         );
       }
     },
-    [nodes]
+    [nodes, direction]
   );
 
   // Sub-Canvas visual changes -> CodeMirror Sync
@@ -215,6 +229,43 @@ export function FocusDiagramModal() {
     );
   }, []);
 
+  // Direction change with ELK Re-Layout
+  const handleDirectionChange = useCallback(
+    (newDir: FlowDirection) => {
+      setDirection(newDir);
+      const layoutResult = calculateElkLayoutSync(nodes, edges, {
+        direction: newDir,
+        nodeSpacing: 50,
+        layerSpacing: 80,
+      });
+      setNodes(layoutResult.nodes);
+      setEdges(layoutResult.edges);
+      const serialized = serializeMermaid(layoutResult.nodes, layoutResult.edges, newDir);
+      setCode(serialized);
+    },
+    [nodes, edges]
+  );
+
+  // Manual Trigger: Force Auto-Layout with ELK
+  const handleAutoLayout = useCallback(() => {
+    const autoNodes = nodes.map((n) =>
+      n.layoutMode === 'fixed'
+        ? n
+        : {
+            ...n,
+            layoutMode: 'auto-elk' as const,
+            data: { ...n.data, layoutMode: 'auto-elk' as const },
+          }
+    );
+    const layoutResult = calculateElkLayoutSync(autoNodes, edges, {
+      direction,
+      nodeSpacing: 50,
+      layerSpacing: 80,
+    });
+    setNodes(layoutResult.nodes);
+    setEdges(layoutResult.edges);
+  }, [nodes, edges, direction]);
+
   const onConnect = useCallback(
     (params: Connection) => {
       if (!params.source || !params.target) return;
@@ -238,7 +289,10 @@ export function FocusDiagramModal() {
   if (!focusedDiagramId || !parentNode) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 text-slate-100 backdrop-blur-xl">
+    <div
+      data-testid="focus-diagram-modal"
+      className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 text-slate-100 backdrop-blur-xl"
+    >
       {/* Top Header Bar */}
       <header className="h-14 px-4 border-b border-slate-800 bg-slate-900/90 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
@@ -278,15 +332,23 @@ export function FocusDiagramModal() {
             </span>
           )}
 
+          {/* ELK Auto-Layout Button */}
+          <button
+            type="button"
+            data-testid="focus-diagram-auto-layout"
+            onClick={handleAutoLayout}
+            title="Auto-arrange nodes using ELK hierarchical layout"
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg bg-indigo-950/80 hover:bg-indigo-900/80 text-indigo-300 border border-indigo-500/40 hover:border-indigo-500 transition cursor-pointer shadow-sm"
+          >
+            <Workflow className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Auto Layout</span>
+          </button>
+
           <select
             value={direction}
-            onChange={(e) => {
-              const newDir = e.target.value as FlowDirection;
-              setDirection(newDir);
-              const serialized = serializeMermaid(nodes, edges, newDir);
-              setCode(serialized);
-            }}
-            className="text-xs bg-slate-800 text-slate-200 border border-slate-700 rounded-md px-2 py-1 focus:outline-none focus:border-indigo-500"
+            data-testid="focus-diagram-direction"
+            onChange={(e) => handleDirectionChange(e.target.value as FlowDirection)}
+            className="text-xs bg-slate-800 text-slate-200 border border-slate-700 rounded-md px-2 py-1 focus:outline-none focus:border-indigo-500 cursor-pointer"
           >
             <option value="TB">TB (Top to Bottom)</option>
             <option value="LR">LR (Left to Right)</option>

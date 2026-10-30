@@ -42,6 +42,12 @@ import {
 import { CONNECTOR_OPTIONS } from '../src/components/workspace/Toolbar.tsx';
 import { resolveProjectName } from '../src/components/workspace/AppLogoMenu.tsx';
 import { exportCanvasAsSvg } from '../src/utils/exportUtils.ts';
+import { formatEdgeToken } from '../src/engine/mermaid/serializer.ts';
+import {
+  parseMermaid,
+  reconcileMermaidAST,
+  calculateElkLayoutSync,
+} from '../src/engine/index.ts';
 import type { NeuroNode, PlacementDirection, EdgeRoutingType } from '../src/types/index.ts';
 
 describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
@@ -1032,6 +1038,129 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
       store.updateEdgeData(edgeId, { arrowStart: true, arrowEnd: true });
       expect(useProjectStore.getState().edges[edgeId].data?.arrowStart).toBe(true);
       expect(useProjectStore.getState().edges[edgeId].data?.arrowEnd).toBe(true);
+    });
+
+    it('TL-04b: arrow options toggle correctly between forward, bidirectional, and none with SVG export and Mermaid synchronization', () => {
+      const store = useProjectStore.getState();
+      const nA = store.addNode({ position: { x: 0, y: 0 } });
+      const nB = store.addNode({ position: { x: 200, y: 200 } });
+      const edgeId = store.addEdge({ source: nA, target: nB, type: 'jump' });
+
+      // 1. Default edge state: forward arrow (arrowEnd: true, arrowStart: false)
+      const edgeDefault = useProjectStore.getState().edges[edgeId];
+      expect(edgeDefault.data?.arrowEnd !== false).toBe(true);
+      expect(Boolean(edgeDefault.data?.arrowStart)).toBe(false);
+      expect(formatEdgeToken(edgeDefault)).toBe(`${nA} --> ${nB}`);
+
+      // 2. Toggle to bidirectional arrow (arrowEnd: true, arrowStart: true)
+      store.updateEdgeData(edgeId, { arrowEnd: true, arrowStart: true });
+      const edgeBidir = useProjectStore.getState().edges[edgeId];
+      expect(edgeBidir.data?.arrowEnd).toBe(true);
+      expect(edgeBidir.data?.arrowStart).toBe(true);
+      expect(formatEdgeToken(edgeBidir)).toBe(`${nA} <--> ${nB}`);
+
+      // Check SVG export contains both marker-end and marker-start
+      const svgBidir = exportCanvasAsSvg();
+      expect(svgBidir).toContain('marker-end="url(#neuro-arrow)"');
+      expect(svgBidir).toContain('marker-start="url(#neuro-arrow)"');
+
+      // 3. Toggle to no arrow (arrowEnd: false, arrowStart: false)
+      store.updateEdgeData(edgeId, { arrowEnd: false, arrowStart: false });
+      const edgeNone = useProjectStore.getState().edges[edgeId];
+      expect(edgeNone.data?.arrowEnd).toBe(false);
+      expect(edgeNone.data?.arrowStart).toBe(false);
+      expect(formatEdgeToken(edgeNone)).toBe(`${nA} --- ${nB}`);
+
+      // Check SVG export for this edge does NOT have marker-end or marker-start
+      const sNone = useProjectStore.getState();
+      const svgNone = exportCanvasAsSvg({
+        id: sNone.activePageId,
+        projectId: sNone.project.id,
+        boardId: 'default-board',
+        nodes: { [nA]: sNone.nodes[nA], [nB]: sNone.nodes[nB] },
+        edges: { [edgeId]: edgeNone },
+      });
+      expect(svgNone).not.toContain('marker-end="url(#neuro-arrow)"');
+      expect(svgNone).not.toContain('marker-start="url(#neuro-arrow)"');
+
+      // 4. Toggle back to forward arrow (arrowEnd: true, arrowStart: false)
+      store.updateEdgeData(edgeId, { arrowEnd: true, arrowStart: false });
+      const edgeFwd = useProjectStore.getState().edges[edgeId];
+      expect(edgeFwd.data?.arrowEnd).toBe(true);
+      expect(edgeFwd.data?.arrowStart).toBe(false);
+      expect(formatEdgeToken(edgeFwd)).toBe(`${nA} --> ${nB}`);
+    });
+
+    it('TL-04c: selected edge displays hollow circle handles at both endpoints indicating reconnectability', () => {
+      const store = useProjectStore.getState();
+      const nA = store.addNode({ position: { x: 50, y: 50 } });
+      const nB = store.addNode({ position: { x: 250, y: 250 } });
+      const edgeId = store.addEdge({ source: nA, target: nB, type: 'jump' });
+
+      // 1. Initial unselected state
+      store.setSelectedEdges([]);
+      expect(useProjectStore.getState().selectedEdgeIds).not.toContain(edgeId);
+
+      // 2. Select edge
+      store.setSelectedEdges([edgeId]);
+      expect(useProjectStore.getState().selectedEdgeIds).toContain(edgeId);
+
+      // 3. Static contract verification in JumpConnectorEdge.tsx:
+      const edgeComponentPath = path.resolve(__dirname, '../src/components/canvas/edges/JumpConnectorEdge.tsx');
+      const edgeComponentCode = fs.readFileSync(edgeComponentPath, 'utf8');
+
+      // Must render hollow circle endpoint handles when isEdgeSelected
+      expect(edgeComponentCode).toContain('react-flow__edge-endpoints');
+      expect(edgeComponentCode).toContain('react-flow__edge-endpoint-source');
+      expect(edgeComponentCode).toContain('react-flow__edge-endpoint-target');
+      expect(edgeComponentCode).toContain('stroke="#06b6d4"');
+      expect(edgeComponentCode).toContain('fill={isDark ? \'#0f172a\' : \'#ffffff\'}');
+
+      // 4. Static contract verification in index.css:
+      const cssPath = path.resolve(__dirname, '../src/index.css');
+      const cssCode = fs.readFileSync(cssPath, 'utf8');
+
+      expect(cssCode).toContain('.react-flow__edge.selected .react-flow__edgeupdater');
+      expect(cssCode).toContain('cursor: grab');
+      expect(cssCode).toContain('stroke: #06b6d4');
+    });
+
+    it('TL-04d: multi-selection of both nodes and edges renders stacked floating action bars above bounding box in top-down order', () => {
+      const store = useProjectStore.getState();
+      const nA = store.addNode({ position: { x: 50, y: 50 } });
+      const nB = store.addNode({ position: { x: 250, y: 250 } });
+      const edgeId = store.addEdge({ source: nA, target: nB, type: 'jump' });
+
+      // Select both nodes and edge
+      store.setSelectedNodes([nA, nB]);
+      store.setSelectedEdges([edgeId]);
+
+      expect(useProjectStore.getState().selectedNodeIds.length).toBe(2);
+      expect(useProjectStore.getState().selectedEdgeIds.length).toBe(1);
+
+      // 1. Static contract verification in Canvas.tsx:
+      const canvasPath = path.resolve(__dirname, '../src/components/canvas/Canvas.tsx');
+      const canvasCode = fs.readFileSync(canvasPath, 'utf8');
+
+      // Must render multi-selection-action-bars with top-down ordering: EdgeFloatingActionBar then NodeFloatingActionBar
+      expect(canvasCode).toContain('data-testid="multi-selection-action-bars"');
+      const edgeBarIndex = canvasCode.indexOf('<EdgeFloatingActionBar');
+      const nodeBarIndex = canvasCode.indexOf('<NodeFloatingActionBar nodeIds={selectedNodeIds} isStacked={true} />');
+      expect(edgeBarIndex).toBeGreaterThan(0);
+      expect(nodeBarIndex).toBeGreaterThan(edgeBarIndex); // Edge bar comes first (top), Node bar comes second (below it)
+      expect(canvasCode).toContain('zIndex: 999999');
+
+      // 2. Static contract verification in JumpConnectorEdge.tsx:
+      const edgeComponentPath = path.resolve(__dirname, '../src/components/canvas/edges/JumpConnectorEdge.tsx');
+      const edgeComponentCode = fs.readFileSync(edgeComponentPath, 'utf8');
+      expect(edgeComponentCode).toContain('hasMultiNodeSelection');
+      expect(edgeComponentCode).toContain('!hasMultiNodeSelection');
+
+      // 3. Static contract verification in index.css:
+      const cssPath = path.resolve(__dirname, '../src/index.css');
+      const cssCode = fs.readFileSync(cssPath, 'utf8');
+      expect(cssCode).toContain('[data-testid="multi-selection-action-bars"]');
+      expect(cssCode).toContain('z-index: 999999 !important');
     });
 
     it('OP-10: getShapeHandleIntersections should return exact horizontal/vertical centerline intersections with shape border', () => {
@@ -2576,6 +2705,105 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
       const svg = exportCanvasAsSvg(useProjectStore.getState());
       expect(svg).toBeDefined();
       expect(svg).toContain('<svg');
+    });
+  });
+
+  // ==========================================================================
+  // Section 7: Diagram Mermaid ELK Auto-Layout Integration
+  // ==========================================================================
+  describe('七、 Diagram Mermaid ELK Auto-Layout Integration', () => {
+    it('DG-01: Mermaid inside Diagram applies ELK hierarchical layout (TB down-growth and LR right-growth)', () => {
+      const mermaidTB = `flowchart TD
+  A[Start] --> B{Decision}
+  B --> C[Option 1]
+  B --> D[Option 2]
+  C --> E[Done]
+  D --> E`;
+
+      const astTB = parseMermaid(mermaidTB);
+      const reconciledTB = reconcileMermaidAST(astTB, []);
+      const layoutTB = calculateElkLayoutSync(reconciledTB.nodes, reconciledTB.edges, {
+        direction: 'TB',
+        nodeSpacing: 50,
+        layerSpacing: 80,
+      });
+
+      const posA = layoutTB.nodes.find((n) => n.id === 'A')!.position;
+      const posB = layoutTB.nodes.find((n) => n.id === 'B')!.position;
+      const posC = layoutTB.nodes.find((n) => n.id === 'C')!.position;
+      const posD = layoutTB.nodes.find((n) => n.id === 'D')!.position;
+      const posE = layoutTB.nodes.find((n) => n.id === 'E')!.position;
+
+      // In TB layout: A (layer 0) is above B (layer 1), which is above C & D (layer 2), which is above E (layer 3)
+      expect(posA.y).toBeLessThan(posB.y);
+      expect(posB.y).toBeLessThan(posC.y);
+      expect(posB.y).toBeLessThan(posD.y);
+      expect(posC.y).toBeLessThan(posE.y);
+      expect(posD.y).toBeLessThan(posE.y);
+      // Sibling branching: C and D are separated along X axis (not overlapping in 1D)
+      expect(Math.abs(posC.x - posD.x)).toBeGreaterThanOrEqual(160);
+
+      // Now switch direction to LR:
+      const layoutLR = calculateElkLayoutSync(reconciledTB.nodes, reconciledTB.edges, {
+        direction: 'LR',
+        nodeSpacing: 50,
+        layerSpacing: 80,
+      });
+
+      const posALR = layoutLR.nodes.find((n) => n.id === 'A')!.position;
+      const posBLR = layoutLR.nodes.find((n) => n.id === 'B')!.position;
+      const posELR = layoutLR.nodes.find((n) => n.id === 'E')!.position;
+
+      // In LR layout: X coordinates grow monotonically from left to right
+      expect(posALR.x).toBeLessThan(posBLR.x);
+      expect(posBLR.x).toBeLessThan(posELR.x);
+    });
+
+    it('DG-02: Preserves manual node positions while auto-laying out new auto-elk nodes with ELK', () => {
+      const mermaid1 = `flowchart TD
+  A --> B`;
+      const ast1 = parseMermaid(mermaid1);
+      const rec1 = reconcileMermaidAST(ast1, []);
+      const l1 = calculateElkLayoutSync(rec1.nodes, rec1.edges, { direction: 'TB' });
+
+      // User manually moves node B to custom coordinate (e.g. 500, 500)
+      const nodesWithManual = l1.nodes.map((n) =>
+        n.id === 'B'
+          ? { ...n, position: { x: 500, y: 500 }, layoutMode: 'manual' as const, data: { ...n.data, layoutMode: 'manual' as const } }
+          : n
+      );
+
+      // User adds node C connected to B in Mermaid code:
+      const mermaid2 = `flowchart TD
+  A --> B
+  B --> C`;
+      const ast2 = parseMermaid(mermaid2);
+      const rec2 = reconcileMermaidAST(ast2, nodesWithManual);
+      const l2 = calculateElkLayoutSync(rec2.nodes, rec2.edges, { direction: 'TB' });
+
+      const nodeB = l2.nodes.find((n) => n.id === 'B')!;
+      const nodeC = l2.nodes.find((n) => n.id === 'C')!;
+
+      // Manual coordinate of B is strictly preserved
+      expect(nodeB.position).toEqual({ x: 500, y: 500 });
+      expect(nodeB.layoutMode).toBe('manual');
+      // Auto-elk node C is assigned an ELK position
+      expect(nodeC.position).toBeDefined();
+      expect(nodeC.layoutMode).toBe('auto-elk');
+    });
+
+    it('DG-03: FocusDiagramModal and DiagramNode static contracts include calculateElkLayoutSync and Auto Layout', () => {
+      const focusModalPath = path.resolve(__dirname, '../src/components/editor/FocusDiagramModal.tsx');
+      const diagramNodePath = path.resolve(__dirname, '../src/components/canvas/nodes/DiagramNode.tsx');
+
+      const focusModalCode = fs.readFileSync(focusModalPath, 'utf8');
+      const diagramNodeCode = fs.readFileSync(diagramNodePath, 'utf8');
+
+      expect(focusModalCode).toContain('calculateElkLayoutSync');
+      expect(focusModalCode).toContain('handleAutoLayout');
+      expect(focusModalCode).toContain('Auto Layout');
+      expect(diagramNodeCode).toContain('calculateElkLayoutSync');
+      expect(diagramNodeCode).toContain('previewElements');
     });
   });
 });

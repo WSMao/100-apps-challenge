@@ -12,9 +12,9 @@
 import React, { useMemo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Workflow, Maximize2, Layers } from 'lucide-react';
-import type { NeuroNode } from '../../../types/index.ts';
+import type { NeuroNode, NeuroEdge, FlowDirection } from '../../../types/index.ts';
 import { useProjectStore } from '../../../store/useProjectStore.ts';
-import { parseMermaid } from '../../../engine/index.ts';
+import { parseMermaid, reconcileMermaidAST, calculateElkLayoutSync } from '../../../engine/index.ts';
 import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
 
 export function DiagramNode({
@@ -59,42 +59,78 @@ export function DiagramNode({
     setFocusedDiagramId(id);
   };
 
-  // Generate SVG mini-map elements
+  // Generate SVG mini-map elements using ELK hierarchical layout
   const previewElements = useMemo(() => {
     const count = ast.nodes.length;
     if (count === 0) return null;
 
-    const isHorizontal = ast.direction === 'LR' || ast.direction === 'RL';
-    const stepX = isHorizontal ? 120 : 0;
-    const stepY = isHorizontal ? 0 : 60;
+    const orient = (ast.direction || data?.diagramOrientation || 'TB') as FlowDirection;
+    const isHorizontal = orient === 'LR' || orient === 'RL';
+
+    const savedSubNodes = data?.customData?.subNodes as NeuroNode[] | undefined;
+    const savedSubEdges = data?.customData?.subEdges as NeuroEdge[] | undefined;
+
+    const reconciled = reconcileMermaidAST(ast, savedSubNodes || []);
+    const elkResult = calculateElkLayoutSync(
+      reconciled.nodes,
+      savedSubEdges && savedSubEdges.length > 0 ? savedSubEdges : reconciled.edges,
+      {
+        direction: orient,
+        nodeSpacing: 40,
+        layerSpacing: 60,
+      }
+    );
+
+    // Compute bounding box of laid out nodes
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    for (const n of elkResult.nodes) {
+      minX = Math.min(minX, n.position.x);
+      minY = Math.min(minY, n.position.y);
+      maxX = Math.max(maxX, n.position.x + 70);
+      maxY = Math.max(maxY, n.position.y + 28);
+    }
+
+    if (!Number.isFinite(minX)) {
+      minX = 0;
+      maxX = 200;
+      minY = 0;
+      maxY = 140;
+    }
+
+    const padX = 24;
+    const padY = 20;
+    const svgWidth = Math.max(180, maxX - minX + padX * 2);
+    const svgHeight = Math.max(120, maxY - minY + padY * 2);
 
     const nodePositions = new Map<string, { x: number; y: number }>();
-    ast.nodes.forEach((n, idx) => {
+    for (const n of elkResult.nodes) {
       nodePositions.set(n.id, {
-        x: 40 + (isHorizontal ? idx * stepX : 50),
-        y: 40 + (isHorizontal ? 40 : idx * stepY),
+        x: padX + (n.position.x - minX),
+        y: padY + (n.position.y - minY),
       });
-    });
-
-    const svgWidth = isHorizontal ? Math.max(260, count * 130 + 40) : 220;
-    const svgHeight = isHorizontal ? 140 : Math.max(160, count * 70 + 40);
+    }
 
     return {
       svgWidth,
       svgHeight,
-      nodes: ast.nodes.map((node) => {
-        const pos = nodePositions.get(node.id) || { x: 50, y: 50 };
+      isHorizontal,
+      nodes: elkResult.nodes.map((node) => {
+        const pos = nodePositions.get(node.id) || { x: padX, y: padY };
         return {
           id: node.id,
-          label: node.label,
-          shape: node.shapeType,
+          label: node.data?.label || node.id,
+          shape: node.data?.shapeType,
           x: pos.x,
           y: pos.y,
         };
       }),
-      edges: ast.edges.map((edge, idx) => {
-        const src = nodePositions.get(edge.source) || { x: 40, y: 40 };
-        const tgt = nodePositions.get(edge.target) || { x: 100, y: 100 };
+      edges: elkResult.edges.map((edge, idx) => {
+        const src = nodePositions.get(edge.source) || { x: padX, y: padY };
+        const tgt = nodePositions.get(edge.target) || { x: padX, y: padY };
         return {
           id: `${edge.source}-${edge.target}-${idx}`,
           src,
@@ -102,7 +138,7 @@ export function DiagramNode({
         };
       }),
     };
-  }, [ast]);
+  }, [ast, data?.customData?.subNodes, data?.customData?.subEdges, data?.diagramOrientation]);
 
   const W = width || 340;
   const H = height || 240;
@@ -208,23 +244,27 @@ export function DiagramNode({
             </defs>
 
             {/* Render Edges */}
-            {previewElements.edges.map((e) => (
-              <path
-                key={e.id}
-                d={`M ${e.src.x + 35} ${e.src.y + 14} Q ${(e.src.x + e.tgt.x) / 2 + 10} ${
-                  (e.src.y + e.tgt.y) / 2
-                } ${e.tgt.x - 5} ${e.tgt.y + 14}`}
-                fill="none"
-                stroke="#6366f1"
-                strokeWidth="1.5"
-                strokeOpacity="0.7"
-                markerEnd={`url(#arrow-${id})`}
-              />
-            ))}
+            {previewElements.edges.map((e) => {
+              const edgePath = previewElements.isHorizontal
+                ? `M ${e.src.x + 70} ${e.src.y + 14} C ${(e.src.x + 70 + e.tgt.x) / 2} ${e.src.y + 14}, ${(e.src.x + 70 + e.tgt.x) / 2} ${e.tgt.y + 14}, ${e.tgt.x} ${e.tgt.y + 14}`
+                : `M ${e.src.x + 35} ${e.src.y + 28} C ${e.src.x + 35} ${(e.src.y + 28 + e.tgt.y) / 2}, ${e.tgt.x + 35} ${(e.src.y + 28 + e.tgt.y) / 2}, ${e.tgt.x + 35} ${e.tgt.y}`;
+
+              return (
+                <path
+                  key={e.id}
+                  d={edgePath}
+                  fill="none"
+                  stroke="#6366f1"
+                  strokeWidth="1.5"
+                  strokeOpacity="0.75"
+                  markerEnd={`url(#arrow-${id})`}
+                />
+              );
+            })}
 
             {/* Render Nodes */}
             {previewElements.nodes.map((n) => (
-              <g key={n.id} transform={`translate(${n.x - 35}, ${n.y})`}>
+              <g key={n.id} transform={`translate(${n.x}, ${n.y})`}>
                 <rect
                   width="70"
                   height="28"

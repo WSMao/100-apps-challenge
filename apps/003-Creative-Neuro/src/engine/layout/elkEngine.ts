@@ -160,14 +160,14 @@ function layoutHierarchicalGraph(
 }
 
 /**
- * Calculates complete layout supporting Auto-ELK, Manual, Fixed modes,
+ * Synchronously calculates complete layout supporting Auto-ELK, Manual, Fixed modes,
  * subgraphs with isolated directions, and compound collapse/fold bounds.
  */
-export async function calculateElkLayout(
+export function calculateElkLayoutSync(
   nodes: NeuroNode[],
   edges: NeuroEdge[],
   options: ElkLayoutOptions = {}
-): Promise<{ nodes: NeuroNode[]; edges: NeuroEdge[] }> {
+): { nodes: NeuroNode[]; edges: NeuroEdge[] } {
   const globalDir = normalizeDirection(options.direction);
   const nodeSpacing = options.nodeSpacing ?? 50;
   const layerSpacing = options.layerSpacing ?? 80;
@@ -234,10 +234,29 @@ export async function calculateElkLayout(
     // If both endpoints are valid active nodes and not a self-loop on a collapsed frame
     if (activeNodeIds.has(source) && activeNodeIds.has(target)) {
       if (source !== target || !collapsedSubgraphs.has(source)) {
+        let sourceHandle = e.sourceHandle;
+        let targetHandle = e.targetHandle;
+        if (!sourceHandle && !targetHandle) {
+          if (globalDir === 'DOWN') {
+            sourceHandle = 'bottom';
+            targetHandle = 'top';
+          } else if (globalDir === 'RIGHT') {
+            sourceHandle = 'right';
+            targetHandle = 'left';
+          } else if (globalDir === 'UP') {
+            sourceHandle = 'top';
+            targetHandle = 'bottom';
+          } else if (globalDir === 'LEFT') {
+            sourceHandle = 'left';
+            targetHandle = 'right';
+          }
+        }
         activeEdges.push({
           ...e,
           source,
           target,
+          sourceHandle,
+          targetHandle,
         });
       }
     }
@@ -394,3 +413,17 @@ export async function calculateElkLayout(
     edges: activeEdges,
   };
 }
+
+/**
+ * Calculates complete layout supporting Auto-ELK, Manual, Fixed modes,
+ * subgraphs with isolated directions, and compound collapse/fold bounds.
+ * Async wrapper over calculateElkLayoutSync for backward compatibility.
+ */
+export async function calculateElkLayout(
+  nodes: NeuroNode[],
+  edges: NeuroEdge[],
+  options: ElkLayoutOptions = {}
+): Promise<{ nodes: NeuroNode[]; edges: NeuroEdge[] }> {
+  return calculateElkLayoutSync(nodes, edges, options);
+}
+
