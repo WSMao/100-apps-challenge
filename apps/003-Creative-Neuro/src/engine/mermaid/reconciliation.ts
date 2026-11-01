@@ -29,6 +29,32 @@ export interface ReconcileResult {
 }
 
 /**
+ * Estimates node dimensions from label text.
+ * Preserves 160x60 for standard single-line labels while expanding
+ * cleanly for multi-line (<br>) or long architectural descriptions.
+ */
+function estimateNodeDimensions(label: string): { width: number; height: number } {
+  const lines = (label || '').split('\n');
+  let maxLineVisualUnits = 0;
+  for (const line of lines) {
+    let units = 0;
+    for (let i = 0; i < line.length; i++) {
+      const code = line.charCodeAt(i);
+      units += code > 0x024f ? 1.85 : 1;
+    }
+    if (units > maxLineVisualUnits) maxLineVisualUnits = units;
+  }
+
+  if (lines.length <= 1 && maxLineVisualUnits <= 22) {
+    return { width: 160, height: 60 };
+  }
+
+  const width = Math.min(440, Math.max(160, Math.round(maxLineVisualUnits * 7.8 + 36)));
+  const height = Math.max(60, lines.length * 22 + 24);
+  return { width, height };
+}
+
+/**
  * Reconciles parsed Mermaid AST with existing scene graph nodes and edges.
  */
 export function reconcileMermaidAST(
@@ -123,19 +149,27 @@ export function reconcileMermaidAST(
         ? astNode.parentId
         : undefined;
 
+    const estimatedDims = estimateNodeDimensions(astNode.label);
+    const styleOverrides: Partial<NeuroNode['data']> = {};
+    if (astNode.style?.fill) styleOverrides.backgroundColor = astNode.style.fill;
+    if (astNode.style?.stroke) styleOverrides.borderColor = astNode.style.stroke;
+    if (astNode.style?.color) styleOverrides.color = astNode.style.color;
+    if (astNode.style?.strokeWidth !== undefined) styleOverrides.borderWidth = astNode.style.strokeWidth;
+
     if (existing) {
       // PRESERVE user coordinates (x, y) and layoutMode!
       const updatedNode: NeuroNode = {
         ...existing,
         parentId: canonicalParentId,
-        width: existing.width ?? 160,
-        height: existing.height ?? 60,
+        width: Math.max(existing.width ?? 160, estimatedDims.width),
+        height: Math.max(existing.height ?? 60, estimatedDims.height),
         position: { ...existing.position }, // Coordinate strictly preserved
         layoutMode: existing.layoutMode ?? effectiveDefaultMode, // Mode preserved
         data: {
           ...existing.data,
           label: astNode.label,
           shapeType: astNode.shapeType,
+          ...styleOverrides,
         },
       };
       nextNodes.push(updatedNode);
@@ -153,8 +187,8 @@ export function reconcileMermaidAST(
         id: astNode.id,
         type: 'shape',
         position: pos,
-        width: 160,
-        height: 60,
+        width: estimatedDims.width,
+        height: estimatedDims.height,
         parentId: canonicalParentId,
         layoutMode: effectiveDefaultMode,
         data: {
@@ -162,6 +196,7 @@ export function reconcileMermaidAST(
           shapeType: astNode.shapeType,
           layoutMode: effectiveDefaultMode,
           isUnplaced: true,
+          ...styleOverrides,
         },
       };
       nextNodes.push(newNode);
@@ -192,6 +227,8 @@ export function reconcileMermaidAST(
         label: astEdge.label,
         lineStyle: astEdge.stroke === 'dotted' ? 'dotted' : 'solid',
         arrowEnd: astEdge.arrowHead !== 'none',
+        ...(astEdge.arrowStart ? { arrowStart: true } : {}),
+        ...(astEdge.stroke === 'thick' ? { strokeWidth: 2.5 } : {}),
       },
     };
     nextEdges.push(edge);

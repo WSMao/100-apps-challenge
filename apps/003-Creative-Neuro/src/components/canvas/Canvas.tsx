@@ -434,8 +434,8 @@ export function CanvasContent() {
               storeNode.data.layoutMode = 'manual';
             }
 
-            // 2. Frame container attachment check
-            if (dn.type !== 'frame') {
+            // 2. Frame container attachment check (exclude frame and macro diagram cards)
+            if (dn.type !== 'frame' && dn.type !== 'diagram') {
               const frames = currentNodes.filter(
                 (n) => n.type === 'frame' && n.id !== dn.id && !n.data?.collapsed
               );
@@ -976,12 +976,15 @@ function isEdgeInSelectionRect(
       .map((n) => {
         const typeKey = (n.type || 'shape') as keyof typeof selectionFilter;
         const isSelectable = selectionFilter[typeKey] ?? true;
-        const w = n.measured?.width ?? n.width ?? 160;
-        const h = n.measured?.height ?? n.height ?? 60;
+        const w = n.width ?? n.measured?.width ?? 160;
+        const h = n.height ?? n.measured?.height ?? 60;
         const measured = getStableMeasured(n.id, w, h);
 
         const nodeObj: any = {
           ...n,
+          width: w,
+          height: h,
+          draggable: true,
           selected: selectedSet.has(n.id),
           selectable: isSelectable,
           measured,
@@ -1150,7 +1153,7 @@ function isEdgeInSelectionRect(
         <FreehandOverlay />
 
         {/* FN-03 & FN-04: Selection & Group Bounding Box Overlay */}
-        {selectionBounds && (
+        {selectionBounds && !useProjectStore.getState().focusedDiagramId && (
           <ViewportPortal>
             <div
               style={{

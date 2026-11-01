@@ -9,7 +9,7 @@
  */
 
 import React, { useCallback, useState, useRef, useEffect } from 'react';
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Handle, Position, useNodes, type NodeProps } from '@xyflow/react';
 import { ChevronDown, ChevronRight, Folder, Layers } from 'lucide-react';
 
 import type { NeuroEdge, NeuroNode } from '../../../types/index.ts';
@@ -114,13 +114,16 @@ export function FrameNode({
     inputRef.current?.blur();
   }, [data?.title, data?.label, isEditingStore, setEditingNodeId]);
 
-  // Count attached children
-  const childrenCount = useProjectStore(
+  // Count attached children (both in store and in current ReactFlow instance e.g. FocusDiagramModal)
+  const storeChildrenCount = useProjectStore(
     useCallback(
       (s) => Object.values(s.nodes).filter((n) => n.parentId === id).length,
       [id]
     )
   );
+  const rfNodes = useNodes();
+  const rfChildrenCount = rfNodes.filter((n) => n.parentId === id).length;
+  const childrenCount = storeChildrenCount > 0 ? storeChildrenCount : rfChildrenCount;
 
   const handleToggleCollapse = useCallback(
     (e: React.MouseEvent) => {
@@ -306,13 +309,14 @@ export function FrameNode({
       />
 
       {/* Frame Header Bar */}
-      <div className="h-8 flex items-center justify-between pb-2 border-b border-slate-800/80 pointer-events-auto">
-        <div className="flex items-center gap-2 min-w-0">
+      <div className="h-8 flex items-center justify-between pb-2 border-b border-slate-800/80 pointer-events-auto gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
           <Layers className="w-4 h-4 text-indigo-400 shrink-0" />
           <input
             ref={inputRef}
             type="text"
             value={title}
+            size={Math.max(20, Math.min(80, (title || '').length + 8))}
             onChange={(e) => {
               setIsEditingLocal(true);
               if (!isEditingStore) {

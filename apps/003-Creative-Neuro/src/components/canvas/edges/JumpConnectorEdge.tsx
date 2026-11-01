@@ -17,6 +17,7 @@ import {
   type EdgeProps,
   useEdges,
   useNodes,
+  useReactFlow,
   getSmoothStepPath,
   getBezierPath,
   getStraightPath,
@@ -52,15 +53,27 @@ export function JumpConnectorEdge({
   const data = rawData as unknown as NeuroEdge['data'];
   const allEdges = useEdges();
   const allNodes = useNodes();
-  const selectedEdgeIds = useProjectStore((s) => s.selectedEdgeIds);
-  const selectedNodeIds = useProjectStore((s) => s.selectedNodeIds);
+  const rf = useReactFlow();
+  const isInStore = useProjectStore((s) => Boolean(s.edges[id]));
+  const storeSelectedEdgeIds = useProjectStore((s) => s.selectedEdgeIds);
+  const storeSelectedNodeIds = useProjectStore((s) => s.selectedNodeIds);
   const themeMode = useProjectStore((s) => s.themeMode);
   const isDark = themeMode === 'dark';
-  const isSelectedInStore = selectedEdgeIds.includes(id);
+
+  const effectiveSelectedEdgeIds = isInStore
+    ? storeSelectedEdgeIds
+    : allEdges.filter((e) => e.selected).map((e) => e.id);
+  const effectiveSelectedNodeIds = isInStore
+    ? storeSelectedNodeIds
+    : allNodes.filter((n) => n.selected).map((n) => n.id);
+
+  const isSelectedInStore = storeSelectedEdgeIds.includes(id);
   const isEdgeSelected = Boolean(selected || isSelectedInStore);
-  const isMultiEdge = selectedEdgeIds.length > 1;
-  const activeMenuEdgeId = isMultiEdge ? selectedEdgeIds[selectedEdgeIds.length - 1] : id;
-  const hasMultiNodeSelection = selectedNodeIds.length > 1;
+  const isMultiEdge = effectiveSelectedEdgeIds.length > 1;
+  const activeMenuEdgeId = isMultiEdge
+    ? effectiveSelectedEdgeIds[effectiveSelectedEdgeIds.length - 1]
+    : id;
+  const hasMultiNodeSelection = effectiveSelectedNodeIds.length > 1;
   const shouldShowActionBar =
     isEdgeSelected &&
     (!isMultiEdge || id === activeMenuEdgeId) &&
@@ -70,16 +83,29 @@ export function JumpConnectorEdge({
   const isJumpEnabled = data?.jumpArc !== false;
   const routingType = data?.routingType;
 
-  // Build quick lookup for node centers/handles to resolve other edges' endpoints
+  // Build quick lookup for node centers/handles to resolve other edges' endpoints (resolving parentId relative coordinates)
   const nodeMap = useMemo(() => {
+    const rawMap = new Map(allNodes.map((n) => [n.id, n]));
     const map = new Map<
       string,
       { x: number; y: number; width: number; height: number }
     >();
     for (const n of allNodes) {
+      let absX = n.position.x;
+      let absY = n.position.y;
+      let currParent = n.parentId;
+      const seen = new Set<string>();
+      while (currParent && !seen.has(currParent)) {
+        seen.add(currParent);
+        const parent = rawMap.get(currParent);
+        if (!parent) break;
+        absX += parent.position.x;
+        absY += parent.position.y;
+        currParent = parent.parentId;
+      }
       map.set(n.id, {
-        x: n.position.x,
-        y: n.position.y,
+        x: absX,
+        y: absY,
         width: n.width ?? n.measured?.width ?? 160,
         height: n.height ?? n.measured?.height ?? 60,
       });
@@ -113,9 +139,139 @@ export function JumpConnectorEdge({
 
   // Compute edge path according to routingType
   const { path: edgePath, labelX, labelY } = useMemo(() => {
+    const p1: Point = { x: sourceX, y: sourceY };
+    const p2: Point = { x: targetX, y: targetY };
+
+    const u = { x: p2.x - p1.x, y: p2.y - p1.y };
+    const uLen = Math.hypot(u.x, u.y);
+
+    // Smart label placement that avoids leaf nodes and other edge labels across all routing types
+    let midX = (sourceX + targetX) / 2;
+    let midY = (sourceY + targetY) / 2;
+
+    const hasLabel = Boolean(label || data?.label);
+    if (hasLabel && uLen > 20) {
+      const leafRects: Array<{ x: number; y: number; w: number; h: number }> = [];
+      for (const n of allNodes) {
+        if (n.type === 'frame') continue;
+        const b = nodeMap.get(n.id);
+        if (b) {
+          leafRects.push({ x: b.x, y: b.y, w: b.width, h: b.height });
+        }
+      }
+
+      const placedLabels: Array<{ x: number; y: number; w: number; h: number }> = [];
+      const computeLabelPointForEdge = (
+        ep1: Point,
+        ep2: Point
+      ): { x: number; y: number } => {
+        const dx = ep2.x - ep1.x;
+        const dy = ep2.y - ep1.y;
+        const absDy = Math.abs(dy);
+
+        // For multi-layer vertical hops (> 250px), prefer the first or last inter-layer gap
+        // (~85px from source or target) so labels sit in the empty gap between subgraphs
+        const preferredTs =
+          absDy > 250
+            ? [
+                Math.min(0.42, 88 / absDy),
+                1 - Math.min(0.42, 88 / absDy),
+                Math.min(0.45, 118 / absDy),
+                1 - Math.min(0.45, 118 / absDy),
+                0.5,
+                0.32,
+                0.68,
+              ]
+            : absDy < 40
+            ? [0.5, 0.42, 0.58]
+            : [0.5, 0.34, 0.66, 0.25, 0.75, 0.42, 0.58];
+
+        const labelW = 205;
+        const labelH = 40;
+
+        let bestPt = { x: ep1.x + 0.5 * dx, y: ep1.y + 0.5 * dy };
+        let bestPenalty = Infinity;
+
+        for (const tCand of preferredTs) {
+          for (const yShift of [0, -28, 28]) {
+            const cx = ep1.x + tCand * dx;
+            const cy = ep1.y + tCand * dy + (absDy >= 40 ? yShift : 0);
+
+            let penalty = 0;
+            // Check overlap with leaf nodes
+            for (const nr of leafRects) {
+              const nCx = nr.x + nr.w / 2;
+              const nCy = nr.y + nr.h / 2;
+              if (
+                Math.abs(cx - nCx) < (nr.w + labelW) / 2 - 8 &&
+                Math.abs(cy - nCy) < (nr.h + labelH) / 2 - 4
+              ) {
+                penalty += 1000;
+              }
+            }
+
+            // Check overlap with already-placed edge labels
+            for (const pl of placedLabels) {
+              if (
+                Math.abs(cx - pl.x) < (pl.w + labelW) / 2 + 6 &&
+                Math.abs(cy - pl.y) < (pl.h + labelH) / 2 + 4
+              ) {
+                penalty += 500;
+              }
+            }
+
+            if (penalty === 0) {
+              return { x: cx, y: cy };
+            }
+            if (penalty < bestPenalty) {
+              bestPenalty = penalty;
+              bestPt = { x: cx, y: cy };
+            }
+          }
+        }
+        return bestPt;
+      };
+
+      for (const edgeItem of allEdges) {
+        const itemData = edgeItem.data as NeuroEdge['data'] | undefined;
+        const itemHasLabel = Boolean(edgeItem.label || itemData?.label);
+        if (!itemHasLabel) continue;
+
+        if (edgeItem.id === id) {
+          const chosen = computeLabelPointForEdge(p1, p2);
+          midX = chosen.x;
+          midY = chosen.y;
+          break;
+        }
+
+        const otherAny = edgeItem as unknown as {
+          sourceX?: number;
+          sourceY?: number;
+          targetX?: number;
+          targetY?: number;
+          source: string;
+          target: string;
+          sourceHandle?: string | null;
+          targetHandle?: string | null;
+        };
+        const q1 =
+          typeof otherAny.sourceX === 'number' && typeof otherAny.sourceY === 'number'
+            ? { x: otherAny.sourceX, y: otherAny.sourceY }
+            : getHandlePoint(otherAny.source, otherAny.sourceHandle, 'bottom');
+        const q2 =
+          typeof otherAny.targetX === 'number' && typeof otherAny.targetY === 'number'
+            ? { x: otherAny.targetX, y: otherAny.targetY }
+            : getHandlePoint(otherAny.target, otherAny.targetHandle, 'top');
+        if (q1 && q2) {
+          const pt = computeLabelPointForEdge(q1, q2);
+          placedLabels.push({ x: pt.x, y: pt.y, w: 205, h: 40 });
+        }
+      }
+    }
+
     // 1. Smoothstep (Orthogonal Step Line)
     if (routingType === 'smoothstep') {
-      const [path, lx, ly] = getSmoothStepPath({
+      const [path] = getSmoothStepPath({
         sourceX,
         sourceY,
         sourcePosition,
@@ -124,12 +280,12 @@ export function JumpConnectorEdge({
         targetPosition,
         borderRadius: 8,
       });
-      return { path, labelX: lx, labelY: ly };
+      return { path, labelX: midX, labelY: midY };
     }
 
     // 2. Bezier (Curved Smooth Line)
     if (routingType === 'bezier') {
-      const [path, lx, ly] = getBezierPath({
+      const [path] = getBezierPath({
         sourceX,
         sourceY,
         sourcePosition,
@@ -137,29 +293,21 @@ export function JumpConnectorEdge({
         targetY,
         targetPosition,
       });
-      return { path, labelX: lx, labelY: ly };
+      return { path, labelX: midX, labelY: midY };
     }
 
     // 3. Straight Line
     if (routingType === 'straight') {
-      const [path, lx, ly] = getStraightPath({
+      const [path] = getStraightPath({
         sourceX,
         sourceY,
         targetX,
         targetY,
       });
-      return { path, labelX: lx, labelY: ly };
+      return { path, labelX: midX, labelY: midY };
     }
 
     // 4. Default: Jump Arc Intersection Path
-    const p1: Point = { x: sourceX, y: sourceY };
-    const p2: Point = { x: targetX, y: targetY };
-
-    const midX = (sourceX + targetX) / 2;
-    const midY = (sourceY + targetY) / 2;
-
-    const u = { x: p2.x - p1.x, y: p2.y - p1.y };
-    const uLen = Math.hypot(u.x, u.y);
 
     // Degenerate short edge or jump disabled
     if (uLen < jumpRadius * 2.5 || !isJumpEnabled) {
@@ -438,7 +586,10 @@ export function JumpConnectorEdge({
               zIndex: 999999,
             }}
           >
-            <EdgeFloatingActionBar edgeId={id} edgeIds={isMultiEdge ? selectedEdgeIds : undefined} />
+            <EdgeFloatingActionBar
+              edgeId={id}
+              edgeIds={isMultiEdge ? effectiveSelectedEdgeIds : undefined}
+            />
           </div>
         )}
 
@@ -452,6 +603,23 @@ export function JumpConnectorEdge({
             onClick={(e) => {
               e.stopPropagation();
               const store = useProjectStore.getState();
+              if (!store.edges[id]) {
+                const isMulti = e.metaKey || e.ctrlKey || e.shiftKey;
+                rf.setEdges((eds) =>
+                  eds.map((edge) => ({
+                    ...edge,
+                    selected: isMulti
+                      ? edge.id === id
+                        ? !edge.selected
+                        : edge.selected
+                      : edge.id === id,
+                  }))
+                );
+                if (!isMulti) {
+                  rf.setNodes((nds) => nds.map((n) => ({ ...n, selected: false })));
+                }
+                return;
+              }
               if (store.toolMode === 'select') {
                 const isMulti = e.metaKey || e.ctrlKey || e.shiftKey;
                 if (isMulti) {
@@ -465,7 +633,7 @@ export function JumpConnectorEdge({
                 }
               }
             }}
-            className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-900/90 text-slate-200 border border-slate-700/80 shadow-md backdrop-blur select-none cursor-pointer hover:border-indigo-500 transition-colors"
+            className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-900/95 text-slate-200 border border-slate-700/80 shadow-md backdrop-blur select-none cursor-pointer hover:border-indigo-500 transition-colors whitespace-pre-line text-center max-w-[260px] leading-snug"
           >
             {edgeLabel}
           </div>

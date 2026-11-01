@@ -500,8 +500,8 @@ async function runE2EScenario() {
         (() => {
           if (!window.__CREATIVE_NEURO_STORE__) return { success: false, reason: "Store missing" };
           const store = window.__CREATIVE_NEURO_STORE__.getState();
-          // Switch to Page 2 which contains fc-diagram-card
-          store.setActivePage('page-2');
+          // Switch to Page 2 (Engine Flowchart & Jumps) which contains fc-diagram-card
+          store.setActivePage('page-flowchart');
           store.setFocusedDiagramId('fc-diagram-card');
           return { success: true };
         })()
@@ -553,10 +553,470 @@ async function runE2EScenario() {
     fs.writeFileSync(diagramSsPath, Buffer.from(diagramSs.result.data, 'base64'));
     console.log(`  ✓ Captured diagram ELK layout screenshot: ${path.relative(appRoot, diagramSsPath)} (${fs.statSync(diagramSsPath).size} bytes)`);
 
-    // Close diagram modal via Escape key
-    await pageSend('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Escape', windowsVirtualKeyCode: 27 });
-    await pageSend('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', windowsVirtualKeyCode: 27 });
+    // Test right-click canvas panning inside FocusDiagramModal (OP-01)
+    const initialViewport = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const vp = document.querySelector("[data-testid='focus-diagram-modal'] .react-flow__viewport");
+          return vp ? vp.style.transform : "";
+        })()
+      `,
+      returnByValue: true,
+    });
+
+    // Dispatch right-click drag from (700, 300) to (600, 250)
+    await pageSend('Input.dispatchMouseEvent', { type: 'mousePressed', x: 700, y: 300, button: 'right', buttons: 2 });
+    await pageSend('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 600, y: 250, button: 'right', buttons: 2 });
+    await pageSend('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 600, y: 250, button: 'right', buttons: 0 });
+    await new Promise((r) => setTimeout(r, 200));
+
+    const pannedViewport = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const vp = document.querySelector("[data-testid='focus-diagram-modal'] .react-flow__viewport");
+          return vp ? vp.style.transform : "";
+        })()
+      `,
+      returnByValue: true,
+    });
+    console.log(`  ✓ Sub-canvas right-click pan: initial="${initialViewport.result?.result?.value}" -> panned="${pannedViewport.result?.result?.value}"`);
+
+    // Paste the 6-layer architecture Mermaid into the CodeMirror editor and trigger Auto Layout (TB)
+    console.log('\n[E2E Step 10b] Testing 6-layer architecture Mermaid Top-to-Down Auto Layout:');
+    const architectureMermaid = `flowchart TB
+ subgraph ShellLayer["0. 跨平台容器與 UI 外殼層 (App Shell & Container)"]
+        Tauri["<b>Tauri 2.0 (Rust + WKWebView)</b><br>角色：macOS 原生桌面容器與本機檔案 I/O"]
+        Radix["<b>Radix UI / shadcn/ui + Tailwind v4</b><br>角色：無障礙分頁 (Tabs)、側邊工具列、Cmd+K 搜尋"]
+  end
+ subgraph InputLayer["1. 多模態輸入與雙向編輯層 (Multimodal Input Layer)"]
+        CM6["<b>CodeMirror 6 (@codemirror/view)</b><br>角色：專注模式左側 Mermaid 代碼編輯器"]
+        Langium["<b>Mermaid / Langium Parser</b><br>角色：語法解析與雙向轉譯器 (AST ⇄ JSON)"]
+        LiveAI["<b>Gemini Live / OpenAI Realtime API</b><br>角色：WebSocket/WebRTC 全雙工語音與 VAD 偵測"]
+        UserInput["<b>滑鼠 / 鍵盤快捷鍵互動</b><br>角色：Tab 子節點 / Enter 兄弟節點 / ⌥+方向鍵 / 拖曳"]
+  end
+ subgraph StateLayer["2. 核心狀態與歷史中樞 (Single Source of Truth)"]
+        Immer["<b>immer (ES6 Proxy)</b><br>角色：將直覺賦值轉為不可變結構共享樹"]
+        Zustand["<b>zustand (Central Store)</b><br>角色：集中管理 Project ➔ Board ➔ Page ➔ NeuroNode[]<br>同時持有結構 (AST) 與幾何座標 (x, y, layoutMode)"]
+        Zundo["<b>zundo (Temporal Middleware)</b><br>角色：攔截狀態快照，維護 past[] 與 future[] 堆疊"]
+  end
+ subgraph ComputeLayer["3. 幾何排版與空間運算層 (Layout & Geometry Engine)"]
+        ELK["<b>elkjs (Web Worker)</b><br>角色：階層與複合子圖 (Sub-graph) 自動排版引擎"]
+        AABB["<b>Smart Placement (AABB 避障演算法)</b><br>角色：Manual 模式下計算無碰撞的新節點落點"]
+        LineJump["<b>Line-Line Intersection 演算法</b><br>角色：偵測跨線交點並注入 SVG 圓弧跳線指令"]
+  end
+ subgraph RenderLayer["4. 統一圖形畫布渲染層 (Unified Scene Graph & Canvas)"]
+        ReactFlow["<b>@xyflow/react (React Flow v12) + React 19</b><br>角色：外層白板與內層 Diagram 共用的無限畫布引擎<br>• <b>HTML DOM 層</b>：渲染 Shape / Text / Frame / Diagram 容器<br>• <b>SVG 向量層</b>：渲染 Connector 連線、跳線與 Freehand 塗鴉"]
+  end
+ subgraph StorageLayer["5. 本地優先儲存與壓縮匯出層 (Persistence & Export)"]
+        Dexie["<b>Dexie.js (IndexedDB)</b><br>角色：瀏覽器端非同步 NoSQL 本機離線資料庫"]
+        Supabase["<b>Supabase (PostgreSQL + Realtime)</b><br>角色：雲端 JSONB 同步與互動式 Embed URL 生成"]
+        HtmlToImage["<b>html-to-image</b><br>角色：將 DOM + SVG 內聯化並光柵化為圖片"]
+        PakoZip["<b>pako (zlib) + JSZip</b><br>角色：JSON Deflate 無損壓縮與 ZIP 容器打包"]
+  end
+    Radix -- 輸出: Tool Mode 切換 / Page ID 路由 --> Zustand
+    CM6 <-- 輸入: 使用者打字 (Transaction)<br>輸出: Mermaid DSL 純文字字串 --> Langium
+    Langium <-- 輸出: 解析後 AST (依 Node ID 對帳 Diff)<br>輸入: NeuroNode[] 反編譯回文字 --> Immer
+    LiveAI -- 輸入: 麥克風 PCM 音訊串流<br>輸出: Function Call JSON (upsertDiagramNodes) --> Immer
+    UserInput -- 輸入: 快捷鍵 / 滑鼠事件<br>輸出: 新增或移動節點 Action --> AABB
+    AABB -- 輸入: 父節點座標 + 現有節點 Bounding Boxes<br>輸出: 無碰撞目標座標 {x, y} --> Immer
+    Immer <-- 輸入: Draft 狀態修改<br>輸出: Immutable 新狀態樹 --> Zustand
+    Zustand <-- 輸入: 狀態變更 Diff Patch<br>輸出: Cmd+Z / Cmd+Shift+Z 狀態還原 --> Zundo
+    Zustand -- "輸出: 設為 auto-elk 的 Nodes/Edges 結構樹<br>(含 sub-graph 方向設定與 Fixed 約束)" --> ELK
+    ELK -- 輸出: 計算完成的節點絕對座標 {x, y}<br>與正交/曲線連線轉折點 --> Immer
+    Zustand -- 輸出: 當前可視區 Nodes[] 與 Edges[] 狀態 --> ReactFlow
+    ReactFlow -- 輸出: 連線端點座標陣列 --> LineJump
+    LineJump -- 輸出: 插入 A rx ry 圓弧跳線的 SVG Path --> ReactFlow
+    ReactFlow -- 輸出: 節點拖曳結束 onNodeDragStop {id, x, y}<br>或雙擊聚焦 Viewport --> Immer
+    Zustand <-- 輸入/輸出: Project 完整 JSON 狀態樹<br>(非同步自動存檔與離線載入) --> Dexie
+    Dexie <-- 透過 Tauri IPC 橋接 --> Tauri
+    Zustand -- "輸出: 單一 Project 完整狀態 + 協作 Presence<br>輸入: 遠端變更事件 (Real-time Sync)" --> Supabase
+    ReactFlow -- "輸出: Canvas 完整 Viewport 截圖 (canvas.toDataURL)" --> HtmlToImage
+    HtmlToImage -- 輸入: SVG / PNG 二進位檔<br>輸出: JPG / WebP / PNG 格式 --> PakoZip
+    PakoZip -- "輸出: .project / .board 二進位壓縮檔案" --> Tauri
+
+     Tauri:::shell
+     Radix:::shell
+     CM6:::input
+     Langium:::input
+     LiveAI:::input
+     UserInput:::input
+     Immer:::store
+     Zustand:::store
+     Zundo:::store
+     ELK:::compute
+     AABB:::compute
+     LineJump:::compute
+     ReactFlow:::render
+     Dexie:::storage
+     Supabase:::storage
+     HtmlToImage:::storage
+     PakoZip:::storage
+    classDef shell fill:#f1f5f9,stroke:#64748b,stroke-width:1.5px,color:#0f172a
+    classDef input fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0c4a6e
+    classDef store fill:#fef3c7,stroke:#d97706,stroke-width:2.5px,color:#78350f
+    classDef compute fill:#f3e8ff,stroke:#9333ea,stroke-width:2px,color:#581c87
+    classDef render fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#14532d
+    classDef storage fill:#ffe4e6,stroke:#e11d48,stroke-width:2px,color:#881337`;
+
+    // Set taller viewport temporarily so the full 6-layer architecture diagram renders at crisp scale
+    await pageSend('Emulation.setDeviceMetricsOverride', {
+      width: 1920,
+      height: 1400,
+      deviceScaleFactor: 2,
+      mobile: false,
+    });
+
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const cmEditor = document.querySelector("[data-testid='focus-diagram-modal'] .cm-editor");
+          const holder = cmEditor?.parentElement;
+          if (holder && holder.__cmView) {
+            const view = holder.__cmView;
+            view.dispatch({
+              changes: { from: 0, to: view.state.doc.length, insert: ${JSON.stringify(architectureMermaid)} }
+            });
+            return true;
+          }
+          const store = window.__neuroStore?.getState();
+          if (store && store.focusedDiagramId) {
+            store.updateNodeData(store.focusedDiagramId, {
+              mermaidCode: ${JSON.stringify(architectureMermaid)},
+              customData: {},
+            });
+            return true;
+          }
+          return false;
+        })()
+      `,
+      returnByValue: true,
+    });
+
+    // Wait for 300ms debounce + ELK layout + fitView
+    await new Promise((r) => setTimeout(r, 850));
+
+    // Also click the Auto Layout button explicitly to verify button action
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const modal = document.querySelector("[data-testid='focus-diagram-modal']");
+          const btn = modal?.querySelector("[data-testid='focus-diagram-auto-layout']");
+          if (btn) btn.click();
+        })()
+      `,
+      returnByValue: true,
+    });
+    await new Promise((r) => setTimeout(r, 500));
+
+    const archCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const modal = document.querySelector("[data-testid='focus-diagram-modal']");
+          const subNodes = Array.from(modal?.querySelectorAll(".react-flow__node") || []);
+          const subEdges = Array.from(modal?.querySelectorAll(".react-flow__edge") || []);
+          const frameOrder = ['ShellLayer', 'InputLayer', 'StateLayer', 'ComputeLayer', 'RenderLayer', 'StorageLayer'];
+          const frameRects = frameOrder.map((fid) => {
+            const el = modal?.querySelector(".react-flow__node[data-id='" + fid + "']");
+            const r = el?.getBoundingClientRect();
+            return { id: fid, top: r ? Math.round(r.top) : null, bottom: r ? Math.round(r.bottom) : null, width: r ? Math.round(r.width) : null, height: r ? Math.round(r.height) : null };
+          });
+          return {
+            totalNodes: subNodes.length,
+            totalEdges: subEdges.length,
+            frameRects,
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+    console.log('  ✓ 6-Layer Architecture ELK TB layout check:', JSON.stringify(archCheck.result?.result?.value));
+
+    const archSs = await pageSend('Page.captureScreenshot', { format: 'png' });
+    const archSsPath = path.join(screenshotsDir, '07_user_architecture_mermaid_elk_tb.png');
+    fs.writeFileSync(archSsPath, Buffer.from(archSs.result.data, 'base64'));
+    console.log(`  ✓ Captured 6-Layer Architecture screenshot: ${path.relative(appRoot, archSsPath)} (${fs.statSync(archSsPath).size} bytes)`);
+
+    // Step 10c: Test Edge Routing Type Selector (Smoothstep / Bezier / Jump / Straight), Spacing Preset Selector, and Sub-Canvas EdgeFloatingActionBar
+    console.log('\n[E2E Step 10c] Testing Diagram Edge Routing Type Selector, Spacing Preset & EdgeFloatingActionBar:');
+    const routingAndSpacingCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const modal = document.querySelector("[data-testid='focus-diagram-modal']");
+          if (!modal) return { success: false, reason: "Focus modal not found" };
+
+          const stepBtn = modal.querySelector("[data-testid='focus-routing-smoothstep']");
+          const curveBtn = modal.querySelector("[data-testid='focus-routing-bezier']");
+          const jumpBtn = modal.querySelector("[data-testid='focus-routing-jump']");
+          const lineBtn = modal.querySelector("[data-testid='focus-routing-straight']");
+          const spacingSelect = modal.querySelector("[data-testid='focus-diagram-spacing']");
+
+          if (!stepBtn || !curveBtn || !jumpBtn || !lineBtn || !spacingSelect) {
+            return { success: false, reason: "Routing buttons or spacing selector missing" };
+          }
+
+          // Switch to Step (Smoothstep orthogonal routing)
+          stepBtn.click();
+          return { success: true };
+        })()
+      `,
+      returnByValue: true,
+    });
+    if (!routingAndSpacingCheck.result?.result?.value?.success) {
+      throw new Error(`Routing & Spacing toolbar check failed: ${routingAndSpacingCheck.result?.result?.value?.reason}`);
+    }
+    await new Promise((r) => setTimeout(r, 350));
+
+    // Also select one edge label in the sub-canvas to show EdgeFloatingActionBar inside FocusDiagramModal
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const modal = document.querySelector("[data-testid='focus-diagram-modal']");
+          const edgeLabels = Array.from(modal?.querySelectorAll(".react-flow__edgelabel-renderer div") || []);
+          const targetLabel = edgeLabels.find((el) => el.textContent && el.textContent.includes("Tool Mode"));
+          if (targetLabel) targetLabel.click();
+        })()
+      `,
+      returnByValue: true,
+    });
+    await new Promise((r) => setTimeout(r, 350));
+
+    const subEdgeBarCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const modal = document.querySelector("[data-testid='focus-diagram-modal']");
+          const edgeBar = modal?.querySelector("[data-testid='edge-floating-action-bar']");
+          const samplePath = modal?.querySelector(".react-flow__edge path.react-flow__edge-path")?.getAttribute("d") || "";
+          return {
+            hasSubEdgeBar: Boolean(edgeBar),
+            isSmoothstepPath: samplePath.includes("Q") || samplePath.includes("L"),
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+    console.log('  ✓ Sub-canvas Smoothstep routing & EdgeFloatingActionBar check:', JSON.stringify(subEdgeBarCheck.result?.result?.value));
+
+    const stepSs = await pageSend('Page.captureScreenshot', { format: 'png' });
+    const stepSsPath = path.join(screenshotsDir, '08_user_architecture_smoothstep_routing.png');
+    fs.writeFileSync(stepSsPath, Buffer.from(stepSs.result.data, 'base64'));
+    console.log(`  ✓ Captured Smoothstep + EdgeFloatingActionBar screenshot: ${path.relative(appRoot, stepSsPath)} (${fs.statSync(stepSsPath).size} bytes)`);
+
+    // Close diagram modal via Back to Canvas button or Escape key
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const modal = document.querySelector("[data-testid='focus-diagram-modal']");
+          if (!modal) return;
+          // Click the Done or Back button
+          const closeBtn = modal.querySelector("button:has(svg.lucide-arrow-left)") || modal.querySelector("button:has(svg.lucide-check)");
+          if (closeBtn) {
+            closeBtn.click();
+          } else if (window.__CREATIVE_NEURO_STORE__) {
+            window.__CREATIVE_NEURO_STORE__.getState().setFocusedDiagramId(null);
+          }
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 600));
+
+    // Ensure active page is page-flowchart (where fc-diagram-card lives) and focused modal is closed
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const store = window.__CREATIVE_NEURO_STORE__?.getState();
+          if (store) {
+            store.setActivePage('page-flowchart');
+            store.setFocusedDiagramId(null);
+          }
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 600));
+
+    // Reset emulation + selection so 10d runs under normal viewport conditions
+    await pageSend('Emulation.clearDeviceMetricsOverride');
+    await pageSend('Runtime.evaluate', {
+      expression: `(() => { const s = window.__CREATIVE_NEURO_STORE__.getState(); s.setSelectedNodes([]); s.setSelectedEdges([]); })()`,
+    });
+    await new Promise((r) => setTimeout(r, 600));
+
+    // Step 10d: Test DiagramNode on Main Canvas — Left-Click Move Position & Left-Click Border/Corner Resize
+    console.log('\n[E2E Step 10d] Testing DiagramNode on Main Canvas: Left-click drag move & border/corner resize...');
+    const beforeDiagramGeom = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const modal = document.querySelector("[data-testid='focus-diagram-modal']");
+          const el = document.querySelector("[data-testid='diagram-node-fc-diagram-card']");
+          const store = window.__CREATIVE_NEURO_STORE__?.getState();
+          const storeNode = store?.nodes?.['fc-diagram-card'];
+          const activePage = store?.activePageId;
+          const pageNodes = store?.pages?.[activePage]?.nodeIds;
+          if (!el) {
+            return {
+              notFound: true,
+              modalPresent: Boolean(modal),
+              focusedDiagramId: store?.focusedDiagramId,
+              activePage,
+              hasNodeInStore: Boolean(storeNode),
+              pageNodes,
+              allNodeTypesInDom: Array.from(document.querySelectorAll(".react-flow__node")).map(n => ({
+                id: n.getAttribute("data-id"),
+                className: n.className,
+                testId: n.querySelector("[data-testid]")?.getAttribute("data-testid")
+              }))
+            };
+          }
+          const r = el.getBoundingClientRect();
+          return {
+            rect: { left: r.left, top: r.top, width: r.width, height: r.height, centerX: r.left + r.width / 2, centerY: r.top + r.height / 2 },
+            pos: storeNode ? { ...storeNode.position } : null,
+            size: storeNode ? { width: storeNode.width, height: storeNode.height } : null,
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const initDiag = beforeDiagramGeom.result?.result?.value;
+    if (!initDiag || initDiag.notFound) {
+      throw new Error('fc-diagram-card not found on main canvas after closing FocusDiagramModal: ' + JSON.stringify(initDiag));
+    }
+    console.log('  -> Initial fc-diagram-card:', JSON.stringify(initDiag));
+
+    // 1. Real CDP Left-click drag on fc-diagram-card by (-120, +80)
+    const dragStartX = Math.round(initDiag.rect.centerX);
+    const dragStartY = Math.round(initDiag.rect.centerY);
+    const dragEndX = dragStartX - 120;
+    const dragEndY = dragStartY + 80;
+
+    await pageSend('Input.dispatchMouseEvent', { type: 'mouseMoved', x: dragStartX, y: dragStartY, button: 'none', buttons: 0 });
+    await pageSend('Input.dispatchMouseEvent', { type: 'mousePressed', x: dragStartX, y: dragStartY, button: 'left', buttons: 1, clickCount: 1 });
+    for (let i = 1; i <= 10; i++) {
+      const curX = Math.round(dragStartX + (-120 * i) / 10);
+      const curY = Math.round(dragStartY + (80 * i) / 10);
+      await pageSend('Input.dispatchMouseEvent', { type: 'mouseMoved', x: curX, y: curY, button: 'left', buttons: 1 });
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    await pageSend('Input.dispatchMouseEvent', { type: 'mouseReleased', x: dragEndX, y: dragEndY, button: 'left', buttons: 0, clickCount: 1 });
     await new Promise((r) => setTimeout(r, 400));
+
+    const afterDragGeom = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const modal = document.querySelector("[data-testid='focus-diagram-modal']");
+          const el = document.querySelector("[data-testid='diagram-node-fc-diagram-card']");
+          const seHandle = el?.querySelector("[data-testid='diagram-resize-se']");
+          const eBorder = el?.querySelector("[data-testid='diagram-resize-e']");
+          const r = el?.getBoundingClientRect();
+          const seRect = seHandle?.getBoundingClientRect();
+          const eRect = eBorder?.getBoundingClientRect();
+          const storeNode = window.__CREATIVE_NEURO_STORE__?.getState()?.nodes?.['fc-diagram-card'];
+          return {
+            modalOpenedAccidentally: Boolean(modal),
+            pos: storeNode ? { ...storeNode.position } : null,
+            size: storeNode ? { width: storeNode.width, height: storeNode.height } : null,
+            seCenter: seRect ? { x: Math.round(seRect.left + seRect.width / 2), y: Math.round(seRect.top + seRect.height / 2) } : null,
+            eCenter: eRect ? { x: Math.round(eRect.left + eRect.width / 2), y: Math.round(eRect.top + eRect.height / 2) } : null,
+            rect: r ? { left: Math.round(r.left), top: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) } : null,
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const draggedDiag = afterDragGeom.result?.result?.value;
+    console.log('  ✓ After left-click drag:', JSON.stringify(draggedDiag));
+    if (draggedDiag.modalOpenedAccidentally) {
+      throw new Error('FocusDiagramModal opened accidentally on single left-click drag!');
+    }
+    if (draggedDiag.pos.x === initDiag.pos.x && draggedDiag.pos.y === initDiag.pos.y) {
+      throw new Error('DiagramNode position did not change after left-click drag!');
+    }
+
+    // 2. Left-click drag the bottom-right corner handle (diagram-resize-se) by (+140, +100)
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const el = document.querySelector("[data-testid='diagram-node-fc-diagram-card']");
+          const seHandle = el?.querySelector("[data-testid='diagram-resize-se']");
+          if (!seHandle) return;
+          const r = seHandle.getBoundingClientRect();
+          const startX = Math.round(r.left + r.width / 2);
+          const startY = Math.round(r.top + r.height / 2);
+          const targetX = startX + 140;
+          const targetY = startY + 100;
+
+          seHandle.dispatchEvent(new MouseEvent('mousedown', { view: window, bubbles: true, cancelable: true, clientX: startX, clientY: startY, button: 0, buttons: 1 }));
+          window.dispatchEvent(new MouseEvent('mousemove', { view: window, bubbles: true, cancelable: true, clientX: targetX, clientY: targetY, button: 0, buttons: 1 }));
+          window.dispatchEvent(new MouseEvent('mouseup', { view: window, bubbles: true, cancelable: true, clientX: targetX, clientY: targetY, button: 0, buttons: 0 }));
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 300));
+
+    const afterCornerResize = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const el = document.querySelector("[data-testid='diagram-node-fc-diagram-card']");
+          const wBorder = el?.querySelector("[data-testid='diagram-resize-w']");
+          const wRect = wBorder?.getBoundingClientRect();
+          const storeNode = window.__CREATIVE_NEURO_STORE__?.getState()?.nodes?.['fc-diagram-card'];
+          return {
+            size: storeNode ? { width: storeNode.width, height: storeNode.height } : null,
+            pos: storeNode ? { ...storeNode.position } : null,
+            wCenter: wRect ? { x: Math.round(wRect.left + wRect.width / 2), y: Math.round(wRect.top + wRect.height / 2) } : null,
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const cornerResized = afterCornerResize.result?.result?.value;
+    console.log('  ✓ After SE corner resize (+140, +100):', JSON.stringify(cornerResized));
+    if (cornerResized.size.width <= initDiag.size.width || cornerResized.size.height <= initDiag.size.height) {
+      throw new Error(`Expected DiagramNode size to increase after SE corner drag, got ${JSON.stringify(cornerResized.size)}`);
+    }
+
+    // 3. Left-click drag the left border (diagram-resize-w) outward by (-60, 0)
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const el = document.querySelector("[data-testid='diagram-node-fc-diagram-card']");
+          const wBorder = el?.querySelector("[data-testid='diagram-resize-w']");
+          if (!wBorder) return;
+          const r = wBorder.getBoundingClientRect();
+          const startX = Math.round(r.left + r.width / 2);
+          const startY = Math.round(r.top + r.height / 2);
+          const targetX = startX - 60;
+          const targetY = startY;
+
+          wBorder.dispatchEvent(new MouseEvent('mousedown', { view: window, bubbles: true, cancelable: true, clientX: startX, clientY: startY, button: 0, buttons: 1 }));
+          window.dispatchEvent(new MouseEvent('mousemove', { view: window, bubbles: true, cancelable: true, clientX: targetX, clientY: targetY, button: 0, buttons: 1 }));
+          window.dispatchEvent(new MouseEvent('mouseup', { view: window, bubbles: true, cancelable: true, clientX: targetX, clientY: targetY, button: 0, buttons: 0 }));
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 300));
+
+    const afterBorderResize = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const storeNode = window.__CREATIVE_NEURO_STORE__?.getState()?.nodes?.['fc-diagram-card'];
+          return {
+            size: storeNode ? { width: storeNode.width, height: storeNode.height } : null,
+            pos: storeNode ? { ...storeNode.position } : null,
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const borderResized = afterBorderResize.result?.result?.value;
+    console.log('  ✓ After W border resize (-60, 0):', JSON.stringify(borderResized));
+    if (borderResized.size.width <= cornerResized.size.width) {
+      throw new Error(`Expected DiagramNode width to increase after W border drag, got ${JSON.stringify(borderResized.size)}`);
+    }
+
+    const diagMainCanvasSs = await pageSend('Page.captureScreenshot', { format: 'png' });
+    const diagMainCanvasSsPath = path.join(screenshotsDir, '09_diagram_drag_and_resize_main_canvas.png');
+    fs.writeFileSync(diagMainCanvasSsPath, Buffer.from(diagMainCanvasSs.result.data, 'base64'));
+    console.log(`  ✓ Captured DiagramNode main canvas move & resize screenshot: ${path.relative(appRoot, diagMainCanvasSsPath)} (${fs.statSync(diagMainCanvasSsPath).size} bytes)`);
 
     // Verify Error Boundary state
     console.log('\n[E2E Step 11] Validating browser crash & error-boundary guarantees:');

@@ -4,18 +4,27 @@
  *
  * Implements:
  * - State A Embedded Interactive Preview Card on the infinite canvas
+ * - Left-click drag anywhere on the card to move position on the main canvas
+ * - 8-direction (4 borders + 4 corners) left-click resize handles with zoom compensation & atomic Undo/Redo
  * - Scaled SVG vector mini-map thumbnail rendered from Mermaid DSL AST
  * - 4-way macro flowchart connection handles (Top, Right, Bottom, Left)
  * - Focus button & double-click trigger to enter State B (FocusDiagramModal)
  */
 
-import React, { useMemo } from 'react';
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import React, { useMemo, useCallback } from 'react';
+import { Handle, Position, useStoreApi, type NodeProps } from '@xyflow/react';
 import { Workflow, Maximize2, Layers } from 'lucide-react';
 import type { NeuroNode, NeuroEdge, FlowDirection } from '../../../types/index.ts';
 import { useProjectStore } from '../../../store/useProjectStore.ts';
 import { parseMermaid, reconcileMermaidAST, calculateElkLayoutSync } from '../../../engine/index.ts';
 import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
+
+type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se';
+
+const MIN_DIAGRAM_WIDTH = 220;
+const MIN_DIAGRAM_HEIGHT = 160;
+const MAX_DIAGRAM_WIDTH = 1600;
+const MAX_DIAGRAM_HEIGHT = 1200;
 
 export function DiagramNode({
   id,
@@ -25,10 +34,13 @@ export function DiagramNode({
   height = 240,
 }: NodeProps) {
   const data = rawData as unknown as NeuroNode['data'];
+  const storeApi = useStoreApi();
   const setFocusedDiagramId = useProjectStore((s) => s.setFocusedDiagramId);
   const updateNodeData = useProjectStore((s) => s.updateNodeData);
   const isStoreSelected = useProjectStore((s) => s.selectedNodeIds.includes(id));
   const selectedNodeCount = useProjectStore((s) => s.selectedNodeIds.length);
+  const storeWidth = useProjectStore((s) => s.nodes[id]?.width);
+  const storeHeight = useProjectStore((s) => s.nodes[id]?.height);
   const isNodeSelected = selected || isStoreSelected;
 
   const mermaidCode =
@@ -59,6 +71,137 @@ export function DiagramNode({
     setFocusedDiagramId(id);
   };
 
+  const W = storeWidth || width || 340;
+  const H = storeHeight || height || 240;
+
+  // 8-Direction (4 borders + 4 corners) Left-Click Resize Handler
+  const handleResizeMouseDown = useCallback(
+    (e: React.MouseEvent, dir: ResizeDirection) => {
+      if (e.button !== 0) return; // Only Left Mouse Button
+      e.stopPropagation();
+      e.preventDefault();
+
+      const state = useProjectStore.getState();
+      const targetNode = state.nodes[id];
+      if (!targetNode) return;
+
+      if (!state.selectedNodeIds.includes(id)) {
+        state.setSelectedNodes([id]);
+        state.setSelectedEdges([]);
+      }
+
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startW = targetNode.width || W;
+      const startH = targetNode.height || H;
+      const startPosX = targetNode.position.x;
+      const startPosY = targetNode.position.y;
+
+      const startSnapshot = {
+        project: state.project,
+        boards: state.boards,
+        pages: state.pages,
+        nodes: JSON.parse(JSON.stringify(state.nodes)),
+        edges: state.edges,
+        activePageId: state.activePageId,
+      };
+
+      useProjectStore.temporal.getState().pause();
+      useProjectStore.setState({ isResizing: true });
+
+      const onMouseMove = (moveEvent: MouseEvent) => {
+        const rfTransform = storeApi.getState().transform;
+        const zoom = rfTransform && rfTransform[2] ? rfTransform[2] : 1;
+        const dx = (moveEvent.clientX - startX) / zoom;
+        const dy = (moveEvent.clientY - startY) / zoom;
+
+        let nextW = startW;
+        let nextH = startH;
+        let nextPosX = startPosX;
+        let nextPosY = startPosY;
+
+        if (dir.includes('e')) {
+          nextW = Math.min(
+            MAX_DIAGRAM_WIDTH,
+            Math.max(MIN_DIAGRAM_WIDTH, Math.round(startW + dx))
+          );
+        }
+        if (dir.includes('s')) {
+          nextH = Math.min(
+            MAX_DIAGRAM_HEIGHT,
+            Math.max(MIN_DIAGRAM_HEIGHT, Math.round(startH + dy))
+          );
+        }
+        if (dir.includes('w')) {
+          nextW = Math.min(
+            MAX_DIAGRAM_WIDTH,
+            Math.max(MIN_DIAGRAM_WIDTH, Math.round(startW - dx))
+          );
+          nextPosX = Math.round(startPosX + (startW - nextW));
+        }
+        if (dir.includes('n')) {
+          nextH = Math.min(
+            MAX_DIAGRAM_HEIGHT,
+            Math.max(MIN_DIAGRAM_HEIGHT, Math.round(startH - dy))
+          );
+          nextPosY = Math.round(startPosY + (startH - nextH));
+        }
+
+        useProjectStore.setState((s) => {
+          const n = s.nodes[id];
+          if (!n) return;
+          n.width = nextW;
+          n.height = nextH;
+          n.position = { x: nextPosX, y: nextPosY };
+          n.measured = { width: nextW, height: nextH };
+          if (n.layoutMode === 'auto-elk') {
+            n.layoutMode = 'manual';
+          }
+          if (n.data && n.data.layoutMode === 'auto-elk') {
+            n.data.layoutMode = 'manual';
+          }
+        });
+      };
+
+      const onMouseUp = () => {
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+
+        useProjectStore.setState((s) => {
+          s.isResizing = false;
+          const page = s.pages[s.activePageId];
+          if (page) page.updatedAt = Date.now();
+          s.project.updatedAt = Date.now();
+        });
+
+        const endState = useProjectStore.getState();
+        const endNode = endState.nodes[id];
+        const hasResized =
+          endNode &&
+          (endNode.width !== startW ||
+            endNode.height !== startH ||
+            endNode.position.x !== startPosX ||
+            endNode.position.y !== startPosY);
+
+        useProjectStore.temporal.getState().resume();
+        if (hasResized) {
+          useProjectStore.temporal.setState((t) => {
+            const pastStates = [...t.pastStates, startSnapshot];
+            if (pastStates.length > 100) pastStates.shift();
+            return {
+              pastStates,
+              futureStates: [],
+            };
+          });
+        }
+      };
+
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    },
+    [id, W, H, storeApi]
+  );
+
   // Generate SVG mini-map elements using ELK hierarchical layout
   const previewElements = useMemo(() => {
     const count = ast.nodes.length;
@@ -81,17 +224,40 @@ export function DiagramNode({
       }
     );
 
+    // Resolve absolute coordinates for child nodes inside subgraph frames
+    const nodeById = new Map<string, NeuroNode>(elkResult.nodes.map((n) => [n.id, n]));
+    const absPosMap = new Map<string, { x: number; y: number }>();
+    for (const n of elkResult.nodes) {
+      let ax = n.position.x;
+      let ay = n.position.y;
+      let currP = n.parentId;
+      const seen = new Set<string>();
+      while (currP && !seen.has(currP)) {
+        seen.add(currP);
+        const parent = nodeById.get(currP);
+        if (!parent) break;
+        ax += parent.position.x;
+        ay += parent.position.y;
+        currP = parent.parentId;
+      }
+      absPosMap.set(n.id, { x: ax, y: ay });
+    }
+
+    const leafNodes = elkResult.nodes.filter((n) => n.type !== 'frame');
+    const previewTargetNodes = leafNodes.length > 0 ? leafNodes : elkResult.nodes;
+
     // Compute bounding box of laid out nodes
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
     let maxY = -Infinity;
 
-    for (const n of elkResult.nodes) {
-      minX = Math.min(minX, n.position.x);
-      minY = Math.min(minY, n.position.y);
-      maxX = Math.max(maxX, n.position.x + 70);
-      maxY = Math.max(maxY, n.position.y + 28);
+    for (const n of previewTargetNodes) {
+      const abs = absPosMap.get(n.id) || n.position;
+      minX = Math.min(minX, abs.x);
+      minY = Math.min(minY, abs.y);
+      maxX = Math.max(maxX, abs.x + 70);
+      maxY = Math.max(maxY, abs.y + 28);
     }
 
     if (!Number.isFinite(minX)) {
@@ -108,9 +274,10 @@ export function DiagramNode({
 
     const nodePositions = new Map<string, { x: number; y: number }>();
     for (const n of elkResult.nodes) {
+      const abs = absPosMap.get(n.id) || n.position;
       nodePositions.set(n.id, {
-        x: padX + (n.position.x - minX),
-        y: padY + (n.position.y - minY),
+        x: padX + (abs.x - minX),
+        y: padY + (abs.y - minY),
       });
     }
 
@@ -118,7 +285,7 @@ export function DiagramNode({
       svgWidth,
       svgHeight,
       isHorizontal,
-      nodes: elkResult.nodes.map((node) => {
+      nodes: previewTargetNodes.map((node) => {
         const pos = nodePositions.get(node.id) || { x: padX, y: padY };
         return {
           id: node.id,
@@ -140,13 +307,11 @@ export function DiagramNode({
     };
   }, [ast, data?.customData?.subNodes, data?.customData?.subEdges, data?.diagramOrientation]);
 
-  const W = width || 340;
-  const H = height || 240;
-
   return (
     <div
+      data-testid={`diagram-node-${id}`}
       onDoubleClick={(e) => handleOpenFocus(e)}
-      className={`group relative flex flex-col rounded-2xl bg-slate-900/90 border transition-all duration-200 select-none shadow-xl overflow-hidden backdrop-blur-md ${
+      className={`group relative flex flex-col rounded-2xl bg-slate-900/90 border transition-shadow duration-200 select-none shadow-xl backdrop-blur-md cursor-grab active:cursor-grabbing ${
         isNodeSelected
           ? 'border-cyan-400 ring-2 ring-cyan-400 ring-offset-2 ring-offset-slate-900 shadow-[0_0_15px_rgba(6,182,212,0.6)]'
           : 'border-slate-800 hover:border-slate-700 hover:shadow-2xl'
@@ -159,157 +324,217 @@ export function DiagramNode({
       {/* Horizontal Floating Quick-Action Menu directly above diagram node when single diagram is selected */}
       {isNodeSelected && selectedNodeCount <= 1 && <NodeFloatingActionBar nodeId={id} />}
 
+      {/* 4 Border Resize Strips (n, s, e, w) — Left-click drag to resize width/height */}
+      <div
+        data-testid="diagram-resize-n"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'n')}
+        className="nodrag nopan absolute -top-1.5 left-3 right-3 h-3 cursor-ns-resize z-20 rounded-full hover:bg-cyan-400/30 transition-colors"
+      />
+      <div
+        data-testid="diagram-resize-s"
+        onMouseDown={(e) => handleResizeMouseDown(e, 's')}
+        className="nodrag nopan absolute -bottom-1.5 left-3 right-3 h-3 cursor-ns-resize z-20 rounded-full hover:bg-cyan-400/30 transition-colors"
+      />
+      <div
+        data-testid="diagram-resize-w"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'w')}
+        className="nodrag nopan absolute -left-1.5 top-3 bottom-3 w-3 cursor-ew-resize z-20 rounded-full hover:bg-cyan-400/30 transition-colors"
+      />
+      <div
+        data-testid="diagram-resize-e"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'e')}
+        className="nodrag nopan absolute -right-1.5 top-3 bottom-3 w-3 cursor-ew-resize z-20 rounded-full hover:bg-cyan-400/30 transition-colors"
+      />
+
+      {/* 4 Corner Resize Handles (nw, ne, sw, se) — Left-click drag to resize both axes */}
+      <div
+        data-testid="diagram-resize-nw"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'nw')}
+        className={`nodrag nopan absolute -top-2 -left-2 w-4 h-4 cursor-nwse-resize z-30 flex items-center justify-center transition-opacity ${
+          isNodeSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+        }`}
+      >
+        <span className="w-2.5 h-2.5 rounded-sm bg-slate-950 border-2 border-cyan-400 shadow-sm" />
+      </div>
+      <div
+        data-testid="diagram-resize-ne"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'ne')}
+        className={`nodrag nopan absolute -top-2 -right-2 w-4 h-4 cursor-nesw-resize z-30 flex items-center justify-center transition-opacity ${
+          isNodeSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+        }`}
+      >
+        <span className="w-2.5 h-2.5 rounded-sm bg-slate-950 border-2 border-cyan-400 shadow-sm" />
+      </div>
+      <div
+        data-testid="diagram-resize-sw"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'sw')}
+        className={`nodrag nopan absolute -bottom-2 -left-2 w-4 h-4 cursor-nesw-resize z-30 flex items-center justify-center transition-opacity ${
+          isNodeSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+        }`}
+      >
+        <span className="w-2.5 h-2.5 rounded-sm bg-slate-950 border-2 border-cyan-400 shadow-sm" />
+      </div>
+      <div
+        data-testid="diagram-resize-se"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'se')}
+        className={`nodrag nopan absolute -bottom-2 -right-2 w-4 h-4 cursor-nwse-resize z-30 flex items-center justify-center transition-opacity ${
+          isNodeSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+        }`}
+      >
+        <span className="w-2.5 h-2.5 rounded-sm bg-slate-950 border-2 border-cyan-400 shadow-sm" />
+      </div>
+
       {/* 4-Direction Macro Connection Handles */}
       <Handle
         type="target"
         position={Position.Top}
         id="top"
-        className="!w-2.5 !h-2.5 !bg-indigo-400 !border-2 !border-slate-900 opacity-0 group-hover:opacity-100 hover:!scale-125 transition-all"
+        className="!w-2.5 !h-2.5 !bg-indigo-400 !border-2 !border-slate-900 opacity-0 group-hover:opacity-100 hover:!scale-125 transition-all !z-30"
       />
       <Handle
         type="source"
         position={Position.Right}
         id="right"
-        className="!w-2.5 !h-2.5 !bg-indigo-400 !border-2 !border-slate-900 opacity-0 group-hover:opacity-100 hover:!scale-125 transition-all"
+        className="!w-2.5 !h-2.5 !bg-indigo-400 !border-2 !border-slate-900 opacity-0 group-hover:opacity-100 hover:!scale-125 transition-all !z-30"
       />
       <Handle
         type="source"
         position={Position.Bottom}
         id="bottom"
-        className="!w-2.5 !h-2.5 !bg-indigo-400 !border-2 !border-slate-900 opacity-0 group-hover:opacity-100 hover:!scale-125 transition-all"
+        className="!w-2.5 !h-2.5 !bg-indigo-400 !border-2 !border-slate-900 opacity-0 group-hover:opacity-100 hover:!scale-125 transition-all !z-30"
       />
       <Handle
         type="target"
         position={Position.Left}
         id="left"
-        className="!w-2.5 !h-2.5 !bg-indigo-400 !border-2 !border-slate-900 opacity-0 group-hover:opacity-100 hover:!scale-125 transition-all"
+        className="!w-2.5 !h-2.5 !bg-indigo-400 !border-2 !border-slate-900 opacity-0 group-hover:opacity-100 hover:!scale-125 transition-all !z-30"
       />
 
-      {/* Card Header */}
-      <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-800 bg-slate-950/60 shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="w-6 h-6 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center shrink-0">
-            <Workflow className="w-3.5 h-3.5 text-indigo-400" />
+      {/* Inner clipped card container so header/body/footer stay within rounded-2xl corners */}
+      <div className="flex flex-col flex-1 w-full h-full rounded-2xl overflow-hidden">
+        {/* Card Header */}
+        <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-800 bg-slate-950/60 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-6 h-6 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center shrink-0">
+              <Workflow className="w-3.5 h-3.5 text-indigo-400" />
+            </div>
+            <span className="text-xs font-semibold text-slate-200 truncate" title={title}>
+              {title}
+            </span>
           </div>
-          <span className="text-xs font-semibold text-slate-200 truncate" title={title}>
-            {title}
-          </span>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-[10px] font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700/60">
+              {nodeCount}n · {edgeCount}e
+            </span>
+            <button
+              type="button"
+              onClick={handleOpenFocus}
+              title="Focus Diagram (Double-click)"
+              className="nodrag flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition-colors cursor-pointer pointer-events-auto"
+            >
+              <Maximize2 className="w-3 h-3" />
+              <span>Focus</span>
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[10px] font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700/60">
-            {nodeCount}n · {edgeCount}e
-          </span>
-          <button
-            type="button"
-            onClick={handleOpenFocus}
-            title="Focus Diagram (Double-click)"
-            className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition-colors cursor-pointer pointer-events-auto"
-          >
-            <Maximize2 className="w-3 h-3" />
-            <span>Focus</span>
-          </button>
-        </div>
-      </div>
+        {/* Card Body: Scaled Mini-Graph Vector Preview */}
+        <div className="relative flex-1 bg-slate-950/40 p-2 overflow-hidden flex items-center justify-center">
+          {/* Subtle grid background */}
+          <div
+            className="absolute inset-0 opacity-10 pointer-events-none"
+            style={{
+              backgroundImage: 'radial-gradient(circle at 1px 1px, #818cf8 1px, transparent 0)',
+              backgroundSize: '16px 16px',
+            }}
+          />
 
-      {/* Card Body: Scaled Mini-Graph Vector Preview */}
-      <div className="relative flex-1 bg-slate-950/40 p-2 overflow-hidden flex items-center justify-center">
-        {/* Subtle grid background */}
-        <div
-          className="absolute inset-0 opacity-10 pointer-events-none"
-          style={{
-            backgroundImage: 'radial-gradient(circle at 1px 1px, #818cf8 1px, transparent 0)',
-            backgroundSize: '16px 16px',
-          }}
-        />
-
-        {previewElements ? (
-          <svg
-            className="w-full h-full"
-            viewBox={`0 0 ${previewElements.svgWidth} ${previewElements.svgHeight}`}
-            preserveAspectRatio="xMidYMid meet"
-          >
-            <defs>
-              <marker
-                id={`arrow-${id}`}
-                viewBox="0 0 10 10"
-                refX="8"
-                refY="5"
-                markerWidth="6"
-                markerHeight="6"
-                orient="auto-start-reverse"
-              >
-                <path d="M 0 1 L 10 5 L 0 9 z" fill="#6366f1" />
-              </marker>
-            </defs>
-
-            {/* Render Edges */}
-            {previewElements.edges.map((e) => {
-              const edgePath = previewElements.isHorizontal
-                ? `M ${e.src.x + 70} ${e.src.y + 14} C ${(e.src.x + 70 + e.tgt.x) / 2} ${e.src.y + 14}, ${(e.src.x + 70 + e.tgt.x) / 2} ${e.tgt.y + 14}, ${e.tgt.x} ${e.tgt.y + 14}`
-                : `M ${e.src.x + 35} ${e.src.y + 28} C ${e.src.x + 35} ${(e.src.y + 28 + e.tgt.y) / 2}, ${e.tgt.x + 35} ${(e.src.y + 28 + e.tgt.y) / 2}, ${e.tgt.x + 35} ${e.tgt.y}`;
-
-              return (
-                <path
-                  key={e.id}
-                  d={edgePath}
-                  fill="none"
-                  stroke="#6366f1"
-                  strokeWidth="1.5"
-                  strokeOpacity="0.75"
-                  markerEnd={`url(#arrow-${id})`}
-                />
-              );
-            })}
-
-            {/* Render Nodes */}
-            {previewElements.nodes.map((n) => (
-              <g key={n.id} transform={`translate(${n.x}, ${n.y})`}>
-                <rect
-                  width="70"
-                  height="28"
-                  rx="6"
-                  fill="#1e293b"
-                  stroke="#475569"
-                  strokeWidth="1"
-                />
-                <text
-                  x="35"
-                  y="18"
-                  textAnchor="middle"
-                  fill="#e2e8f0"
-                  fontSize="9"
-                  fontFamily="sans-serif"
-                  fontWeight="500"
+          {previewElements ? (
+            <svg
+              className="w-full h-full pointer-events-none"
+              viewBox={`0 0 ${previewElements.svgWidth} ${previewElements.svgHeight}`}
+              preserveAspectRatio="xMidYMid meet"
+            >
+              <defs>
+                <marker
+                  id={`arrow-${id}`}
+                  viewBox="0 0 10 10"
+                  refX="8"
+                  refY="5"
+                  markerWidth="6"
+                  markerHeight="6"
+                  orient="auto-start-reverse"
                 >
-                  {n.label.length > 9 ? n.label.slice(0, 8) + '…' : n.label}
-                </text>
-              </g>
-            ))}
-          </svg>
-        ) : (
-          <div className="text-slate-500 text-xs flex flex-col items-center gap-1">
-            <Layers className="w-5 h-5 opacity-40" />
-            <span>Empty Sub-Diagram</span>
+                  <path d="M 0 1 L 10 5 L 0 9 z" fill="#6366f1" />
+                </marker>
+              </defs>
+
+              {/* Render Edges */}
+              {previewElements.edges.map((e) => {
+                const edgePath = previewElements.isHorizontal
+                  ? `M ${e.src.x + 70} ${e.src.y + 14} C ${(e.src.x + 70 + e.tgt.x) / 2} ${e.src.y + 14}, ${(e.src.x + 70 + e.tgt.x) / 2} ${e.tgt.y + 14}, ${e.tgt.x} ${e.tgt.y + 14}`
+                  : `M ${e.src.x + 35} ${e.src.y + 28} C ${e.src.x + 35} ${(e.src.y + 28 + e.tgt.y) / 2}, ${e.tgt.x + 35} ${(e.src.y + 28 + e.tgt.y) / 2}, ${e.tgt.x + 35} ${e.tgt.y}`;
+
+                return (
+                  <path
+                    key={e.id}
+                    d={edgePath}
+                    fill="none"
+                    stroke="#6366f1"
+                    strokeWidth="1.5"
+                    strokeOpacity="0.75"
+                    markerEnd={`url(#arrow-${id})`}
+                  />
+                );
+              })}
+
+              {/* Render Nodes */}
+              {previewElements.nodes.map((n) => (
+                <g key={n.id} transform={`translate(${n.x}, ${n.y})`}>
+                  <rect
+                    width="70"
+                    height="28"
+                    rx="6"
+                    fill="#1e293b"
+                    stroke="#475569"
+                    strokeWidth="1"
+                  />
+                  <text
+                    x="35"
+                    y="18"
+                    textAnchor="middle"
+                    fill="#e2e8f0"
+                    fontSize="9"
+                    fontFamily="sans-serif"
+                    fontWeight="500"
+                  >
+                    {n.label.length > 9 ? n.label.slice(0, 8) + '…' : n.label}
+                  </text>
+                </g>
+              ))}
+            </svg>
+          ) : (
+            <div className="text-slate-500 text-xs flex flex-col items-center gap-1 pointer-events-none">
+              <Layers className="w-5 h-5 opacity-40" />
+              <span>Empty Sub-Diagram</span>
+            </div>
+          )}
+
+          {/* Hover Cue Overlay (pointer-events-none so left-click drag moves the card smoothly; double-click expands) */}
+          <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-[1px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+            <span className="text-xs font-medium text-indigo-300 bg-slate-900/90 px-3 py-1.5 rounded-full border border-indigo-500/40 shadow-lg flex items-center gap-1.5">
+              <Maximize2 className="w-3.5 h-3.5" />
+              Double-click to expand
+            </span>
           </div>
-        )}
-
-        {/* Hover Cue Overlay */}
-        <div
-          onClick={handleOpenFocus}
-          className="absolute inset-0 bg-slate-950/60 backdrop-blur-[1px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
-        >
-          <span className="text-xs font-medium text-indigo-300 bg-slate-900/90 px-3 py-1.5 rounded-full border border-indigo-500/40 shadow-lg flex items-center gap-1.5">
-            <Maximize2 className="w-3.5 h-3.5" />
-            Double-click to expand
-          </span>
         </div>
-      </div>
 
-      {/* Card Footer */}
-      <div className="px-3 py-1.5 bg-slate-950/80 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-500">
-        <span className="font-mono">Dir: {ast.direction || 'TB'}</span>
-        <span className="text-indigo-400/80 font-medium">Mermaid DSL</span>
+        {/* Card Footer */}
+        <div className="px-3 py-1.5 bg-slate-950/80 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-500 shrink-0">
+          <span className="font-mono">Dir: {ast.direction || 'TB'}</span>
+          <span className="text-indigo-400/80 font-medium">{Math.round(W)} × {Math.round(H)}</span>
+        </div>
       </div>
     </div>
   );

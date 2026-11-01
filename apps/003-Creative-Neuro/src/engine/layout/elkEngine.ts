@@ -41,7 +41,7 @@ export function normalizeDirection(dir?: string): 'DOWN' | 'RIGHT' | 'UP' | 'LEF
 
 /**
  * Pure TypeScript Hierarchical Sugiyama Layered Layout
- * Supports directional ordering, cycles, subgraphs, and tri-state modes.
+ * Supports directional ordering, cycle breaking, variable node sizes, subgraphs, and tri-state modes.
  */
 function layoutHierarchicalGraph(
   nodes: NeuroNode[],
@@ -54,23 +54,61 @@ function layoutHierarchicalGraph(
   const positions = new Map<string, Point>();
   if (nodes.length === 0) return positions;
 
-  const nodeMap = new Map<string, NeuroNode>(nodes.map((n) => [n.id, n]));
+  const nodeOrder = new Map<string, number>();
+  nodes.forEach((n, idx) => nodeOrder.set(n.id, idx));
+
+  const rawAdj = new Map<string, string[]>();
+  for (const n of nodes) {
+    rawAdj.set(n.id, []);
+  }
+  for (const e of edges) {
+    if (e.source === e.target) continue; // Ignore self-loops
+    if (rawAdj.has(e.source) && rawAdj.has(e.target)) {
+      rawAdj.get(e.source)!.push(e.target);
+    }
+  }
+
+  // 1. Cycle Breaking via DFS in declaration order to identify feedback back-edges
+  const visitedDfs = new Set<string>();
+  const onStack = new Set<string>();
+  const backEdges = new Set<string>();
+
+  const dfs = (u: string) => {
+    visitedDfs.add(u);
+    onStack.add(u);
+    for (const v of rawAdj.get(u) || []) {
+      if (onStack.has(v)) {
+        backEdges.add(`${u}->${v}`);
+      } else if (!visitedDfs.has(v)) {
+        dfs(v);
+      }
+    }
+    onStack.delete(u);
+  };
+
+  for (const n of nodes) {
+    if (!visitedDfs.has(n.id)) {
+      dfs(n.id);
+    }
+  }
+
+  // Build acyclic forward graph
   const adj = new Map<string, string[]>();
   const inDegree = new Map<string, number>();
-
   for (const n of nodes) {
     adj.set(n.id, []);
     inDegree.set(n.id, 0);
   }
 
   for (const e of edges) {
-    if (adj.has(e.source) && inDegree.has(e.target)) {
-      adj.get(e.source)!.push(e.target);
-      inDegree.set(e.target, (inDegree.get(e.target) || 0) + 1);
-    }
+    if (e.source === e.target) continue;
+    if (!adj.has(e.source) || !inDegree.has(e.target)) continue;
+    if (backEdges.has(`${e.source}->${e.target}`)) continue;
+    adj.get(e.source)!.push(e.target);
+    inDegree.set(e.target, (inDegree.get(e.target) || 0) + 1);
   }
 
-  // 1. Layer Assignment via Kahn's algorithm with cycle breaking
+  // 2. Longest-Path Layer Assignment via Kahn's topological traversal
   const queue: string[] = [];
   const layerMap = new Map<string, number>();
 
@@ -81,7 +119,6 @@ function layoutHierarchicalGraph(
     }
   }
 
-  // If cyclic and no node has in-degree 0, pick first node as root
   if (queue.length === 0 && nodes.length > 0) {
     queue.push(nodes[0].id);
     layerMap.set(nodes[0].id, 0);
@@ -94,14 +131,16 @@ function layoutHierarchicalGraph(
     const currLayer = layerMap.get(curr) || 0;
 
     for (const neighbor of adj.get(curr) || []) {
-      if (!visited.has(neighbor)) {
-        layerMap.set(neighbor, Math.max(layerMap.get(neighbor) || 0, currLayer + 1));
+      layerMap.set(neighbor, Math.max(layerMap.get(neighbor) || 0, currLayer + 1));
+      const nextDeg = (inDegree.get(neighbor) || 1) - 1;
+      inDegree.set(neighbor, nextDeg);
+      if (nextDeg <= 0 && !visited.has(neighbor) && !queue.includes(neighbor)) {
         queue.push(neighbor);
       }
     }
   }
 
-  // Assign layers to any disconnected nodes not reachable from initial roots
+  // Handle any remaining nodes not reached
   let maxL = 0;
   for (const l of layerMap.values()) maxL = Math.max(maxL, l);
   for (const n of nodes) {
@@ -111,7 +150,23 @@ function layoutHierarchicalGraph(
     }
   }
 
-  // 2. Group nodes by layer
+  // 2b. If laying out top-level container frames in vertical (DOWN/UP) mode,
+  // ensure multiple frames do not collide side-by-side in the same horizontal tier;
+  // order frames sequentially by (computedLayer, declarationIndex).
+  const allFrames = nodes.length > 1 && nodes.every((n) => n.type === 'frame');
+  if (allFrames && (direction === 'DOWN' || direction === 'UP')) {
+    const sortedFrames = [...nodes].sort((a, b) => {
+      const la = layerMap.get(a.id) ?? 0;
+      const lb = layerMap.get(b.id) ?? 0;
+      if (la !== lb) return la - lb;
+      return (nodeOrder.get(a.id) ?? 0) - (nodeOrder.get(b.id) ?? 0);
+    });
+    sortedFrames.forEach((f, idx) => {
+      layerMap.set(f.id, idx);
+    });
+  }
+
+  // 3. Group nodes by layer
   const layers = new Map<number, NeuroNode[]>();
   for (const n of nodes) {
     const l = layerMap.get(n.id) || 0;
@@ -120,40 +175,167 @@ function layoutHierarchicalGraph(
   }
 
   const sortedLayerIndices = Array.from(layers.keys()).sort((a, b) => a - b);
-  const totalLayers = sortedLayerIndices.length;
+  const orderedLayers =
+    direction === 'UP' || direction === 'LEFT'
+      ? [...sortedLayerIndices].reverse()
+      : sortedLayerIndices;
 
-  // 3. Coordinate Assignment based on direction
-  for (let lIdx = 0; lIdx < totalLayers; lIdx++) {
-    const l = sortedLayerIndices[lIdx];
-    const layerNodes = layers.get(l)!;
+  // 4. Coordinate Assignment with variable node dimensions & centering
+  if (direction === 'DOWN' || direction === 'UP') {
+    // Primary axis: Y (layers stacked vertically), Secondary axis: X (siblings arranged horizontally)
+    const layerWidths: number[] = [];
+    const layerHeights: number[] = [];
 
-    // Effective layer index based on direction growth:
-    // DOWN: lIdx from 0 to N-1
-    // UP: reversed
-    // RIGHT: lIdx from 0 to N-1
-    // LEFT: reversed
-    const layerPosIndex = direction === 'UP' || direction === 'LEFT' ? totalLayers - 1 - lIdx : lIdx;
+    for (const l of orderedLayers) {
+      const layerNodes = layers.get(l)!;
+      let totalW = 0;
+      let maxH = 0;
+      layerNodes.forEach((node, idx) => {
+        const w = node.width ?? 160;
+        const h = node.height ?? 60;
+        totalW += w + (idx > 0 ? nodeSpacing : 0);
+        maxH = Math.max(maxH, h);
+      });
+      layerWidths.push(totalW);
+      layerHeights.push(maxH);
+    }
 
-    layerNodes.forEach((node, nodeIdx) => {
-      const w = node.width ?? 160;
-      const h = node.height ?? 60;
+    const maxLayerWidth = Math.max(...layerWidths, 0);
+    const shouldCenterLayers =
+      nodes.some((n) => n.type === 'frame') || orderedLayers.some((l) => layers.get(l)!.length > 1);
 
-      let x: number;
-      let y: number;
+    let currentY = origin.y;
+    for (let i = 0; i < orderedLayers.length; i++) {
+      const l = orderedLayers[i];
+      const layerNodes = layers.get(l)!;
+      const layerW = layerWidths[i];
+      const layerH = layerHeights[i];
 
-      if (direction === 'DOWN' || direction === 'UP') {
-        // Primary axis is Y (layers along Y, siblings along X)
-        x = origin.x + nodeIdx * (w + nodeSpacing);
-        y = origin.y + layerPosIndex * (h + layerSpacing);
-      } else {
-        // Direction is RIGHT or LEFT
-        // Primary axis is X (layers along X, siblings along Y)
-        x = origin.x + layerPosIndex * (w + layerSpacing);
-        y = origin.y + nodeIdx * (h + nodeSpacing);
+      let currentX =
+        origin.x +
+        (shouldCenterLayers && maxLayerWidth > layerW
+          ? Math.round((maxLayerWidth - layerW) / 2)
+          : 0);
+
+      for (const node of layerNodes) {
+        const w = node.width ?? 160;
+        const h = node.height ?? 60;
+        const offsetY = Math.round((layerH - h) / 2);
+        positions.set(node.id, { x: currentX, y: currentY + offsetY });
+        currentX += w + nodeSpacing;
       }
 
-      positions.set(node.id, { x, y });
-    });
+      currentY += layerH + layerSpacing;
+    }
+  } else {
+    // Direction is RIGHT or LEFT
+    // Primary axis: X (layers arranged horizontally), Secondary axis: Y (siblings stacked vertically)
+    const layerWidths: number[] = [];
+    const layerHeights: number[] = [];
+
+    for (const l of orderedLayers) {
+      const layerNodes = layers.get(l)!;
+      let maxW = 0;
+      let totalH = 0;
+      layerNodes.forEach((node, idx) => {
+        const w = node.width ?? 160;
+        const h = node.height ?? 60;
+        maxW = Math.max(maxW, w);
+        totalH += h + (idx > 0 ? nodeSpacing : 0);
+      });
+      layerWidths.push(maxW);
+      layerHeights.push(totalH);
+    }
+
+    const maxLayerHeight = Math.max(...layerHeights, 0);
+    const shouldCenterLayers =
+      nodes.some((n) => n.type === 'frame') || orderedLayers.some((l) => layers.get(l)!.length > 1);
+
+    let currentX = origin.x;
+    for (let i = 0; i < orderedLayers.length; i++) {
+      const l = orderedLayers[i];
+      const layerNodes = layers.get(l)!;
+      const layerW = layerWidths[i];
+      const layerH = layerHeights[i];
+
+      let currentY =
+        origin.y +
+        (shouldCenterLayers && maxLayerHeight > layerH
+          ? Math.round((maxLayerHeight - layerH) / 2)
+          : 0);
+
+      for (const node of layerNodes) {
+        const w = node.width ?? 160;
+        const h = node.height ?? 60;
+        const offsetX = Math.round((layerW - w) / 2);
+        positions.set(node.id, { x: currentX + offsetX, y: currentY });
+        currentY += h + nodeSpacing;
+      }
+
+      currentX += layerW + layerSpacing;
+    }
+  }
+
+  return positions;
+}
+
+/**
+ * Layouts child nodes inside a horizontal tier subgraph (when parent graph is DOWN/UP
+ * and subgraph has no explicit conflicting direction). Places connected chains and siblings
+ * in compact horizontal rows with extra gap for labeled internal edges.
+ */
+function layoutSubgraphHorizontalBand(
+  subChildren: NeuroNode[],
+  subEdges: NeuroEdge[],
+  nodeSpacing: number,
+  layerSpacing: number,
+  origin: Point
+): Map<string, Point> {
+  const positions = new Map<string, Point>();
+  if (subChildren.length === 0) return positions;
+
+  // Preserve declaration order while respecting internal forward edges
+  const ordered = [...subChildren];
+  const maxColsPerRow = 5;
+  const rows: NeuroNode[][] = [];
+  for (let i = 0; i < ordered.length; i += maxColsPerRow) {
+    rows.push(ordered.slice(i, i + maxColsPerRow));
+  }
+
+  // Helper to check if two nodes have an internal edge (and whether it has a label)
+  const getEdgeBetween = (idA: string, idB: string): NeuroEdge | undefined =>
+    subEdges.find(
+      (e) =>
+        (e.source === idA && e.target === idB) ||
+        (e.source === idB && e.target === idA)
+    );
+
+  let currentY = origin.y;
+  for (const row of rows) {
+    const rowMaxH = Math.max(...row.map((n) => n.height ?? 60), 60);
+    let currentX = origin.x;
+
+    for (let i = 0; i < row.length; i++) {
+      const node = row[i];
+      const w = node.width ?? 160;
+      const h = node.height ?? 60;
+      const yOffset = Math.round((rowMaxH - h) / 2);
+      positions.set(node.id, { x: currentX, y: currentY + yOffset });
+
+      if (i < row.length - 1) {
+        const nextNode = row[i + 1];
+        const connectingEdge = getEdgeBetween(node.id, nextNode.id);
+        const hasLabel = Boolean(connectingEdge?.label || connectingEdge?.data?.label);
+        const gap = hasLabel
+          ? Math.max(nodeSpacing, 220)
+          : connectingEdge
+          ? Math.max(nodeSpacing, 90)
+          : Math.max(nodeSpacing, 48);
+        currentX += w + gap;
+      }
+    }
+
+    currentY += rowMaxH + Math.max(40, Math.round(layerSpacing * 0.6));
   }
 
   return positions;
@@ -275,7 +457,7 @@ export function calculateElkLayoutSync(
     }
   }
 
-  // 4. Layout subgraphs first (isolated direction per subgraph)
+  // 4. Layout subgraphs first (bottom-up by nesting depth, isolated direction per subgraph)
   const subgraphCalculatedPositions = new Map<string, Point>();
   const subgraphDimensions = new Map<string, { width: number; height: number }>();
 
@@ -284,7 +466,23 @@ export function calculateElkLayoutSync(
     subgraphDimensions.set(subId, { width: 180, height: 44 });
   }
 
-  for (const [subId, subChildren] of childrenByParent.entries()) {
+  const getDepth = (id: string): number => {
+    let depth = 0;
+    let curr = frameMap.get(id)?.parentId;
+    const seen = new Set<string>();
+    while (curr && !seen.has(curr)) {
+      seen.add(curr);
+      depth++;
+      curr = frameMap.get(curr)?.parentId;
+    }
+    return depth;
+  };
+
+  const sortedSubEntries = Array.from(childrenByParent.entries()).sort(
+    (a, b) => getDepth(b[0]) - getDepth(a[0])
+  );
+
+  for (const [subId, rawSubChildren] of sortedSubEntries) {
     const frame = frameMap.get(subId);
     if (!frame) continue;
 
@@ -294,8 +492,14 @@ export function calculateElkLayoutSync(
       continue;
     }
 
-    const subDirStr = frame.data.direction || 'DOWN';
-    const subDir = normalizeDirection(subDirStr);
+    // Apply any already-calculated child subgraph dimensions
+    const subChildren = rawSubChildren.map((c) => {
+      if (subgraphDimensions.has(c.id)) {
+        const dims = subgraphDimensions.get(c.id)!;
+        return { ...c, width: dims.width, height: dims.height };
+      }
+      return c;
+    });
 
     // Filter edges internal to this subgraph
     const childIds = new Set<string>(subChildren.map((c) => c.id));
@@ -303,16 +507,38 @@ export function calculateElkLayoutSync(
       (e) => childIds.has(e.source) && childIds.has(e.target)
     );
 
-    // Layout children inside subgraph starting at padding offset (x: 30, y: 50)
-    const padding = { top: 50, left: 30, bottom: 30, right: 30 };
-    const childPositions = layoutHierarchicalGraph(
-      subChildren,
-      subEdges,
-      subDir,
-      nodeSpacing,
-      layerSpacing,
-      { x: padding.left, y: padding.top }
-    );
+    const padding = { top: 52, left: 32, bottom: 28, right: 32 };
+    let childPositions: Map<string, Point>;
+
+    if (frame.data.direction) {
+      const subDir = normalizeDirection(frame.data.direction);
+      childPositions = layoutHierarchicalGraph(
+        subChildren,
+        subEdges,
+        subDir,
+        nodeSpacing,
+        layerSpacing,
+        { x: padding.left, y: padding.top }
+      );
+    } else if (globalDir === 'DOWN' || globalDir === 'UP') {
+      // Horizontal architectural tier inside a Top-to-Bottom / Bottom-to-Top diagram
+      childPositions = layoutSubgraphHorizontalBand(
+        subChildren,
+        subEdges,
+        nodeSpacing,
+        layerSpacing,
+        { x: padding.left, y: padding.top }
+      );
+    } else {
+      childPositions = layoutHierarchicalGraph(
+        subChildren,
+        subEdges,
+        globalDir,
+        nodeSpacing,
+        layerSpacing,
+        { x: padding.left, y: padding.top }
+      );
+    }
 
     // Calculate bounding box enclosing all children
     let minX = Infinity;
@@ -337,7 +563,7 @@ export function calculateElkLayoutSync(
     }
 
     const calculatedWidth = Math.max(maxX + padding.right, frame.data.minWidth || 280);
-    const calculatedHeight = Math.max(maxY + padding.bottom, frame.data.minHeight || 180);
+    const calculatedHeight = Math.max(maxY + padding.bottom, frame.data.minHeight || 140);
 
     subgraphDimensions.set(subId, {
       width: calculatedWidth,
@@ -345,12 +571,42 @@ export function calculateElkLayoutSync(
     });
   }
 
-  // 5. Layout Root-Level Graph (including top-level frames)
-  const rootEdges = activeEdges.filter((e) => {
-    const srcIsRoot = rootNodes.some((rn) => rn.id === e.source);
-    const tgtIsRoot = rootNodes.some((rn) => rn.id === e.target);
-    return srcIsRoot && tgtIsRoot;
-  });
+  // 5. Layout Root-Level Graph (lifting cross-subgraph edges to their root-level ancestors)
+  const activeNodeMap = new Map<string, NeuroNode>(activeNodes.map((n) => [n.id, n]));
+  const rootNodeIdSet = new Set<string>(rootNodes.map((rn) => rn.id));
+
+  const getRootAncestor = (nodeId: string): string | undefined => {
+    let curr: string | undefined = nodeId;
+    const seen = new Set<string>();
+    while (curr && !seen.has(curr)) {
+      seen.add(curr);
+      if (rootNodeIdSet.has(curr)) return curr;
+      curr = activeNodeMap.get(curr)?.parentId;
+    }
+    return undefined;
+  };
+
+  const rootEdges: NeuroEdge[] = [];
+  const seenRootEdgePairs = new Set<string>();
+  let hasLabeledCrossEdge = false;
+
+  for (const e of activeEdges) {
+    const rootSrc = getRootAncestor(e.source);
+    const rootTgt = getRootAncestor(e.target);
+    if (rootSrc && rootTgt && rootSrc !== rootTgt) {
+      if (e.label || e.data?.label) hasLabeledCrossEdge = true;
+      const pairKey = `${rootSrc}->${rootTgt}`;
+      if (!seenRootEdgePairs.has(pairKey)) {
+        seenRootEdgePairs.add(pairKey);
+        rootEdges.push({
+          ...e,
+          id: `root_${e.id}`,
+          source: rootSrc,
+          target: rootTgt,
+        });
+      }
+    }
+  }
 
   // Temporarily adjust frame dimensions in rootNodes for layout spacing
   const rootNodesWithDimensions = rootNodes.map((rn) => {
@@ -365,12 +621,17 @@ export function calculateElkLayoutSync(
     return rn;
   });
 
+  const effectiveRootLayerSpacing =
+    hasLabeledCrossEdge && rootNodes.some((rn) => rn.type === 'frame')
+      ? Math.max(layerSpacing, 185)
+      : layerSpacing;
+
   const rootPositions = layoutHierarchicalGraph(
     rootNodesWithDimensions,
     rootEdges,
     globalDir,
     nodeSpacing,
-    layerSpacing,
+    effectiveRootLayerSpacing,
     { x: 100, y: 100 }
   );
 
@@ -408,9 +669,73 @@ export function calculateElkLayoutSync(
     });
   }
 
+  // 7. Compute absolute node centers and refine edge handles so horizontal siblings
+  // connect left<->right and upward feedback edges connect top->bottom
+  const resultNodeMap = new Map<string, NeuroNode>(resultNodes.map((n) => [n.id, n]));
+  const getAbsoluteCenter = (nodeId: string): { cx: number; cy: number; w: number; h: number } | null => {
+    const n = resultNodeMap.get(nodeId);
+    if (!n) return null;
+    let absX = n.position.x;
+    let absY = n.position.y;
+    let currParent = n.parentId;
+    const seen = new Set<string>();
+    while (currParent && !seen.has(currParent)) {
+      seen.add(currParent);
+      const p = resultNodeMap.get(currParent);
+      if (!p) break;
+      absX += p.position.x;
+      absY += p.position.y;
+      currParent = p.parentId;
+    }
+    const w = n.width ?? 160;
+    const h = n.height ?? 60;
+    return { cx: absX + w / 2, cy: absY + h / 2, w, h };
+  };
+
+  const finalEdges = activeEdges.map((e) => {
+    const srcC = getAbsoluteCenter(e.source);
+    const tgtC = getAbsoluteCenter(e.target);
+    if (!srcC || !tgtC) return e;
+
+    let sourceHandle = e.sourceHandle;
+    let targetHandle = e.targetHandle;
+
+    if (globalDir === 'DOWN' || globalDir === 'UP') {
+      const sameHorizontalRow = Math.abs(srcC.cy - tgtC.cy) <= Math.max(srcC.h, tgtC.h) * 0.65;
+      if (sameHorizontalRow) {
+        sourceHandle = srcC.cx <= tgtC.cx ? 'right' : 'left';
+        targetHandle = srcC.cx <= tgtC.cx ? 'left' : 'right';
+      } else if (srcC.cy < tgtC.cy) {
+        sourceHandle = 'bottom';
+        targetHandle = 'top';
+      } else {
+        sourceHandle = 'top';
+        targetHandle = 'bottom';
+      }
+    } else {
+      const sameVerticalCol = Math.abs(srcC.cx - tgtC.cx) <= Math.max(srcC.w, tgtC.w) * 0.65;
+      if (sameVerticalCol) {
+        sourceHandle = srcC.cy <= tgtC.cy ? 'bottom' : 'top';
+        targetHandle = srcC.cy <= tgtC.cy ? 'top' : 'bottom';
+      } else if (srcC.cx < tgtC.cx) {
+        sourceHandle = 'right';
+        targetHandle = 'left';
+      } else {
+        sourceHandle = 'left';
+        targetHandle = 'right';
+      }
+    }
+
+    return {
+      ...e,
+      sourceHandle,
+      targetHandle,
+    };
+  });
+
   return {
     nodes: resultNodes,
-    edges: activeEdges,
+    edges: finalEdges,
   };
 }
 
