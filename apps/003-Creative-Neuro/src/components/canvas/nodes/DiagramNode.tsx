@@ -16,7 +16,7 @@ import { Handle, Position, useStoreApi, type NodeProps } from '@xyflow/react';
 import { Workflow, Maximize2, Layers } from 'lucide-react';
 import type { NeuroNode, NeuroEdge, FlowDirection } from '../../../types/index.ts';
 import { useProjectStore } from '../../../store/useProjectStore.ts';
-import { parseMermaid, reconcileMermaidAST, calculateElkLayoutSync } from '../../../engine/index.ts';
+import { DiagramPipeline, calculateElkLayoutSync } from '../../../engine/index.ts';
 import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
 
 type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se';
@@ -47,23 +47,24 @@ export function DiagramNode({
     data?.mermaidCode || 'flowchart TD\n  Start([Start]) --> End([End])';
   const title = data?.title || data?.label || 'Sub-Diagram Flow';
 
-  // Parse Mermaid code for preview metrics and mini-map layout
-  const ast = useMemo(() => {
-    try {
-      return parseMermaid(mermaidCode);
-    } catch {
-      return {
-        nodes: [],
-        edges: [],
-        direction: 'TB' as const,
-        diagramType: 'flowchart' as const,
-        subgraphs: [],
-      };
-    }
-  }, [mermaidCode]);
+  // Compile Mermaid diagram via pure DiagramPipeline
+  const compiled = useMemo(() => {
+    return DiagramPipeline.compile({
+      mermaidCode,
+      savedSubNodes: data?.customData?.subNodes as NeuroNode[] | undefined,
+      savedSubEdges: data?.customData?.subEdges as NeuroEdge[] | undefined,
+      direction: data?.diagramOrientation as FlowDirection | undefined,
+    });
+  }, [
+    mermaidCode,
+    data?.customData?.subNodes,
+    data?.customData?.subEdges,
+    data?.diagramOrientation,
+  ]);
 
-  const nodeCount = ast.nodes.length;
-  const edgeCount = ast.edges.length;
+  const nodeCount = compiled.ast.nodes.length;
+  const edgeCount = compiled.ast.edges.length;
+  const previewElements = nodeCount > 0 ? compiled.preview : null;
 
   const handleOpenFocus = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -201,111 +202,6 @@ export function DiagramNode({
     },
     [id, W, H, storeApi]
   );
-
-  // Generate SVG mini-map elements using ELK hierarchical layout
-  const previewElements = useMemo(() => {
-    const count = ast.nodes.length;
-    if (count === 0) return null;
-
-    const orient = (ast.direction || data?.diagramOrientation || 'TB') as FlowDirection;
-    const isHorizontal = orient === 'LR' || orient === 'RL';
-
-    const savedSubNodes = data?.customData?.subNodes as NeuroNode[] | undefined;
-    const savedSubEdges = data?.customData?.subEdges as NeuroEdge[] | undefined;
-
-    const reconciled = reconcileMermaidAST(ast, savedSubNodes || []);
-    const elkResult = calculateElkLayoutSync(
-      reconciled.nodes,
-      savedSubEdges && savedSubEdges.length > 0 ? savedSubEdges : reconciled.edges,
-      {
-        direction: orient,
-        nodeSpacing: 40,
-        layerSpacing: 60,
-      }
-    );
-
-    // Resolve absolute coordinates for child nodes inside subgraph frames
-    const nodeById = new Map<string, NeuroNode>(elkResult.nodes.map((n) => [n.id, n]));
-    const absPosMap = new Map<string, { x: number; y: number }>();
-    for (const n of elkResult.nodes) {
-      let ax = n.position.x;
-      let ay = n.position.y;
-      let currP = n.parentId;
-      const seen = new Set<string>();
-      while (currP && !seen.has(currP)) {
-        seen.add(currP);
-        const parent = nodeById.get(currP);
-        if (!parent) break;
-        ax += parent.position.x;
-        ay += parent.position.y;
-        currP = parent.parentId;
-      }
-      absPosMap.set(n.id, { x: ax, y: ay });
-    }
-
-    const leafNodes = elkResult.nodes.filter((n) => n.type !== 'frame');
-    const previewTargetNodes = leafNodes.length > 0 ? leafNodes : elkResult.nodes;
-
-    // Compute bounding box of laid out nodes
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-
-    for (const n of previewTargetNodes) {
-      const abs = absPosMap.get(n.id) || n.position;
-      minX = Math.min(minX, abs.x);
-      minY = Math.min(minY, abs.y);
-      maxX = Math.max(maxX, abs.x + 70);
-      maxY = Math.max(maxY, abs.y + 28);
-    }
-
-    if (!Number.isFinite(minX)) {
-      minX = 0;
-      maxX = 200;
-      minY = 0;
-      maxY = 140;
-    }
-
-    const padX = 24;
-    const padY = 20;
-    const svgWidth = Math.max(180, maxX - minX + padX * 2);
-    const svgHeight = Math.max(120, maxY - minY + padY * 2);
-
-    const nodePositions = new Map<string, { x: number; y: number }>();
-    for (const n of elkResult.nodes) {
-      const abs = absPosMap.get(n.id) || n.position;
-      nodePositions.set(n.id, {
-        x: padX + (abs.x - minX),
-        y: padY + (abs.y - minY),
-      });
-    }
-
-    return {
-      svgWidth,
-      svgHeight,
-      isHorizontal,
-      nodes: previewTargetNodes.map((node) => {
-        const pos = nodePositions.get(node.id) || { x: padX, y: padY };
-        return {
-          id: node.id,
-          label: node.data?.label || node.id,
-          shape: node.data?.shapeType,
-          x: pos.x,
-          y: pos.y,
-        };
-      }),
-      edges: elkResult.edges.map((edge, idx) => {
-        const src = nodePositions.get(edge.source) || { x: padX, y: padY };
-        const tgt = nodePositions.get(edge.target) || { x: padX, y: padY };
-        return {
-          id: `${edge.source}-${edge.target}-${idx}`,
-          src,
-          tgt,
-        };
-      }),
-    };
-  }, [ast, data?.customData?.subNodes, data?.customData?.subEdges, data?.diagramOrientation]);
 
   return (
     <div
@@ -532,7 +428,7 @@ export function DiagramNode({
 
         {/* Card Footer */}
         <div className="px-3 py-1.5 bg-slate-950/80 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-500 shrink-0">
-          <span className="font-mono">Dir: {ast.direction || 'TB'}</span>
+          <span className="font-mono">Dir: {compiled.ast.direction || 'TB'}</span>
           <span className="text-indigo-400/80 font-medium">{Math.round(W)} × {Math.round(H)}</span>
         </div>
       </div>

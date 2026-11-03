@@ -40,9 +40,8 @@ import {
 
 import { useProjectStore } from '../../store/useProjectStore.ts';
 import {
-  parseMermaid,
-  reconcileMermaidAST,
-  serializeMermaid,
+  DiagramPipeline,
+  applyEdgeRouting,
   calculateElkLayoutSync,
 } from '../../engine/index.ts';
 import type {
@@ -50,6 +49,7 @@ import type {
   NeuroEdge,
   FlowDirection,
   EdgeRoutingType,
+  ElkSpacingPreset,
 } from '../../types/index.ts';
 import { MermaidEditor } from './MermaidEditor.tsx';
 import ShapeNode from '../canvas/nodes/ShapeNode.tsx';
@@ -57,9 +57,9 @@ import TextNode from '../canvas/nodes/TextNode.tsx';
 import FrameNode from '../canvas/nodes/FrameNode.tsx';
 import JumpConnectorEdge from '../canvas/edges/JumpConnectorEdge.tsx';
 
-export type ElkSpacingPreset = 'compact' | 'normal' | 'spacious';
+export type { ElkSpacingPreset };
 
-const SPACING_PRESETS: Record<
+export const SPACING_PRESETS: Record<
   ElkSpacingPreset,
   { nodeSpacing: number; layerSpacing: number; label: string }
 > = {
@@ -125,21 +125,7 @@ export function FocusDiagramModal() {
       edgeList: NeuroEdge[],
       routing: EdgeRoutingType,
       forceOverwrite = false
-    ): NeuroEdge[] =>
-      edgeList.map((e) => {
-        const effectiveRouting = forceOverwrite
-          ? routing
-          : e.data?.routingType || routing;
-        return {
-          ...e,
-          type: 'jump',
-          data: {
-            ...e.data,
-            routingType: effectiveRouting,
-            jumpArc: effectiveRouting === 'jump',
-          },
-        };
-      }),
+    ): NeuroEdge[] => applyEdgeRouting(edgeList, routing, forceOverwrite),
     []
   );
 
@@ -180,28 +166,23 @@ export function FocusDiagramModal() {
       | undefined;
 
     try {
-      const ast = parseMermaid(mermaid);
-      const effectiveDir = (ast.direction || orient || 'TB') as FlowDirection;
-      setDirection(effectiveDir);
-      const reconciled = reconcileMermaidAST(ast, savedSubNodes || []);
-      const spacingCfg = SPACING_PRESETS[savedSpacing] || SPACING_PRESETS.normal;
-      const layoutResult = calculateElkLayoutSync(
-        reconciled.nodes,
-        savedSubEdges && savedSubEdges.length > 0 ? savedSubEdges : reconciled.edges,
-        {
-          direction: effectiveDir,
-          nodeSpacing: spacingCfg.nodeSpacing,
-          layerSpacing: spacingCfg.layerSpacing,
-        }
-      );
-      setNodes(layoutResult.nodes);
-      setEdges(applyRoutingToEdges(layoutResult.edges, savedRouting));
+      const compiled = DiagramPipeline.compile({
+        mermaidCode: mermaid,
+        savedSubNodes,
+        savedSubEdges,
+        direction: orient,
+        spacingPreset: savedSpacing,
+        edgeRouting: savedRouting,
+      });
+      setDirection(compiled.direction);
+      setNodes(compiled.nodes);
+      setEdges(compiled.edges);
       scheduleFitView();
     } catch {
       setNodes(savedSubNodes || []);
       setEdges(savedSubEdges || []);
     }
-  }, [focusedDiagramId, parentNode, applyRoutingToEdges, scheduleFitView]);
+  }, [focusedDiagramId, parentNode, scheduleFitView]);
 
   // Close & Sync Back to Parent Node
   const handleClose = useCallback(() => {
@@ -253,29 +234,25 @@ export function FocusDiagramModal() {
   const handleCodeChange = useCallback(
     (newCode: string) => {
       setCode(newCode);
-      try {
-        const ast = parseMermaid(newCode);
-        setSyntaxError(null);
-        const newDir = (ast.direction || direction || 'TB') as FlowDirection;
-        if (ast.direction) setDirection(ast.direction);
+      const compiled = DiagramPipeline.compile({
+        mermaidCode: newCode,
+        savedSubNodes: nodes,
+        direction,
+        spacingPreset,
+        edgeRouting,
+      });
 
-        const spacingCfg = SPACING_PRESETS[spacingPreset] || SPACING_PRESETS.normal;
-        const result = reconcileMermaidAST(ast, nodes);
-        const layoutResult = calculateElkLayoutSync(result.nodes, result.edges, {
-          direction: newDir,
-          nodeSpacing: spacingCfg.nodeSpacing,
-          layerSpacing: spacingCfg.layerSpacing,
-        });
-        setNodes(layoutResult.nodes);
-        setEdges(applyRoutingToEdges(layoutResult.edges, edgeRouting));
+      if (compiled.syntaxError) {
+        setSyntaxError(compiled.syntaxError);
+      } else {
+        setSyntaxError(null);
+        if (compiled.ast.direction) setDirection(compiled.ast.direction);
+        setNodes(compiled.nodes);
+        setEdges(compiled.edges);
         scheduleFitView();
-      } catch (err: unknown) {
-        setSyntaxError(
-          err instanceof Error ? err.message : 'Invalid Mermaid syntax'
-        );
       }
     },
-    [nodes, direction, spacingPreset, edgeRouting, applyRoutingToEdges, scheduleFitView]
+    [nodes, direction, spacingPreset, edgeRouting, scheduleFitView]
   );
 
   // Sub-Canvas visual changes -> CodeMirror Sync
@@ -323,7 +300,7 @@ export function FocusDiagramModal() {
       setNodes(layoutResult.nodes);
       const routedEdges = applyRoutingToEdges(layoutResult.edges, edgeRouting);
       setEdges(routedEdges);
-      const serialized = serializeMermaid(layoutResult.nodes, routedEdges, newDir);
+      const serialized = DiagramPipeline.serialize(layoutResult.nodes, routedEdges, newDir);
       setCode(serialized);
       scheduleFitView();
     },
@@ -405,7 +382,7 @@ export function FocusDiagramModal() {
       const nextEdges = [...edges, newEdge];
       setEdges(nextEdges);
 
-      const nextMermaid = serializeMermaid(nodes, nextEdges, direction);
+      const nextMermaid = DiagramPipeline.serialize(nodes, nextEdges, direction);
       setCode(nextMermaid);
     },
     [edges, nodes, direction, edgeRouting]

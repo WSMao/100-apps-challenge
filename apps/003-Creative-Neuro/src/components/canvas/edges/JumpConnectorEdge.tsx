@@ -23,17 +23,19 @@ import {
   getStraightPath,
 } from '@xyflow/react';
 import type { NeuroEdge, Point } from '../../../types/index.ts';
-import { crossProduct2D } from '../../../engine/index.ts';
+import {
+  crossProduct2D,
+  GraphRoutingEngine,
+  computeSmartLabelPosition,
+  computeJumpArcsForEdge,
+  buildJumpSvgPath,
+  type JumpArcData,
+  type LeafRect,
+} from '../../../engine/index.ts';
 import { useProjectStore } from '../../../store/useProjectStore.ts';
 import { EdgeFloatingActionBar } from './EdgeFloatingActionBar.tsx';
 
-export interface JumpArcData {
-  t: number;
-  crossingPoint: Point;
-  startPoint: Point;
-  endPoint: Point;
-  radius: number;
-}
+export type { JumpArcData };
 
 export function JumpConnectorEdge({
   id,
@@ -142,16 +144,13 @@ export function JumpConnectorEdge({
     const p1: Point = { x: sourceX, y: sourceY };
     const p2: Point = { x: targetX, y: targetY };
 
-    const u = { x: p2.x - p1.x, y: p2.y - p1.y };
-    const uLen = Math.hypot(u.x, u.y);
-
     // Smart label placement that avoids leaf nodes and other edge labels across all routing types
     let midX = (sourceX + targetX) / 2;
     let midY = (sourceY + targetY) / 2;
 
     const hasLabel = Boolean(label || data?.label);
-    if (hasLabel && uLen > 20) {
-      const leafRects: Array<{ x: number; y: number; w: number; h: number }> = [];
+    if (hasLabel) {
+      const leafRects: LeafRect[] = [];
       for (const n of allNodes) {
         if (n.type === 'frame') continue;
         const b = nodeMap.get(n.id);
@@ -160,113 +159,16 @@ export function JumpConnectorEdge({
         }
       }
 
-      const placedLabels: Array<{ x: number; y: number; w: number; h: number }> = [];
-      const computeLabelPointForEdge = (
-        ep1: Point,
-        ep2: Point
-      ): { x: number; y: number } => {
-        const dx = ep2.x - ep1.x;
-        const dy = ep2.y - ep1.y;
-        const absDy = Math.abs(dy);
-
-        // For multi-layer vertical hops (> 250px), prefer the first or last inter-layer gap
-        // (~85px from source or target) so labels sit in the empty gap between subgraphs
-        const preferredTs =
-          absDy > 250
-            ? [
-                Math.min(0.42, 88 / absDy),
-                1 - Math.min(0.42, 88 / absDy),
-                Math.min(0.45, 118 / absDy),
-                1 - Math.min(0.45, 118 / absDy),
-                0.5,
-                0.32,
-                0.68,
-              ]
-            : absDy < 40
-            ? [0.5, 0.42, 0.58]
-            : [0.5, 0.34, 0.66, 0.25, 0.75, 0.42, 0.58];
-
-        const labelW = 205;
-        const labelH = 40;
-
-        let bestPt = { x: ep1.x + 0.5 * dx, y: ep1.y + 0.5 * dy };
-        let bestPenalty = Infinity;
-
-        for (const tCand of preferredTs) {
-          for (const yShift of [0, -28, 28]) {
-            const cx = ep1.x + tCand * dx;
-            const cy = ep1.y + tCand * dy + (absDy >= 40 ? yShift : 0);
-
-            let penalty = 0;
-            // Check overlap with leaf nodes
-            for (const nr of leafRects) {
-              const nCx = nr.x + nr.w / 2;
-              const nCy = nr.y + nr.h / 2;
-              if (
-                Math.abs(cx - nCx) < (nr.w + labelW) / 2 - 8 &&
-                Math.abs(cy - nCy) < (nr.h + labelH) / 2 - 4
-              ) {
-                penalty += 1000;
-              }
-            }
-
-            // Check overlap with already-placed edge labels
-            for (const pl of placedLabels) {
-              if (
-                Math.abs(cx - pl.x) < (pl.w + labelW) / 2 + 6 &&
-                Math.abs(cy - pl.y) < (pl.h + labelH) / 2 + 4
-              ) {
-                penalty += 500;
-              }
-            }
-
-            if (penalty === 0) {
-              return { x: cx, y: cy };
-            }
-            if (penalty < bestPenalty) {
-              bestPenalty = penalty;
-              bestPt = { x: cx, y: cy };
-            }
-          }
-        }
-        return bestPt;
-      };
-
-      for (const edgeItem of allEdges) {
-        const itemData = edgeItem.data as NeuroEdge['data'] | undefined;
-        const itemHasLabel = Boolean(edgeItem.label || itemData?.label);
-        if (!itemHasLabel) continue;
-
-        if (edgeItem.id === id) {
-          const chosen = computeLabelPointForEdge(p1, p2);
-          midX = chosen.x;
-          midY = chosen.y;
-          break;
-        }
-
-        const otherAny = edgeItem as unknown as {
-          sourceX?: number;
-          sourceY?: number;
-          targetX?: number;
-          targetY?: number;
-          source: string;
-          target: string;
-          sourceHandle?: string | null;
-          targetHandle?: string | null;
-        };
-        const q1 =
-          typeof otherAny.sourceX === 'number' && typeof otherAny.sourceY === 'number'
-            ? { x: otherAny.sourceX, y: otherAny.sourceY }
-            : getHandlePoint(otherAny.source, otherAny.sourceHandle, 'bottom');
-        const q2 =
-          typeof otherAny.targetX === 'number' && typeof otherAny.targetY === 'number'
-            ? { x: otherAny.targetX, y: otherAny.targetY }
-            : getHandlePoint(otherAny.target, otherAny.targetHandle, 'top');
-        if (q1 && q2) {
-          const pt = computeLabelPointForEdge(q1, q2);
-          placedLabels.push({ x: pt.x, y: pt.y, w: 205, h: 40 });
-        }
-      }
+      const labelPt = computeSmartLabelPosition({
+        p1,
+        p2,
+        edgeId: id,
+        allEdges,
+        leafRects,
+        getHandlePoint,
+      });
+      midX = labelPt.x;
+      midY = labelPt.y;
     }
 
     // 1. Smoothstep (Orthogonal Step Line)
@@ -308,9 +210,7 @@ export function JumpConnectorEdge({
     }
 
     // 4. Default: Jump Arc Intersection Path
-
-    // Degenerate short edge or jump disabled
-    if (uLen < jumpRadius * 2.5 || !isJumpEnabled) {
+    if (!isJumpEnabled) {
       return {
         path: `M ${p1.x.toFixed(2)} ${p1.y.toFixed(2)} L ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`,
         labelX: midX,
@@ -318,118 +218,16 @@ export function JumpConnectorEdge({
       };
     }
 
-    const normU = { x: u.x / uLen, y: u.y / uLen };
-    const minT = Math.max(0.05, (jumpRadius + 2) / uLen);
-    const maxT = 1 - minT;
+    const jumps = computeJumpArcsForEdge(
+      id,
+      p1,
+      p2,
+      allEdges,
+      getHandlePoint,
+      jumpRadius
+    );
 
-    const jumps: JumpArcData[] = [];
-
-    // Compare against other visible edges
-    for (const other of allEdges) {
-      if (other.id === id) continue;
-
-      const otherAny = other as unknown as {
-        sourceX?: number;
-        sourceY?: number;
-        targetX?: number;
-        targetY?: number;
-        source: string;
-        target: string;
-        sourceHandle?: string | null;
-        targetHandle?: string | null;
-      };
-
-      const q1: Point | null =
-        typeof otherAny.sourceX === 'number' && typeof otherAny.sourceY === 'number'
-          ? { x: otherAny.sourceX, y: otherAny.sourceY }
-          : getHandlePoint(otherAny.source, otherAny.sourceHandle, 'bottom');
-
-      const q2: Point | null =
-        typeof otherAny.targetX === 'number' && typeof otherAny.targetY === 'number'
-          ? { x: otherAny.targetX, y: otherAny.targetY }
-          : getHandlePoint(otherAny.target, otherAny.targetHandle, 'top');
-
-      if (!q1 || !q2) continue;
-
-      const v = { x: q2.x - q1.x, y: q2.y - q1.y };
-      const vLen = Math.hypot(v.x, v.y);
-      if (vLen < 1e-4) continue;
-
-      const D = crossProduct2D(u, v);
-      if (Math.abs(D) < 1e-6) continue; // Parallel or colinear
-
-      const w = { x: q1.x - p1.x, y: q1.y - p1.y };
-      const t = crossProduct2D(w, v) / D;
-      const s = crossProduct2D(w, u) / D;
-
-      const minS = Math.max(0.05, (jumpRadius + 2) / vLen);
-      const maxS = 1 - minS;
-
-      if (t >= minT && t <= maxT && s >= minS && s <= maxS) {
-        // Priority check: horizontal jumps over vertical, otherwise lexicographical edge ID
-        const s1IsHorizontal = Math.abs(u.y) < 1e-3;
-        const s2IsVertical = Math.abs(v.x) < 1e-3;
-
-        let s1ShouldJump = false;
-        if (s1IsHorizontal && s2IsVertical) {
-          s1ShouldJump = true;
-        } else if (Math.abs(u.x) < 1e-3 && Math.abs(v.y) < 1e-3) {
-          s1ShouldJump = false;
-        } else {
-          s1ShouldJump = id < other.id;
-        }
-
-        if (s1ShouldJump) {
-          const crossX = p1.x + t * u.x;
-          const crossY = p1.y + t * u.y;
-
-          jumps.push({
-            t,
-            crossingPoint: { x: crossX, y: crossY },
-            startPoint: {
-              x: crossX - jumpRadius * normU.x,
-              y: crossY - jumpRadius * normU.y,
-            },
-            endPoint: {
-              x: crossX + jumpRadius * normU.x,
-              y: crossY + jumpRadius * normU.y,
-            },
-            radius: jumpRadius,
-          });
-        }
-      }
-    }
-
-    if (jumps.length === 0) {
-      return {
-        path: `M ${p1.x.toFixed(2)} ${p1.y.toFixed(2)} L ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`,
-        labelX: midX,
-        labelY: midY,
-      };
-    }
-
-    // Sort by parameter t ascending
-    jumps.sort((a, b) => a.t - b.t);
-
-    // Build SVG path with arc bridges
-    let path = `M ${p1.x.toFixed(2)} ${p1.y.toFixed(2)}`;
-    let lastT = 0;
-
-    for (let i = 0; i < jumps.length; i++) {
-      const jump = jumps[i];
-
-      // Suppress overlapping arcs closer than 2.2 * radius
-      if (i > 0 && (jump.t - lastT) * uLen < jumpRadius * 2.2) {
-        continue;
-      }
-      lastT = jump.t;
-
-      path += ` L ${jump.startPoint.x.toFixed(2)} ${jump.startPoint.y.toFixed(2)}`;
-      path += ` A ${jump.radius} ${jump.radius} 0 0 1 ${jump.endPoint.x.toFixed(2)} ${jump.endPoint.y.toFixed(2)}`;
-    }
-
-    path += ` L ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
-
+    const path = buildJumpSvgPath(p1, p2, jumps);
     return { path, labelX: midX, labelY: midY };
   }, [
     id,

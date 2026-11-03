@@ -317,6 +317,8 @@ export interface StoredEdge extends NeuroEdge {
 // 8. Algorithmic Options & Interfaces (Cross-layer Contracts)
 // ============================================================================
 
+export type ElkSpacingPreset = 'compact' | 'normal' | 'spacious';
+
 export interface ElkLayoutOptions {
   algorithm?: 'layered' | 'mrtree';
   direction?: 'RIGHT' | 'DOWN' | 'LEFT' | 'UP' | FlowDirection | string;
