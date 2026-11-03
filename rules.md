@@ -299,5 +299,24 @@
 3. **涉及鍵盤遮擋與第一響應者 (First Responder & Keyboard Avoidance)**：
    - 必須透過真實模擬器執行 XCUITest 或真機驗證，確認 TextField 獲得焦點時畫面平滑滾動，鍵盤收起時無死白或焦點遺失。
 
+---
+
+## 10. Agent Skills 規範 (Agent Skills Workflow)
+
+本專案支援由 [mattpocock/skills](https://github.com/mattpocock/skills) 擴充之工程與生產力工作流程。當在對話中使用相關技能（如 `/to-spec`、`/to-tickets`、`/implement`、`/grill-with-docs`、`/triage`）時，遵循以下統一規格：
+
+### Issue tracker
+
+Hybrid workflow: currently tracked via subproject `README.md` and `.scratch/` with Jira-ready structure during transition to Jira. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Canonical triage vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Multi-context layout (`GLOSSARY-MAP.md` mapping to per-app `apps/<id>/GLOSSARY.md` & `apps/<id>/docs/adr/`). See `docs/agents/domain.md`.
+
+
 
 
