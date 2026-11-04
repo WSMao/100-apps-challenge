@@ -62,18 +62,12 @@
 # 項目名稱
 概要描述，也可以加入這個應用主要畫面的截圖
 
-## MVP
-當一個 App 達成 MVP 階段時，主動為對應的 MVP 項目打勾表示完成。
-
-### 核心痛點
+## 核心痛點
 條列不超過 5 個核心痛點。
 
-### MVP 核心功能清單
-以核取方塊條列不超過 5 個核心功能，若有子功能請縮排一樣條列展示。
+## 使用者應用指南
 
-## 💡 使用者應用指南
-
-## 🛠️ 技術路線
+## 技術路線
 如有符合以下欄位請填入後面內容，沒有符合可自行創建欄位，用不到的欄位請不要新增。範例：
 - **前端框架**：React 19 + TypeScript
 - **建置工具**：Vite 8
@@ -86,12 +80,12 @@
 - **Markdown 渲染**：marked 套件
 - **留言板**：Giscus + GitHub discussions
 
-## 🚀 開發者安裝說明
+## 開發者安裝說明
 
 
 ## 應用架構與設計
 
-## 📋工作快照
+## 工作快照
 
 請使用表格記錄每次的 commit 或重大架構新增或修正記錄。最新的記錄在最上方。表格標題依序為：
   - 日期
@@ -131,21 +125,18 @@
 - 比對既有內容：若該主題已存在相關文件，僅增補尚未提及或需深入擴充的部分，避免重複堆疊。
 - 若無合適的現有文件，主動創建對應主題的全新 Markdown 筆記進行結構化記錄。
 
-### Frontmatter 更新：
-當專案啟動，或使用者提出「更新專案狀態」時，更新 Obsidian 筆記頂部的 YAML 屬性：
+### 專案筆記
+專案筆記為開發者構思專案原形想法以及記錄專案開發過程的地方，路徑為 `Journey/04_Coding/100 Apps Challenge/<id>-<appname>.md`。若檔案存在，使用 `/plan` 或者 `/grill-me` 等釐清專案方向的時候可以參考。
+
+#### 開發者要求「記錄到專案筆記」時
+若開發者要求將某些內容「記錄到專案筆記」時，請尋找適合的位置插入筆記。若已有相關的概念，或關聯的筆記區塊，可以直接補充或加入。也可自訂筆記標題，那就按照提供的標題建立內容。
+
+#### 開發者要求「更新專案狀態」時
+當專案啟動，或使用者提出「更新專案狀態」時，更新 Obsidian 筆記頂部 Frontmatter 的 YAML 屬性：
 - status： 比如 in-progress / completed
 - tech_stack
 - update_date
 
-### 專案管理
-當專案啟動，或使用者提出「更新專案狀態」時，按照目前規劃討論項目分門別類，整理出專案的規劃方向，條列工作項目並估計所需時間。
-若已有列好的工作項目，可以按照需求變動新增、刪除或重整。
-
-### 專案筆記
-若使用者要求將某些內容記錄到「專案筆記」時，請找到對應的專案 `Journey/04_Coding/100 Apps Challenge/<id>-<appname>.md` ，尋找適合的位置插入筆記。
-若筆記內已有相關的概念，或關聯的筆記區塊，可以直接補充或加入。
-
-如果使用者有自訂筆記標題，那就按照使用者標題建立內容。
 
 ## 8. Git 版控與分支策略
 ### 資安防護
@@ -182,30 +173,29 @@
 1. **`base` 分支（全域基礎骨架）**：
    - **定位**：專門維護 `apps/` 以外的所有全域內容（例如 `rules.md`、`agents.md`、`CLAUDE.md`、`.agents/` 工具集、全域設定檔）。
    - **原則**：**永遠不 merge 任何個別 App 分支或 `main` 分支**，確保骨架絕對純淨。
-   - **全域提交**：所有非特定 App 的全域修改，一律切換至 `base` 進行 Commit 與 Push，再合入 `main`。
-   - **新專案起點**：未來所有新建立的 App 分支，一律由 `base` 切出：`git checkout -b <id>-<name> base`。
+   - **全域提交**：所有非特定 App 的全域修改，一律切換至 `base` 進行 add、Commit 與 Push。
+   - **新專案起點**：未來所有新建立的 App 分支，一律由 `base` 切出：`git checkout -b <id>-<app-name> base`。
 
-2. **`<id>-<name>` 分支（獨立 App 開發分支）**：
+2. **`<id>-<app-name>` 分支（獨立 App 開發分支的主線）**：
    - **定位**：個別應用的專屬工作分支（例如 `002-Good-Sleep`）。
-   - **邊界隔離**：只能在自己的 `apps/<id>-<name>/` 目錄下作業與提交。
+   - **App 開發分支的支線**：app 支線應由 app 主線 `<id>-<app-name>` 切出，照 ticket 任務命名為 `<id>-<app-name>-<ticket-name>`。
+   - **支線合併回主線**： 一律發送 「Pull Request (PR)」請求審核後合併回 app 主線。禁止直接合併回 `main` 分支。
+   - **多任務並行時**：應使用 `git worktree`，讓每個分支在獨立環境下運行。
+   - **邊界隔離**：只能在自己的 `apps/<id>-<app-name>/` 目錄下作業與提交。
    - **同步全域規範（使用 `merge base`）**：
      - 當 `base` 分支有新增 Skill 或更新規範時，進行中的 App 分支一律執行 **`git merge base`** 進行同步。
      - **嚴禁 `git merge main`**（因為 `main` 匯集了所有其他 App 的程式碼，反向 merge 會污染當前 App 分支）。
-     - **為何使用 `merge base` 而非 `rebase base`？**
-       - 各 App 分支通常已 Push 至遠端 GitHub 供跨平台 Agent 或多裝置接力協同。`rebase` 會改寫 Commit SHA，導致推送時必須強制覆蓋 (`git push --force`)，極易造成協同衝突或覆蓋他方進度。
-       - `git merge base` 屬於安全、非破壞性的前進式合併，完全無需 force push，且因為 `base` 只變動根目錄，與 `apps/<id>-<name>/` 完全無衝突。
 
 3. **`main` 分支（生產整合分支）**：
    - **定位**：展示中心與整體專案的最終集大成分支。
-   - **職責**：匯總所有已驗證完成的 App 分支，並同步 merge `base` 的全域更新。禁止直接在 `main` 進行個別 App 的功能開發。
+   - **職責**：匯總所有已驗證完成的 App 主線分支，並同步 merge `base` 的全域更新。禁止直接在 `main` 進行個別 App 的功能開發。
 
 ### add 的內容與邊界限制
-- **App 分支 (`<id>-<name>`)**：只能 `add` 自己資料夾內的項目，即 `apps/<id>-<name>/`。
 - **全域分支 (`base`)**：專門 `add` 根目錄 `100 Apps Challenge` 下的全域檔案（如 `rules.md`、`.agents/`、設定檔等）。
-- **主分支 (`main`)**：僅執行 `merge` 操作（如 `git merge base`、`git merge <id>-<name>`），不隨意個別 `add`。
+- **主分支 (`main`)**：僅執行 `merge` 操作（如 `git merge base`、`git merge <id>-<app-name>`），不隨意個別 `add`。
+- **App 分支主線 (`<id>-<app-name>`)**：僅執行 `merge` 自己 「App 分支支線」的操作。
+- **App 分支支線 (`<id>-<app-name>-<ticket-name>`)**：只能 `add` 自己 App 資料夾內的項目，即 `apps/<id>-<app-name>/`。
 
-### commit 時機點
-- 每完成一定的階段時，讓使用者確認無誤後才 add 進 repository，並規劃 commit 訊息請求提交。
 
 ---
 
@@ -298,6 +288,25 @@
    - UI 相關操作必須標註 `@MainActor`，開啟 Main Thread Checker 驗證零紫標警告。
 3. **涉及鍵盤遮擋與第一響應者 (First Responder & Keyboard Avoidance)**：
    - 必須透過真實模擬器執行 XCUITest 或真機驗證，確認 TextField 獲得焦點時畫面平滑滾動，鍵盤收起時無死白或焦點遺失。
+
+---
+
+## 10. Agent Skills 規範 (Agent Skills Workflow)
+
+本專案支援由 [mattpocock/skills](https://github.com/mattpocock/skills) 擴充之工程與生產力工作流程。當在對話中使用相關技能（如 `/to-spec`、`/to-tickets`、`/implement`、`/grill-with-docs`、`/triage`）時，遵循以下統一規格：
+
+### Issue tracker
+
+Hybrid workflow: currently tracked via subproject `README.md` and `.scratch/` with Jira-ready structure during transition to Jira. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Canonical triage vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Multi-context layout (`GLOSSARY-MAP.md` mapping to per-app `apps/<id>/GLOSSARY.md` & `apps/<id>/docs/adr/`). See `docs/agents/domain.md`.
+
 
 
 
