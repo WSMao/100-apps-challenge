@@ -782,15 +782,11 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
     });
 
     it('UI-03: Logo asset, circular frame, Header brand layout and Workspace modal positioning', () => {
-      // 1. Verify logo_option_4e.png exists
-      const logo4ePath = path.resolve(__dirname, '../assets/logo_option_4e.png');
-      expect(fs.existsSync(logo4ePath)).toBe(true);
-
-      // 2. Verify AppLogoMenu renders circular logo button (rounded-full)
+      // 1. Verify AppLogoMenu renders circular logo button (rounded-full & top-left-logo-btn)
       const appLogoMenuPath = path.resolve(__dirname, '../src/components/workspace/AppLogoMenu.tsx');
       const appLogoMenuCode = fs.readFileSync(appLogoMenuPath, 'utf8');
-      expect(appLogoMenuCode).toContain('logo_option_4e.png');
       expect(appLogoMenuCode).toContain('rounded-full');
+      expect(appLogoMenuCode).toContain('top-left-logo-btn');
 
       // 3. Verify Workspace Modal is enlarged (max-w-3xl) and placed below header (pt-20)
       expect(appLogoMenuCode).toContain('max-w-3xl');

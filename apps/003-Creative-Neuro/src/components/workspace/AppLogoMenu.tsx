@@ -12,7 +12,7 @@ import {
   ChevronDown,
   Upload,
 } from 'lucide-react';
-import logoImg from '../../../assets/logo_option_4e.png';
+import logoImg from '../../../assets/logo_circle.png';
 import { useProjectStore } from '../../store/projectStore.ts';
 import {
   importFromPngOrSvgMetadata,
@@ -201,7 +201,7 @@ export const AppLogoMenu: React.FC<AppLogoMenuProps> = ({ onOpenImport }) => {
         title="Application Menu (Click to open)"
         aria-label="Application Menu"
         aria-expanded={isMenuOpen}
-        className={`w-10 h-10 rounded-full overflow-hidden border flex items-center justify-center p-0.5 shadow-lg transition cursor-pointer select-none ${
+        className={`w-12 h-12 rounded-full overflow-hidden border flex items-center justify-center p-0.5 transition cursor-pointer select-none ${
           isMenuOpen
             ? 'ring-2 ring-indigo-500 border-indigo-400'
             : isDark
@@ -213,7 +213,7 @@ export const AppLogoMenu: React.FC<AppLogoMenuProps> = ({ onOpenImport }) => {
         <img
           src={logoImg}
           alt="Creative-Neuro Logo"
-          className="w-full h-full object-cover rounded-full pointer-events-none drop-shadow-md scale-105"
+          className="w-full h-full object-cover  pointer-events-none drop-shadow-md scale-120"
         />
       </button>
 
