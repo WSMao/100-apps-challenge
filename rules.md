@@ -291,6 +291,32 @@
 
 ---
 
+### 9.4 測試豁免與輕量化驗收規範 (Testing Exemption & Fast-Track SOP)
+
+為避免 AI Agent 陷入「過度防衛型無效測試（Over-testing / Testing Overkill）」或因瑣碎變更無端耗費驗證成本，特別明定以下豁免條款與反模式禁令：
+
+#### A. 全面免除自動化測試的場景 (Test-Exempt Scenarios)
+當變更僅涉及以下任一類型時，**嚴禁無差別執行全套測試套件（如 `test:unit`、`test:engine`、`test:e2e`）**：
+1. **純靜態資源與多媒體檔案（Assets Only）**：
+   - 包含：圖片（PNG/SVG/WebP/ICO）、圖示、Favicon、音訊、字型等檔案新增或覆蓋。
+   - 包含：僅修改組件中靜態資源的 `import` 路徑（例如更換 Logo 檔名）。
+2. **純文案與國際化翻譯（Copywriting & i18n Strings）**：
+   - 按鈕標籤、介面說明、Tooltip 提示詞、錯誤訊息字串調整。
+3. **純樣式外觀微調（Styling & Cosmetic Tweaks）**：
+   - 微調 Tailwind 顏色色碼、邊框圓角、間距（Padding/Margin）、文字顏色等純視覺屬性（未改動組件結構與條件渲染邏輯）。
+4. **專案文件與註解（Documentation & Comments）**：
+   - `README.md`、架構圖、程式碼註解、JSDoc / TypeScript 註解或檔案整理。
+
+**免測場景的輕量化驗收標準**：
+- 僅需透過開發伺服器（如 Vite HMR）確認熱重載編譯通過、無語法/路徑報錯，並於瀏覽器視窗直接預覽確認即完成驗收。
+
+#### B. 測試撰寫之反模式禁令：嚴禁斷言實作細節 (Anti-Pattern: Brittle Implementation Assertions)
+自動化測試旨在驗證「功能行為（Behavior & Contract）」，絕非驗證「原始碼字串（Implementation Details）」：
+1. **嚴禁在測試程式中直接以字串比對原始碼檔名或靜態資源路徑**（例如：`expect(code).toContain('logo.png')`）。此類測試屬於脆弱測試（Brittle Tests），一旦更名將造成無謂假性紅燈與開發阻礙。
+2. **嚴禁斷言組件內部的私有變數或內部實作細節**：應以公開 API、Props、真實 DOM 角色（ARIA Roles）或使用者可見文字作為斷言依據。
+
+---
+
 ## 10. Agent Skills 規範 (Agent Skills Workflow)
 
 本專案支援由 [mattpocock/skills](https://github.com/mattpocock/skills) 擴充之工程與生產力工作流程。當在對話中使用相關技能（如 `/to-spec`、`/to-tickets`、`/implement`、`/grill-with-docs`、`/triage`）時，遵循以下統一規格：
