@@ -323,7 +323,7 @@
 
 ### Issue tracker
 
-Hybrid workflow: currently tracked via subproject `README.md` and `.scratch/` with Jira-ready structure during transition to Jira. See `docs/agents/issue-tracker.md`.
+GitHub issues & projects via `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
