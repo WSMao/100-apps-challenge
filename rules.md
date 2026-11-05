@@ -34,7 +34,7 @@
 ## 3. 開發流程
 先建立專案資料夾及工程文件：
 - **建立專案資料夾**：在 `apps/` 下，以專案名稱建立專案資料夾，例如 `apps/<id>-<project name>`。
-- **建立工程文件**：在專案資料夾下建立工程文件，記錄使用者已提供之規劃方向，內容及結構按照底下「工程文件 `README.md`」的章節說明。
+- **建立工程文件**：在專案資料夾下建立工程文件 `README.md`，內容結構嚴格遵循 [`.agents/skills/project-docs/SKILL.md`](.agents/skills/project-docs/SKILL.md)。
 
 若初次建立專案時，使用者未提供以下幾點資訊（或者不夠詳盡），則進入 plan 模式，與使用者討論出方向：
 - **專案命名**
@@ -43,7 +43,12 @@
 - **專案的 MVP 功能**
 - **技術路線**： 框架、程式語言、套件或 plugins，第三方服務如資料庫、前端託管服務...
 - **資料儲存方案**：本地或雲端服務。
-- **安全性、可維護性、可擴展性**：探討 Security、Maintanence、Scalability
+- **安全性、可維護性、可擴展性**：探討 Security、Maintenance、Scalability
+
+👉 **引導與規格工具推薦**：
+- 需求深入盤查與架構決策：調用 `/grill-me` ([`.agents/skills/grilling/SKILL.md`](.agents/skills/grilling/SKILL.md)) 進行問題樹訪談。
+- 討論成案與規格產出：調用 `/to-spec` ([`.agents/skills/to-spec/SKILL.md`](.agents/skills/to-spec/SKILL.md)) 將對話淬鍊為規格並建立 Issue。
+- 互動與架構可行性探索：調用 `/prototype` ([`.agents/skills/prototype/SKILL.md`](.agents/skills/prototype/SKILL.md)) 建立拋棄式原型。
 
 
 ## 4. 開發規範與工程標準
@@ -55,38 +60,16 @@
 
 ---
 
-## 5. 工程文件與展示門面 `README.md`
+## 5. 工程文件與展示門面 (Documentation Architecture)
 
-本專案採用 **「四位一體文件分工體系」**（詳見 `.agents/skills/project-docs/SKILL.md`），將靜態展示、任務追蹤、架構約束與個人筆記嚴格切分：
-1. **公開展示層 (`apps/<id>/README.md`)**：面向 GitHub 人類讀者（使用者與外部開發者），專注產品展示、操作指南與本機快速啟動，**絕不記錄細碎的日常任務流水帳**。
+本專案全面實施 **「四位一體文件分工體系」**，將靜態展示、任務追蹤、架構約束與個人筆記嚴格解耦，維持單一真實來源（Single Source of Truth）：
+1. **公開展示層 (`apps/<id>/README.md`)**：面向 GitHub 人類讀者（使用者與外部開發者），專注產品特色、使用操作與本機快速啟動。**嚴禁記錄細碎的日常任務流水帳或 commit 歷史表格**。
 2. **動態任務層 (GitHub Projects & Issues)**：日常 Sprint、功能拆票（`/to-tickets`）、Bug 追蹤與阻擋依賴，統一由 GitHub Project 看板管理。
-3. **架構知識層 (`GLOSSARY.md` & `docs/adr/`)**：領域專有名詞與架構決策。
+3. **架構知識層 (`GLOSSARY.md` & `docs/adr/`)**：領域專有名詞與架構決策（遵循 `domain-modeling` 技能）。
 4. **個人認知層 (Obsidian 筆記庫)**：個人做中學反思與技術深入探討。
 
-子專案 `apps/<id>/README.md` 的標準展示結構應包含：
-
-```markdown
-# 項目名稱
-一兩句話點出此應用的獨特價值與解決方案。可加入應用畫面的展示截圖或 GIF。
-
-## 🎯 核心痛點與價值
-條列不超過 5 個核心痛點，說明傳統工具的缺陷以及本專案如何優雅解決。
-
-## 💡 使用者指南 (User Guide)
-說明如何使用此應用，包含核心操作流程與常用快捷鍵清單。
-
-## 🛠️ 開發者指南 (Developer Guide)
-- **技術棧清單**：列出前端框架、狀態管理、關鍵引擎套件。
-- **應用架構概觀**：5 層模組化架構（Bottom-Up 5-Layer Architecture）或主要目錄分工。
-- **本機安裝與啟動說明**：
-  ```bash
-  pnpm install
-  pnpm -C apps/<id>-<name> dev
-  pnpm -C apps/<id>-<name> build
-  ```
-
-## 🚀 未來展望（若沒有可留白）
-```
+👉 **子專案 `README.md` 標準結構與模板**：
+請一律參照 [`.agents/skills/project-docs/SKILL.md`](.agents/skills/project-docs/SKILL.md) 及其範本 [`resources/app-readme-template.md`](.agents/skills/project-docs/resources/app-readme-template.md) 進行撰寫或重構，嚴格禁止在子專案 `README.md` 中維護任務清單或工作快照。
 
 ## 6. showcase 展示
 每個項目（包含第一個項目）都會是第一個項目`001-Challenge Showcase`的展示內容，而第一個項目的設計架構為「資料驅動」。
@@ -186,12 +169,19 @@
 - **App 分支主線 (`<id>-<app-name>`)**：僅執行 `merge` 自己 「App 分支支線」的操作。
 - **App 分支支線 (`<id>-<app-name>-<ticket-name>`)**：只能 `add` 自己 App 資料夾內的項目，即 `apps/<id>-<app-name>/`。
 
+👉 **推送流程、Git 命令與沙盒權限手冊**：
+日常 Git 指令操作、連網推播與分支同步步驟，請參照 [`.agents/skills/pushflow/SKILL.md`](.agents/skills/pushflow/SKILL.md) 及其參考文件 `references/git-commands.md`。
+
 
 ---
 
 ## 9. 自動化測試規範 (Automated Testing Standards)
 
 ### 9.1 核心原則：測試分層與職責邊界 (Testing Philosophy & Anti-Patterns)
+
+> [!TIP] 測試原則與除錯流程參照
+> - 針對測試邊界（Seams）選擇與公開行為驗證，遵循 [`.agents/skills/tdd/SKILL.md`](.agents/skills/tdd/SKILL.md) 的 Red-Green 迴圈規範。
+> - 針對硬性 Bug 與效能問題排查，遵循 [`.agents/skills/diagnosing-bugs/SKILL.md`](.agents/skills/diagnosing-bugs/SKILL.md) 之建立反饋迴圈（Feedback Loop）程序。
 
 所有 AI Agent 在開發、除錯與驗證交付時，必須嚴格落實「測試分層原則」，**嚴禁將純內部邏輯的單元測試全綠，假冒或混淆為前端 UI 與真實互動正常的證明**。
 
@@ -301,7 +291,7 @@
 - 僅需透過開發伺服器（如 Vite HMR）確認熱重載編譯通過、無語法/路徑報錯，並於瀏覽器視窗直接預覽確認即完成驗收。
 
 #### B. 測試撰寫之反模式禁令：嚴禁斷言實作細節 (Anti-Pattern: Brittle Implementation Assertions)
-自動化測試旨在驗證「功能行為（Behavior & Contract）」，絕非驗證「原始碼字串（Implementation Details）」：
+自動化測試旨在驗證「功能行為（Behavior & Contract）」，絕非驗證「原始碼字串（Implementation Details）」（遵循 [`.agents/skills/tdd/SKILL.md`](.agents/skills/tdd/SKILL.md) 的 Anti-patterns: Implementation-coupled 規範）：
 1. **嚴禁在測試程式中直接以字串比對原始碼檔名或靜態資源路徑**（例如：`expect(code).toContain('logo.png')`）。此類測試屬於脆弱測試（Brittle Tests），一旦更名將造成無謂假性紅燈與開發阻礙。
 2. **嚴禁斷言組件內部的私有變數或內部實作細節**：應以公開 API、Props、真實 DOM 角色（ARIA Roles）或使用者可見文字作為斷言依據。
 

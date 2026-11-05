@@ -80,3 +80,4 @@ When authoring or refactoring an application's `README.md` under `apps/<id>-<app
 ### Creating a new subproject `README.md`:
 Copy and populate the template at:
 👉 `resources/app-readme-template.md`
+
