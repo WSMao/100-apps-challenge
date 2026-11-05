@@ -1,14 +1,20 @@
 # Triage Labels
 
-The skills speak in terms of five canonical triage roles. This file maps those roles to the label strings used in our workflow (and Jira labels):
+The five canonical triage states, mapped to their GitHub labels:
 
-| Label in mattpocock/skills | Label in our tracker | Meaning |
+| State | Role | Meaning |
 | :--- | :--- | :--- |
-| `needs-triage` | `needs-triage` | Maintainer needs to evaluate this issue |
-| `needs-info` | `needs-info` | Waiting on reporter for more information |
-| `ready-for-agent` | `ready-for-agent` | Fully specified, ready for an AFK agent |
-| `ready-for-human` | `ready-for-human` | Requires human implementation |
-| `wontfix` | `wontfix` | Will not be actioned |
+| `needs-triage` | Initial | Needs review by maintainer or `/triage` skill |
+| `needs-info` | Waiting | Awaiting additional context or reproduction steps |
+| `ready-for-agent` | Ready | Actionable, well-specified brief ready for AFK AI agent |
+| `ready-for-human` | Ready | Requires human intervention, credentials, or high-risk decision |
+| `wontfix` | Terminal | Will not be worked on |
 
-When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
+## Usage with GitHub
 
+- Issues that need triage should carry `needs-triage`.
+- When an agent is ready to pick up work, it queries for open issues with label `ready-for-agent`:
+  ```bash
+  gh issue list --state open --label "ready-for-agent"
+  ```
+- Issues requiring human intervention are marked `ready-for-human`.
