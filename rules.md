@@ -327,7 +327,7 @@ GitHub issues & projects via `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Canonical triage vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+Canonical triage vocabulary with `triage:` prefix (`triage: needs-triage`, `triage: needs-info`, `triage: ready-for-agent`, `triage: ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
