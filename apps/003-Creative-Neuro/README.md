@@ -1,6 +1,6 @@
 # 003 - Creative-Neuro
 
-> 融合 Xmind 的絲滑操作體驗、Mermaid 的純文字與 AI 雙向驅動，以及無限白板的多對多自由連結，打造打破心智圖與流程圖界線的「Any Chart」視覺化思考工具。
+> 以無限白板打造視覺化思考工具，讓各種形式的視覺化內容，能夠同時呈現並關聯。同時能與 AI 以文字或語音即時交互，共同協作激發創意。
 
 [![Status](https://img.shields.io/badge/Status-Active-emerald.svg)]()
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)]()
@@ -11,14 +11,14 @@
 
 ## 🎯 核心痛點與特色 (Why Creative-Neuro?)
 
-1. **打破工具邊界的「Any Chart」體驗**：
-   市面工具往往將「心智圖（一對多階層）」、「流程圖（多對多網狀）」與「自由白板」硬性割裂。Creative-Neuro 將三者融合於單一無限畫布中，既能快速發想階層結構，亦可任意在任意節點間拉出關聯連線或手繪塗鴉。
-2. **自動排版與手動微調的完美共存（Node ID Reconciliation）**：
-   傳統文字繪圖工具（如 Mermaid）在從自動佈局切換至手動調整時座標容易失真，且修改代碼後往往洗掉排版。Creative-Neuro 透過結構與幾何分離的對帳演算法，無論在 CodeMirror 6 編輯代碼或畫布手動微調，皆能精確保留個別節點的手動座標與固定狀態。
-3. **極速鍵盤發想流（Keyboard-First Mindmapping）**：
-   選取節點敲擊 `Tab` 衍生子節點、敲擊 `Enter` 產生兄弟節點、`⌥ + 方向鍵` 觸發 AABB 碰撞偵測避障並向指定方向生長。單擊節點直接鍵盤輸入即可取代文字（含中英文輸入法 IME 首字保護），思考過程雙手無需離開鍵盤。
-4. **完全本機離線優先與圖片無損還原（Lossless PNG/SVG Restore）**：
-   資料完全儲存於本機 IndexedDB（Dexie.js），無延遲且隱私安全。匯出之 `.neuro.png` 與 `.neuro.svg` 圖片內嵌壓縮狀態（zlib / Pako），將圖片直接拖回畫布即可 100% 無損還原完整圖表、分頁與排版狀態。
+1. 市面上有許多好用的「心智圖」、「流程圖」以及「自由白板」的繪圖工具，但鮮少有同時做好這三種解決方案的工具。你可能需要個別向三家廠商付費以取得最好的使用體驗。
+2. 流程圖也有分手動拖放建置以及靠 Mermaid 語法定義並自動排版建置的兩種方式。
+   
+  是否能打造一個集各個優質軟體的優點於一身的創意激發工具？
+  - 同時支援「心智圖」、「流程圖」以及「自由白板」甚至「HTML 網頁互動式頁面」
+  - 能透過程式快速生成 Mermaid 語法並自動 Layout 的同時，保留手動調整的權利。
+
+  是否能在 AI 時代下，與 AI 即時互動，共同以視覺化的方式進行腦力激盪。
 
 ---
 
@@ -51,7 +51,7 @@
 ### 技術棧 (Tech Stack)
 
 - **前端核心**：React 19 + TypeScript + Vite 6 + Tailwind CSS v4 + Lucide React
-- **畫布與圖元渲染**：`@xyflow/react` (React Flow v12, HTML DOM + SVG 混合渲染) + `perfect-freehand`
+- **畫布與圖元渲染**：`@xyflow/react` (React Flow v12, HTML DOM + SVG 混合渲染) + `perfect-freehand` 手繪筆跡
 - **自動排版引擎**：`elkjs` (Eclipse Layout Kernel，支援複合子圖與階層式自動佈局)
 - **程式碼編輯器**：CodeMirror 6 (`@codemirror/view`, `@codemirror/state`, `@codemirror/lang-markdown`)
 - **狀態管理與撤銷復原**：Zustand v5 + Immer + Zundo (Undo/Redo 歷史棧)
@@ -73,11 +73,6 @@ Layer 2: Core Engines (Mermaid AST 對帳、ELK 佈局、AABB 碰撞避障、SVG
 Layer 1: State Store & Persistence (Zustand 領域切片、Zundo 歷史棧、Dexie 本機持久化)
 ```
 
-1. **Layer 1 (`src/types` & `src/store`)**：定義領域模型與核心型別，透過模組化 Store Slices 管理狀態與 IndexedDB 異步持久化。
-2. **Layer 2 (`src/engine`)**：純函數演算法核心，包含 Mermaid 雙向解析、ELK 排版計算、Minkowski Sum AABB 碰撞偵測避障與 SVG 交錯跳線幾何路由。
-3. **Layer 3 (`src/components/canvas`)**：自訂節點與邊緣元件（Shape, Text, Diagram, Frame, Freehand, JumpConnectorEdge）。
-4. **Layer 4 (`src/components/editor`)**：專注編輯模式左側 CodeMirror 6 雙向同步編輯器與排版模式切換器。
-5. **Layer 5 (`src/components/workspace`)**：畫布容器、頂部多頁標籤切換、左側工具列與匯出還原彈窗。
 
 ### 本機開發與指令 (Getting Started)
 
