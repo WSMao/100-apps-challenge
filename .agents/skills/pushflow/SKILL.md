@@ -3,7 +3,7 @@ name: pushflow
 description: >-
   Standard operating procedures and automated git push flow for 100 Apps Challenge subprojects.
   Use this skill whenever asking to push changes (e.g. apps/001-*, apps/002-*, etc.), including Conventional
-  Commits, README work snapshots, git merge to main, and base branch synchronization.
+  Commits, git merge to main, and base branch synchronization.
 ---
 
 # 100 Apps Challenge 自動化推送工作流程與規範 (pushflow)
@@ -25,8 +25,9 @@ description: >-
 
 ## 2. 開發與提交標準作業流程 (Standard Workflow)
 
-### 步驟 1：維護工程文件與工作快照 (README.md)
-若變更涉及特定 App，在每次 Commit 前必須同步更新該 App 目錄下 `README.md` 中的 **📋工作快照** 表格。
+### 步驟 1：確認任務與變更邊界 (GitHub Projects & Issues)
+- 變更應對應 GitHub Issue 或已認領之票據（Label: `app-<NNN>`）。
+- 子專案日常任務與 Bug 追蹤統一在 GitHub Projects 看板維護，**嚴禁在子專案 `README.md` 撰寫細碎之工作快照或 commit 流水帳**（詳見 `.agents/skills/project-docs/SKILL.md`）。
 
 ### 步驟 2：Conventional Commits 規範
 - 遵守統一的 Conventional Commits 格式：
