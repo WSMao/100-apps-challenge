@@ -55,47 +55,37 @@
 
 ---
 
-## 5. 工程文件 `README.md` 
-工程文件就是項目開發的說明書，讓 agents 在共同開發時有一致性，使用相同的依賴管理、相同的技術路線，也能參照工作快照快速掌握目前的項目狀態。應包含:
+## 5. 工程文件與展示門面 `README.md`
+
+本專案採用 **「四位一體文件分工體系」**（詳見 `.agents/skills/project-docs/SKILL.md`），將靜態展示、任務追蹤、架構約束與個人筆記嚴格切分：
+1. **公開展示層 (`apps/<id>/README.md`)**：面向 GitHub 人類讀者（使用者與外部開發者），專注產品展示、操作指南與本機快速啟動，**絕不記錄細碎的日常任務流水帳**。
+2. **動態任務層 (GitHub Projects & Issues)**：日常 Sprint、功能拆票（`/to-tickets`）、Bug 追蹤與阻擋依賴，統一由 GitHub Project 看板管理。
+3. **架構知識層 (`GLOSSARY.md` & `docs/adr/`)**：領域專有名詞與架構決策。
+4. **個人認知層 (Obsidian 筆記庫)**：個人做中學反思與技術深入探討。
+
+子專案 `apps/<id>/README.md` 的標準展示結構應包含：
 
 ```markdown
 # 項目名稱
-概要描述，也可以加入這個應用主要畫面的截圖
+一兩句話點出此應用的獨特價值與解決方案。可加入應用畫面的展示截圖或 GIF。
 
-## 核心痛點
-條列不超過 5 個核心痛點。
+## 🎯 核心痛點與價值
+條列不超過 5 個核心痛點，說明傳統工具的缺陷以及本專案如何優雅解決。
 
-## 使用者應用指南
+## 💡 使用者指南 (User Guide)
+說明如何使用此應用，包含核心操作流程與常用快捷鍵清單。
 
-## 技術路線
-如有符合以下欄位請填入後面內容，沒有符合可自行創建欄位，用不到的欄位請不要新增。範例：
-- **前端框架**：React 19 + TypeScript
-- **建置工具**：Vite 8
-- **依賴管理**：pnpm
-- **樣式庫**：Tailwind CSS v4
-- **圖示庫**：Lucide React
-- **動畫庫**：Canvas Confetti (點擊愛心/互動慶祝微動效)
-- **資料庫**：Supabase
-- **前端託管**：GitHub + Vercel 
-- **Markdown 渲染**：marked 套件
-- **留言板**：Giscus + GitHub discussions
+## 🛠️ 開發者指南 (Developer Guide)
+- **技術棧清單**：列出前端框架、狀態管理、關鍵引擎套件。
+- **應用架構概觀**：5 層模組化架構（Bottom-Up 5-Layer Architecture）或主要目錄分工。
+- **本機安裝與啟動說明**：
+  ```bash
+  pnpm install
+  pnpm -C apps/<id>-<name> dev
+  pnpm -C apps/<id>-<name> build
+  ```
 
-## 開發者安裝說明
-
-
-## 應用架構與設計
-
-## 工作快照
-
-請使用表格記錄每次的 commit 或重大架構新增或修正記錄。最新的記錄在最上方。表格標題依序為：
-  - 日期
-  - Agent （如 Claude Code/ Antigravity/ Codex/... 等）
-  - 工作記錄
-  - 下一步
-  - 備注
-
-## 未來展望（若沒有可留白）
-
+## 🚀 未來展望（若沒有可留白）
 ```
 
 ## 6. showcase 展示
