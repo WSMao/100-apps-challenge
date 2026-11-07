@@ -11,13 +11,13 @@ It ensures that subproject documentation is optimized for its intended audience,
 
 ---
 
-## 1. The 4-Tier Document Taxonomy (四位一體文件分工體系)
+## 1. The 4-Tier Documentation Taxonomy.
 
 Every piece of information in this repository belongs to exactly one tier. Never duplicate content across tiers:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│ 1. Public Showcase: apps/<id>/README.md                                │
+│ 1. Public Showcase: apps/<id>-<app-name>/README.md                     │
 │    Audience: Human GitHub readers (Users, Evaluators & Developers)     │
 │    Purpose: Product pitch, visual tour, user guide & developer setup   │
 ├────────────────────────────────────────────────────────────────────────┤
@@ -41,10 +41,10 @@ Every piece of information in this repository belongs to exactly one tier. Never
 
 | Tier | File / Platform | MUST Include | NEVER Include (Anti-Patterns) |
 | :--- | :--- | :--- | :--- |
-| **Tier 1: Showcase** | `apps/<id>/README.md` | • One-line Value Proposition<br>• Core pain points solved<br>• User Guide with shortcuts table<br>• Tech stack & 5-layer architecture<br>• Dev setup (`pnpm dev`, `pnpm build`) | ❌ Daily commit history or 工作快照 tables<br>❌ Granular bug-fix changelogs<br>❌ Dynamic TODOs or sprint tickets |
+| **Tier 1: Showcase** | `apps/<id>-<app-name>/README.md` | • One-line Value Proposition<br>• Core pain points solved<br>• User Guide <br>• Dev Guide(Tech stack & architecture)•  | ❌ Daily commit history or work snapshot tables<br>❌ Granular bug-fix changelogs<br>❌ Dynamic TODOs or sprint tickets |
 | **Tier 2: Tasks** | **GitHub Projects & Issues** | • Active and upcoming feature tickets<br>• `app-<NNN>` & `triage: ready-for-agent` labels<br>• Acceptance Criteria & blocking edges<br>• Closed issues & linked PR history | ❌ Static architecture tutorials<br>❌ Broad conceptual study notes |
 | **Tier 3: Domain** | `GLOSSARY.md` & `docs/adr/` | • Canonical domain vocabulary<br>• Hard-to-reverse ADR design decisions<br>• Invariant module seams and contracts | ❌ Transient sprint tickets or daily logs<br>❌ Marketing copy |
-| **Tier 4: Personal** | **Obsidian Notes** | • Deep-dive learning notes & algorithms<br>• Multi-agent collaboration reflections<br>• Bidirectional links (`[[Topic]]`) across apps | ❌ Duplicate task checklists (use GitHub Projects) |
+| **Tier 4: Personal** | **Obsidian Notes** | • Deep-dive learning notes & algorithms<br>• Capture personal insights and reflections<br>• Bidirectional links (`[[Topic]]`) across apps | ❌ Duplicate task checklists (use GitHub Projects) |
 
 ---
 
@@ -54,18 +54,17 @@ When authoring or refactoring an application's `README.md` under `apps/<id>-<app
 
 ### Structure:
 1. **Hero Section**:
-   - App Title (`# <ID> - <App Name>`)
+   - App Title (`# <app-name>`)
    - High-impact summary / pitch (What makes this tool unique?).
    - Key highlight badges or live links.
-2. **Pain Points & Value Proposition (核心痛點與價值)**:
+2. **Pain Points & Value Proposition**:
    - 3–4 concise bullet points explaining what existing tools lack and how this app solves it.
-3. **User Guide (使用者指南)**:
-   - Key workflows (e.g. Brainstorming, Flowcharting, Exporting).
-   - Core Keyboard Shortcuts Table (clean reference for human users).
-4. **Developer Guide (開發者指南)**:
-   - Core Tech Stack list (React version, state management, canvas engine, etc.).
-   - Architecture Overview (5-Layer Bottom-Up modular diagram or bullet structure).
-   - Getting Started (prerequisites, `pnpm install`, `pnpm dev`, `pnpm build`, test commands).
+3. **User Guide**:
+   - Key workflows.
+4. **Developer Guide**:
+   - Core Tech Stack list.
+   - Architecture Overview (Bottom-Up modular diagram or bullet structure).
+   - Getting Started (prerequisites, installation, configuration, build, test commands).
 
 ---
 

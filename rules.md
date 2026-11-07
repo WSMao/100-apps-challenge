@@ -1,77 +1,69 @@
 # 100 Apps Challenge - AI Agents 開發協作守則 (rules.md)
 
-本文件為整個儲存庫中所有 AI Agent（包括但不限於 Claude Code、Cursor、Codex、Antigravity、GitHub Copilot 等）的最高準則。
-當你在本專案進行任何操作前，請務必詳讀並遵守以下原則。
+本文件為整個儲存庫中所有 AI Agent 的最高原則，在本專案進行任何操作前，務必詳讀並遵守本文件內容。
+- 如果本文件有變更，需立即重新讀取，確保遵守最新規範。
+- 任何 Skills 均不得違反本文件規範，若有衝突，請以本文件規範作為指引；若還是沒有明確執行方向，請停下來詢問，得到回覆後再繼續。
 
 ---
 
 ## 1. 專案背景與定位
-- 本儲存庫為 **100 Apps Challenge** 專案集合，所有獨立應用皆放置於 `apps/` 目錄下。子專案命名與編號規範為 `apps/<id>-<name>`，開始專案時若使用者尚未提供專案名稱，那就按照討論的細節，提供 5 個符合命名規範的名稱供使用者評估選擇（例：`001-appName`、`apps/001-xxx`）
-- 目標是打造 100 個獨立、高質感、且具實用性或趣味性的應用專案。
-- 專案採用 **多 Agent 同步/接力協作開發** 模式。
+- 本儲存庫為 **100 Apps Challenge** 專案集合，目標是打造 100 個獨立、高質感、且具實用性或趣味性的應用專案。所有獨立應用皆放置於 `apps/` 目錄下，並建立自己專屬的子資料夾：
+- 每個專案資料夾的命名與編號規範為 `apps/<id>-<app-name>`：
+  - `<id>` 為第幾號應用。
+  - `<app-name>` 為專案名稱，若專案開始時開發者未提供專案名稱，那就按照討論細節，提供 5 個符合命名規範的名稱供開發者評估選擇（例：`001-my-todos`）
 
 ---
 
-## 2. 多 Agent 協作核心原則
+## 2. Agent 進行獨立應用開發時應遵守
 
 ### 🔒 邊界意識 (Scope Isolation)
-1. **嚴格限制操作範圍**：
-   - 每次任務開始前，明確確認當前正在開發的特定目標應用（例如 `apps/001-Challenge-Showcase/`）。
-   - **禁止** 未經指示擅自修改其他 `apps/` 子資料夾中的程式碼或依賴。
-2. **根目錄變更謹慎度**：
-   - 根目錄（`rules.md`、`CLAUDE.md`、`agents.md`、workspace 設定等）屬於全域設定，除非使用者明確要求，否則不得任意更動。
+1. **嚴格限制操作範圍**： 每次任務開始前，明確確認當前正在開發的專案項目，**禁止** 修改 `apps/` 下其他子資料夾中的內容。
+2. **根目錄變更謹慎度**： 根目錄下（`rules.md`、`CLAUDE.md`、`agents.md`、workspace 設定等）屬於全域設定，除非開發者明確要求，否則不得任意更動。
 
 ### 📦 獨立與自包含 (Self-contained Apps)
-- 每個位於 `apps/<id>-<name>` 的子專案應維持高度自包含（擁有各自獨立的建置設定如`package.json`，以及專案說明文件 `README.md`）。
+- 每個位於 `apps/<id>-<app-name>` 的子專案應維持高度自包含（擁有各自獨立的建置設定如`package.json`，以及專案說明文件 `README.md`）。
 - 避免不同應用之間產生隱性依賴，確保單一應用的更動不會破壞其他應用。
 
 ### 📝 狀態與變更透明 (Transparency & Auditability)
-- 進行任何重大結構改動、安裝新套件或修改核心邏輯前，需向使用者清楚說明。
-- 保持各專案文檔 `README.md` 即時更新，方便其他接手的 Agent 快速理解現狀。
+- 進行任何重大結構改動、安裝新套件或修改核心邏輯前，需向開發者確認。
 
 ---
 
-## 3. 開發流程
-先建立專案資料夾及工程文件：
-- **建立專案資料夾**：在 `apps/` 下，以專案名稱建立專案資料夾，例如 `apps/<id>-<project name>`。
-- **建立工程文件**：在專案資料夾下建立工程文件 `README.md`，內容結構嚴格遵循 [`.agents/skills/project-docs/SKILL.md`](.agents/skills/project-docs/SKILL.md)。
+## 3. 初始化專案
+先建立專案資料夾及說明文件：
+- 在 `apps/` 下，以專案名稱建立專案資料夾 `apps/<id>-<app-name>`。
+- 在專案資料夾下建立 `README.md` 說明文件，內容結構遵循 [`.agents/skills/project-docs/SKILL.md`](.agents/skills/project-docs/SKILL.md)。
 
-若初次建立專案時，使用者未提供以下幾點資訊（或者不夠詳盡），則進入 plan 模式，與使用者討論出方向：
+若初次建立專案時，開發者未提供以下幾點資訊（或者不夠詳盡），則進入 plan 模式，與開發者討論出方向：
 - **專案命名**
 - **要解決的問題**
-- **platform 為何**： webapp / iOS / macOS / watchOS / Linux / Windows
+- **目標 Platform 為何**： webapp / iOS / macOS / watchOS / Linux / Windows。
 - **專案的 MVP 功能**
-- **技術路線**： 框架、程式語言、套件或 plugins，第三方服務如資料庫、前端託管服務...
+- **技術路線**： 框架、程式語言、套件或 plugins，第三方服務如資料庫、前端託管服務...。
 - **資料儲存方案**：本地或雲端服務。
-- **安全性、可維護性、可擴展性**：探討 Security、Maintenance、Scalability
+- **安全性、可維護性、可擴展性**：探討 Security、Maintenance、Scalability。
+
+**提供技術選型建議**：按照開發者需求，依照使用場景，目標平台甚至是跨平台、多平台應用，提供 2～3 種可行的技術路線，做利弊分析後提供給開發者選擇。
 
 👉 **引導與規格工具推薦**：
 - 需求深入盤查與架構決策：調用 `/grill-me` ([`.agents/skills/grilling/SKILL.md`](.agents/skills/grilling/SKILL.md)) 進行問題樹訪談。
-- 討論成案與規格產出：調用 `/to-spec` ([`.agents/skills/to-spec/SKILL.md`](.agents/skills/to-spec/SKILL.md)) 將對話淬鍊為規格並建立 Issue。
+- 討論成案與規格產出：調用 `/to-spec` ([`.agents/skills/to-spec/SKILL.md`](.agents/skills/to-spec/SKILL.md)) 。
+- 將規格轉換為工作項目 Issues：調用 `/to-tickets`([`.agents/skills/to-tickets/SKILL.md`](.agents/skills/to-tickets/SKILL.md))。 
 - 互動與架構可行性探索：調用 `/prototype` ([`.agents/skills/prototype/SKILL.md`](.agents/skills/prototype/SKILL.md)) 建立拋棄式原型。
-
-
-## 4. 開發規範與工程標準
-- **技術選型建議**：每次開始一個新的子專案時，均先調查清楚使用者需求，依照使用場景，比如手機、網頁、desktop app、嵌入式，甚至是跨平台、多平台應用，提供 2～3 種可行的技術路線，做利弊分析後提供給使用者選擇。
-  - 若為網頁開發以現代化前端/全端工具為主。
-- **依賴管理**：請優先使用同一種套件管理工具（如 `pnpm` 或 `npm`），並在各子專案內維護。
-- **程式碼風格**：保持代碼簡潔、型別安全（比如網頁開發的話以 TypeScript 優先），不留下無用的測試檔案或廢棄註解。
-
 
 ---
 
-## 5. 工程文件與展示門面 (Documentation Architecture)
+## 4. 專案文件 (Documentation Architecture)
 
-本專案全面實施 **「四位一體文件分工體系」**，將靜態展示、任務追蹤、架構約束與個人筆記嚴格解耦，維持單一真實來源（Single Source of Truth）：
-1. **公開展示層 (`apps/<id>/README.md`)**：面向 GitHub 人類讀者（使用者與外部開發者），專注產品特色、使用操作與本機快速啟動。**嚴禁記錄細碎的日常任務流水帳或 commit 歷史表格**。
-2. **動態任務層 (GitHub Projects & Issues)**：日常 Sprint、功能拆票（`/to-tickets`）、Bug 追蹤與阻擋依賴，統一由 GitHub Project 看板管理。
-3. **架構知識層 (`GLOSSARY.md` & `docs/adr/`)**：領域專有名詞與架構決策（遵循 `domain-modeling` 技能）。
-4. **個人認知層 (Obsidian 筆記庫)**：個人做中學反思與技術深入探討。
+本專案文件嚴格遵守 Single Source of Truth 原則，按用途分為 4 種：
+1. **公開展示用 (`apps/<id>-<app-name>/README.md`)**：面向 GitHub 訪問者（使用者與外部開發者），專注產品解決了什麼問題，提供什麼價值。
+2. **動態任務用 (GitHub Projects & Issues)**：日常 Sprint、功能拆票（`/to-tickets`）、Bug 追蹤與阻擋依賴。
+3. **架構知識用 (`GLOSSARY.md` & `docs/adr/`)**：領域專有名詞與架構決策（遵循 `/domain-modeling` 技能）。
+4. **個人認知用 (Obsidian 筆記庫)**：個人做中學反思與技術深入探討。
 
-👉 **子專案 `README.md` 標準結構與模板**：
-請一律參照 [`.agents/skills/project-docs/SKILL.md`](.agents/skills/project-docs/SKILL.md) 及其範本 [`resources/app-readme-template.md`](.agents/skills/project-docs/resources/app-readme-template.md) 進行撰寫或重構，嚴格禁止在子專案 `README.md` 中維護任務清單或工作快照。
+詳細規範請一律參照 [`.agents/skills/project-docs/SKILL.md`](.agents/skills/project-docs/SKILL.md) 及其範本 [`resources/app-readme-template.md`](.agents/skills/project-docs/resources/app-readme-template.md) 進行撰寫或重構。
 
-## 6. showcase 展示
+## 5. showcase 展示
 每個項目（包含第一個項目）都會是第一個項目`001-Challenge Showcase`的展示內容，而第一個項目的設計架構為「資料驅動」。
 - 每個子專案根目錄都放置一個標準的 `app-manifest.json` 如：
    ```json
@@ -90,131 +82,53 @@
 
 - 第一個項目只需自動讀取各 App 的 json，無需手動修改程式碼。
 
-## 7. Obsidian 專案紀錄
+## 6. Obsidian 專案與知識庫紀錄
 
-### 技術討論與概念筆記 (Tech Notes)
-當使用者要求記錄某項技術概念或架構討論時：
-- Agent 需檢視並比對 `Journey/04_Coding/技術討論與概念/` 資料夾或其子資料夾中的現有文件。
-- 比對既有內容：若該主題已存在相關文件，僅增補尚未提及或需深入擴充的部分，避免重複堆疊。
-- 若無合適的現有文件，主動創建對應主題的全新 Markdown 筆記進行結構化記錄。
+專案筆記為開發者構思專案原型想法、沉澱技術概念以及記錄開發過程的地方。
+當需要將對話精華、技術概念或新點子保存至個人 Obsidian 知識庫時，請一律調用：
 
-### 專案筆記
-專案筆記為開發者構思專案原形想法以及記錄專案開發過程的地方，路徑為 `Journey/04_Coding/100 Apps Challenge/<id>-<appname>.md`。若檔案存在，使用 `/plan` 或者 `/grill-me` 等釐清專案方向的時候可以參考。
-
-#### 開發者要求「記錄到專案筆記」時
-若開發者要求將某些內容「記錄到專案筆記」時，請尋找適合的位置插入筆記。若已有相關的概念，或關聯的筆記區塊，可以直接補充或加入。也可自訂筆記標題，那就按照提供的標題建立內容。
-
-#### 開發者要求「更新專案狀態」時
-當專案啟動，或使用者提出「更新專案狀態」時，更新 Obsidian 筆記頂部 Frontmatter 的 YAML 屬性：
-- status： 比如 in-progress / completed
-- tech_stack
-- update_date
+👉 **[`/to-obsidian-note`](.agents/skills/to-obsidian-note/SKILL.md)** 技能（支援全對話導出 `/to-obsidian-note all` 與分類提取 `/to-obsidian-note <category> <scope> <style>`，並嚴格遵循技術討論比對與點子分類規則）。
 
 
-## 8. Git 版控與分支策略
+## 7. Git 與 GitHub 規範
+
+本專案為多個子專案的架構，故採用 monorepo 方式建立 GitHub 儲存庫，並以 GitHub Project 來管理任務。
+
+Agent 開發前務必確認任務與邊界，使用正確的分支進行開發。比如應確認 GitHub Issue 的 label 標籤，像是從 `app-<NNN>` 得知執行中的任務是屬於那個 app 的範疇。
+
+此 Repository 中的每個獨立子專案都是一個 app，其「專案主分支」(`<project-name>`) 的命名規則為 `<id>-<app-name>`。
+
+提交訊息採用 Conventional Commit message 的格式 `<type>(<scope>): <description>`。
+其中 `<scope>` 應視變更範疇而定：
+  - App 變更：`<scope>` 為 3 碼 App 編號（例如 `001`、`002`）。
+  - 全域變更：`<scope>` 為 `base`（例如 `feat(base): ...`）。
+
+👉 這邊沒有明確規範到的 git 使用操作，請遵守 skill `/monorepo-gitflow` ([`.agents/skills/monorepo-gitglow/SKILL.md`](.agents/skills/monorepo-gitglow/SKILL.md)) 的規範。
+
 ### 資安防護
 - 禁止 Commit 敏感憑證：各 App 必須在自己的目錄或全域 .gitignore 中明確排除 .env、*.local、金鑰文件。
 - 任何 Agent 建立新 App 時，必須同時建立範例環境檔 .env.example。
 
-### 統一採用 Conventional Commits 格式，標準結構如：
-```text
-<type>(<scope>): <description>
+---
 
-[optional body]
+## 8. 自動化測試規範 (Automated Testing Standards)
 
-[optional footer(s)]
-```
+### 8.1 測試設計原則與分層邊界 (Testing Principles & Boundaries)
 
-- 因為本專案有 100 個獨立 App，加入 <scope> 嚴格綁定應用編號
-- 因為有多個 AI Agent 參與，使用 Footer 標註 AI Agent 來源
+測試設計與實作一律以 **TDD Skill**（全域 plugin `~/.gemini/config/plugins/mattpocock-skills/skills/tdd/SKILL.md`）為最高設計指導：
+- **核心心法**：測試只驗證公開介面（Public Seams）可觀察的功能行為，嚴禁依賴私有變數或原始碼字串等實作細節（詳見 TDD 之 Anti-patterns）。
+- **紅綠循環與 Mock 邊界**：遵循 Red-Green 逐步推進，Mock 僅限於系統外部邊界（API、資料庫、時間），嚴禁 Mock 內部協作者。
+- **疑難排查**：疑難 Bug 與效能回歸遵循 **Diagnosing Bugs Skill**（`diagnosing-bugs/SKILL.md`）建立 Feedback Loop 迴圈。
 
-| Type | 說明 | 範例 |
-| -----| ----|----- |
-|feat      | 新增功能(Feature)	                 |feat(001): add filter tags for challenge apps|
-|fix	     | 修復 Bug	                         |fix(001): resolve layout overflow on mobile screens
-|docs 	  | 純文件更新（Markdown、註解）	          |docs: update rules.md with commit conventions
-|style	  | 不影響程式邏輯的排版/樣式修改	        |style(001): adjust card border radius and shadow
-|refactor  | 重構（既非修 bug 也未增功能的代碼重整）	|refactor(001): extract AppCard into standalone component
-|perf	     | 效能提升 (Performance)	              |perf(001): lazy load preview images
-|chore	  | 建置工具、依賴項升級或雜項維護	         |chore(root): add pnpm workspace config
-|test	     | 新增或修改測試	                      |test(001): add unit tests for date formatter
-
-### 分支（Branch）架構與管理策略
-
-本專案採用 **「三層分支架構」**，兼顧多 App 獨立性與全域規範的一致性：
-
-1. **`base` 分支（全域基礎骨架）**：
-   - **定位**：專門維護 `apps/` 以外的所有全域內容（例如 `rules.md`、`agents.md`、`CLAUDE.md`、`.agents/` 工具集、全域設定檔）。
-   - **原則**：**永遠不 merge 任何個別 App 分支或 `main` 分支**，確保骨架絕對純淨。
-   - **全域提交**：所有非特定 App 的全域修改，一律切換至 `base` 進行 add、Commit 與 Push。
-   - **新專案起點**：未來所有新建立的 App 分支，一律由 `base` 切出：`git checkout -b <id>-<app-name> base`。
-
-2. **`<id>-<app-name>` 分支（獨立 App 開發分支的主線）**：
-   - **定位**：個別應用的專屬工作分支（例如 `002-Good-Sleep`）。
-   - **App 開發分支的支線**：app 支線應由 app 主線 `<id>-<app-name>` 切出，照 ticket 任務命名為 `<id>-<app-name>-<ticket-name>`。
-   - **支線合併回主線**： 一律發送 「Pull Request (PR)」請求審核後合併回 app 主線。禁止直接合併回 `main` 分支。
-   - **多任務並行時**：應使用 `git worktree`，讓每個分支在獨立環境下運行。
-   - **邊界隔離**：只能在自己的 `apps/<id>-<app-name>/` 目錄下作業與提交。
-   - **同步全域規範（使用 `merge base`）**：
-     - 當 `base` 分支有新增 Skill 或更新規範時，進行中的 App 分支一律執行 **`git merge base`** 進行同步。
-     - **嚴禁 `git merge main`**（因為 `main` 匯集了所有其他 App 的程式碼，反向 merge 會污染當前 App 分支）。
-
-3. **`main` 分支（生產整合分支）**：
-   - **定位**：展示中心與整體專案的最終集大成分支。
-   - **職責**：匯總所有已驗證完成的 App 主線分支，並同步 merge `base` 的全域更新。禁止直接在 `main` 進行個別 App 的功能開發。
-
-### add 的內容與邊界限制
-- **全域分支 (`base`)**：專門 `add` 根目錄 `100 Apps Challenge` 下的全域檔案（如 `rules.md`、`.agents/`、設定檔等）。
-- **主分支 (`main`)**：僅執行 `merge` 操作（如 `git merge base`、`git merge <id>-<app-name>`），不隨意個別 `add`。
-- **App 分支主線 (`<id>-<app-name>`)**：僅執行 `merge` 自己 「App 分支支線」的操作。
-- **App 分支支線 (`<id>-<app-name>-<ticket-name>`)**：只能 `add` 自己 App 資料夾內的項目，即 `apps/<id>-<app-name>/`。
-
-👉 **推送流程、Git 命令與沙盒權限手冊**：
-日常 Git 指令操作、連網推播與分支同步步驟，請參照 [`.agents/skills/pushflow/SKILL.md`](.agents/skills/pushflow/SKILL.md) 及其參考文件 `references/git-commands.md`。
-
+> [!CAUTION] 測試分層防禦與誠實驗證原則 (Anti-Cheat & Layered Boundaries)
+> 1. **嚴禁用單元測試假冒 UI 正常**：純內部邏輯測試通過僅代表運算無誤，**絕對無法保證**真實 DOM 渲染、組件生命週期與事件監聽沒有崩潰。
+> 2. **嚴禁偽造瀏覽器截圖**：嚴禁使用純資料計算導出的向量圖（如 `exportCanvasAsSvg` 拼裝之 SVG）渲染成圖片宣稱為「網頁運作截圖」。截圖必須誠實標註來源，真機驗收必須取自真實瀏覽器 Viewport。
 
 ---
 
-## 9. 自動化測試規範 (Automated Testing Standards)
+### 8.2 開發目標平台測試規範：通用 Web 應用 (Webapp Development)
 
-### 9.1 核心原則：測試分層與職責邊界 (Testing Philosophy & Anti-Patterns)
-
-> [!TIP] 測試原則與除錯流程參照
-> - 針對測試邊界（Seams）選擇與公開行為驗證，遵循 [`.agents/skills/tdd/SKILL.md`](.agents/skills/tdd/SKILL.md) 的 Red-Green 迴圈規範。
-> - 針對硬性 Bug 與效能問題排查，遵循 [`.agents/skills/diagnosing-bugs/SKILL.md`](.agents/skills/diagnosing-bugs/SKILL.md) 之建立反饋迴圈（Feedback Loop）程序。
-
-所有 AI Agent 在開發、除錯與驗證交付時，必須嚴格落實「測試分層原則」，**嚴禁將純內部邏輯的單元測試全綠，假冒或混淆為前端 UI 與真實互動正常的證明**。
-
-不同層級的測試具有完全不同的檢驗能力與邊界：
-
-1. **內部純邏輯測試 (Unit / Pure Domain Logic Test)**：
-   - **檢驗標的**：純函數 (Pure Functions)、演算法、數學與幾何計算、State Store（如 Zustand/Redux）的純 Action 變更邏輯、資料格式轉換器 (Parsers/Serializers)。
-   - **運行環境**：Node.js Headless 環境（極速，毫秒級）。
-   - **有效性邊界**：僅能驗證「給定輸入 $A$，運算邏輯保證產出 $B$」。**絕對無法保證** 瀏覽器真實 DOM 渲染、組件生命週期、樣式版面或事件監聽沒有崩潰。
-
-2. **隔離環境的整合與契約測試 (Integration / Component / Mocking & Stubbing Test)**：
-   - **檢驗標的**：單一 UI 元件渲染、表單互動、API 請求與回應處理、外部第三方服務對接契約。
-   - **核心技術**：
-     - **Mocking / Stubbing**：使用 MSW (Mock Service Worker)、`vi.fn()` 或假資料庫隔離真實後端 API、OAuth、或外部雲端服務，專注驗證本體邏輯在各種極端回傳狀態（200、401、500、網路斷線）下的容錯與渲染處理。
-     - **虛擬 DOM 渲染**：利用 `jsdom` 或 `happy-dom` 搭配 `@testing-library/react` 測試元件虛擬節點的掛載與 Props 變化。
-   - **有效性邊界**：能驗證元件樹的結構，但仍缺乏真實瀏覽器排版引擎（Layout Engine）、真實樣式計算、以及真實 DOM 焦點（Focus/Blur）搶奪機制。
-
-3. **外部操作 UI 自動化測試 (E2E / Real Browser Automation Test)**：
-   - **檢驗標的**：使用者真實操作鏈、瀏覽器原生焦點互斥與爭奪 (Focus/Blur)、第三方複雜視圖套件（如 ReactFlow 畫布、CodeMirror、Canvas）與外部 Store 的雙向同步、頁面導航、全域例外攔截 (ErrorBoundary)。
-   - **運行環境**：真實 Headless 或 Headed 瀏覽器（Chrome / Chromium，透過 Playwright、Puppeteer 或 CDP 協定控制），載入真實 Dev Server 伺服器網址（如 `http://localhost:5173`）。
-   - **有效性邊界**：**這是檢驗「畫面會不會黑屏、會不會發生 React Maximum update depth exceeded 死循環」的唯一權威標準**。
-
-> [!CAUTION] 嚴禁偽造或混淆測試截圖 (Anti-Pattern Warning)
-> - **嚴禁**使用純數學運算導出的向量檔（如 `exportCanvasAsSvg` 拼裝出的 SVG）渲染成圖片，並將其宣稱為「瀏覽器端功能正常運作的截圖」。
-> - 若提供了截圖，必須明確誠實標註其來源：
->   - **真實瀏覽器視窗截圖 (Real Browser Viewport Screenshot)**：必須經由真正的瀏覽器載入真實網頁動態截取。
->   - **演算法拓撲預覽圖 (Algorithmic Topology Preview)**：若為演算法導出圖，必須明確說明僅代表資料拓撲正確，非真實網頁運行結果。
-
----
-
-### 9.2 開發目標平台測試規範：通用 Web 應用 (Webapp Development)
-
-針對所有 Web 應用（無論是 SPA、SSR、圖形畫布、資料儀表板或一般管理後台），各模組開發與除錯必須依據以下通用矩陣嚴格選型，不得混為一談：
+針對所有 Web 應用（無論是 SPA、SSR、圖形畫布、資料儀表板或一般後台），依功能層級嚴格對應測試選型，並遵守 Bug 修復驗收標準：
 
 #### A. Web 通用測試選型矩陣 (General Web Testing Matrix)
 
@@ -237,13 +151,11 @@
 **標準驗收三步驟**：
 1. **根本修復**：在元件或 Store 層消除問題根源（消除乒乓事件、阻斷不必要的 Re-render）。
 2. **真實瀏覽器重現檢驗**：啟動 Dev Server，以真實瀏覽器（Headless/Headed Chrome）導航至真實頁面，模擬使用者出錯的操作鏈。
-3. **雙重斷言檢驗**：
-   - 檢查真實瀏覽器 Console Log，確認無任何未捕獲的例外或錯誤日誌。
-   - 對真實瀏覽器視窗進行實際截圖，提供使用者作為真實環境驗收之依據。
+3. **雙重斷言檢驗**：檢查真實瀏覽器 Console Log 確認零 Error，並對真實視窗實際截圖存證。
 
 ---
 
-### 9.3 開發目標平台測試規範：Apple 原生應用 (iOS / iPadOS / macOS)
+### 8.3 開發目標平台測試規範：Apple 原生應用 (iOS / iPadOS / macOS)
 
 針對以 Swift / SwiftUI / UIKit / AppKit 開發之 Apple 生態系應用專案，各層級測試必須嚴格落實以下規範：
 
@@ -271,11 +183,11 @@
 
 ---
 
-### 9.4 測試豁免與輕量化驗收規範 (Testing Exemption & Fast-Track SOP)
+### 8.4 測試豁免與輕量化驗收規範 (Test-Exempt Fast-Track)
 
-為避免 AI Agent 陷入「過度防衛型無效測試（Over-testing / Testing Overkill）」或因瑣碎變更無端耗費驗證成本，特別明定以下豁免條款與反模式禁令：
+為避免 AI Agent 陷入「過度防衛型無效測試（Over-testing / Testing Overkill）」或因瑣碎變更無端耗費驗證成本，特別明定以下豁免條款：
 
-#### A. 全面免除自動化測試的場景 (Test-Exempt Scenarios)
+#### 全面免除自動化測試的場景 (Test-Exempt Scenarios)
 當變更僅涉及以下任一類型時，**嚴禁無差別執行全套測試套件（如 `test:unit`、`test:engine`、`test:e2e`）**：
 1. **純靜態資源與多媒體檔案（Assets Only）**：
    - 包含：圖片（PNG/SVG/WebP/ICO）、圖示、Favicon、音訊、字型等檔案新增或覆蓋。
@@ -290,14 +202,9 @@
 **免測場景的輕量化驗收標準**：
 - 僅需透過開發伺服器（如 Vite HMR）確認熱重載編譯通過、無語法/路徑報錯，並於瀏覽器視窗直接預覽確認即完成驗收。
 
-#### B. 測試撰寫之反模式禁令：嚴禁斷言實作細節 (Anti-Pattern: Brittle Implementation Assertions)
-自動化測試旨在驗證「功能行為（Behavior & Contract）」，絕非驗證「原始碼字串（Implementation Details）」（遵循 [`.agents/skills/tdd/SKILL.md`](.agents/skills/tdd/SKILL.md) 的 Anti-patterns: Implementation-coupled 規範）：
-1. **嚴禁在測試程式中直接以字串比對原始碼檔名或靜態資源路徑**（例如：`expect(code).toContain('logo.png')`）。此類測試屬於脆弱測試（Brittle Tests），一旦更名將造成無謂假性紅燈與開發阻礙。
-2. **嚴禁斷言組件內部的私有變數或內部實作細節**：應以公開 API、Props、真實 DOM 角色（ARIA Roles）或使用者可見文字作為斷言依據。
-
 ---
 
-## 10. Agent Skills 規範 (Agent Skills Workflow)
+## 9. Agent Skills 規範 (Agent Skills Workflow)
 
 本專案支援由 [mattpocock/skills](https://github.com/mattpocock/skills) 擴充之工程與生產力工作流程。當在對話中使用相關技能（如 `/to-spec`、`/to-tickets`、`/implement`、`/grill-with-docs`、`/triage`）時，遵循以下統一規格：
 
