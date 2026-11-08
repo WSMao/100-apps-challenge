@@ -97,6 +97,6 @@ pnpm -C apps/003-Creative-Neuro build
 
 ## 🔮 未來展望 (Roadmap)
 
-- [ ] **AI 即時語音共同繪圖**：整合 Gemini Multimodal Live API (WebSocket / WebRTC + VAD + Function Calling)，支援用語音邊對話、AI 邊在畫布上即時增刪與調整架構圖。
-- [ ] **桌面端原生應用**：透過 Tauri 2.0 封裝 macOS 全螢幕無干擾桌面版。
-- [ ] **雲端互動分享**：支援一鍵產生互動式 Embed URL，便利嵌入 Obsidian、Notion 或投影片中展示。
+- **AI 即時語音共同繪圖**：整合 Gemini Multimodal Live API (WebSocket / WebRTC + VAD + Function Calling)，支援用語音邊對話、AI 邊在畫布上即時增刪與調整架構圖。
+- **雲端互動分享**：支援一鍵產生互動式 Embed URL，便利嵌入 Obsidian、Notion 或投影片中展示。
+- **桌面端原生應用**：透過 Tauri 2.0 封裝 macOS 全螢幕無干擾桌面版。
