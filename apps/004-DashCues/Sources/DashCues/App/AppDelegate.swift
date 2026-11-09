@@ -8,17 +8,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pinnedWindowManager: PinnedMapWindowManager?
     private var hotKeyManager: GlobalHotKeyManager?
     private var dashboardWindowController: DashboardWindowController?
+    private var contentNavigation: SharedContentNavigation?
+    private var clipboardWriter: ((String) -> Bool)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         do {
-            let store = try ShortcutStore()
+            let environment = ProcessInfo.processInfo.environment
+            let storageURL = environment["DASHCUES_UI_TEST_STORAGE_PATH"].map(URL.init(fileURLWithPath:))
+            let store = try ShortcutStore(storageURL: storageURL)
+            let defaults: UserDefaults
+            if environment["DASHCUES_UI_TESTING"] == "1" {
+                guard let suiteName = environment["DASHCUES_UI_TEST_DEFAULTS_SUITE"],
+                      !suiteName.isEmpty,
+                      let testDefaults = UserDefaults(suiteName: suiteName) else {
+                    throw AppDelegateError.missingTestDefaults
+                }
+                defaults = testDefaults
+            } else {
+                defaults = .standard
+            }
+            let contentNavigation = SharedContentNavigation(defaults: defaults)
+            let clipboardWriter: (String) -> Bool =
+                environment["DASHCUES_UI_TESTING"] == "1"
+                    && environment["DASHCUES_UI_TEST_CLIPBOARD_FAILURE"] == "1"
+                    ? { _ in false }
+                    : SystemClipboardWriter.write
             let pinnedWindowManager = PinnedMapWindowManager()
             self.store = store
             self.pinnedWindowManager = pinnedWindowManager
+            self.contentNavigation = contentNavigation
+            self.clipboardWriter = clipboardWriter
             statusBarController = StatusBarController(
                 store: store,
+                contentNavigation: contentNavigation,
                 pinnedWindowManager: pinnedWindowManager,
+                clipboardWriter: clipboardWriter,
                 onOpenDashboard: { [weak self] in self?.openDashboard() }
             )
             let manager = try GlobalHotKeyManager { [weak self] in
@@ -30,6 +55,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } catch {
                 showError(error, title: "全域快捷鍵無法使用")
             }
+            if environment["DASHCUES_UI_TESTING"] == "1" {
+                DispatchQueue.main.async { self.openDashboard() }
+            }
         } catch {
             showError(error, title: "DashCues 啟動失敗")
             NSApp.terminate(nil)
@@ -37,15 +65,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openDashboard() {
-        guard let store else { return }
+        guard let store, let contentNavigation, let clipboardWriter else { return }
         NSApp.setActivationPolicy(.regular)
         if dashboardWindowController == nil {
             dashboardWindowController = DashboardWindowController(
                 store: store,
+                contentNavigation: contentNavigation,
                 onHotKeyChanged: { [weak self] configuration in
                     guard let self else { throw AppDelegateError.unavailable }
                     try self.updateHotKey(configuration)
                 },
+                clipboardWriter: clipboardWriter,
                 onClose: { [weak self] in
                     self?.dashboardWindowController = nil
                     NSApp.setActivationPolicy(.accessory)
@@ -76,15 +106,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 private enum AppDelegateError: LocalizedError {
     case unavailable
+    case missingTestDefaults
 
     var errorDescription: String? {
-        "DashCues 尚未完成初始化，請重新啟動 App。"
+        switch self {
+        case .unavailable: return "DashCues 尚未完成初始化，請重新啟動 App。"
+        case .missingTestDefaults: return "UI 測試必須指定獨立的偏好設定套件。"
+        }
     }
 }
 
 private final class StatusBarController: NSObject {
     private let store: ShortcutStore
+    private let contentNavigation: SharedContentNavigation
     private let pinnedWindowManager: PinnedMapWindowManager
+    private let clipboardWriter: (String) -> Bool
     private let onOpenDashboard: () -> Void
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let contextMenu = NSMenu()
@@ -95,16 +131,22 @@ private final class StatusBarController: NSObject {
 
     init(
         store: ShortcutStore,
+        contentNavigation: SharedContentNavigation,
         pinnedWindowManager: PinnedMapWindowManager,
+        clipboardWriter: @escaping (String) -> Bool,
         onOpenDashboard: @escaping () -> Void
     ) {
         self.store = store
+        self.contentNavigation = contentNavigation
         self.pinnedWindowManager = pinnedWindowManager
+        self.clipboardWriter = clipboardWriter
         self.onOpenDashboard = onOpenDashboard
         super.init()
 
         if let button = statusItem.button {
             button.image = Self.statusBarIconImage()
+            button.setAccessibilityLabel("DashCues")
+            button.setAccessibilityIdentifier("dashcues.status-item")
             button.target = self
             button.action = #selector(handleStatusItemClick(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -179,6 +221,7 @@ private final class StatusBarController: NSObject {
         let navigation = MainActor.assumeIsolated {
             PopoverNavigation(
                 store: store,
+                contentNavigation: contentNavigation,
                 onOpenDashboard: { [weak self] in
                     self?.closePopover()
                     self?.onOpenDashboard()
@@ -191,7 +234,9 @@ private final class StatusBarController: NSObject {
             rootView: ShortcutPopoverView(
                 store: store,
                 pinnedWindowManager: pinnedWindowManager,
-                navigation: navigation
+                navigation: navigation,
+                contentNavigation: contentNavigation,
+                clipboardWriter: clipboardWriter
             )
         )
 
@@ -265,7 +310,9 @@ private final class DashboardWindowController: NSWindowController, NSWindowDeleg
 
     init(
         store: ShortcutStore,
+        contentNavigation: SharedContentNavigation,
         onHotKeyChanged: @escaping @MainActor (HotKeyConfiguration) throws -> Void,
+        clipboardWriter: @escaping (String) -> Bool,
         onClose: @escaping () -> Void
     ) {
         self.onClose = onClose
@@ -276,9 +323,16 @@ private final class DashboardWindowController: NSWindowController, NSWindowDeleg
             defer: false
         )
         window.title = "DashCues"
-        window.setFrameAutosaveName("DashCuesDashboard")
+        if ProcessInfo.processInfo.environment["DASHCUES_UI_TESTING"] != "1" {
+            window.setFrameAutosaveName("DashCuesDashboard")
+        }
         window.contentViewController = NSHostingController(
-            rootView: DashboardView(store: store, onHotKeyChanged: onHotKeyChanged)
+            rootView: DashboardView(
+                store: store,
+                contentNavigation: contentNavigation,
+                onHotKeyChanged: onHotKeyChanged,
+                clipboardWriter: clipboardWriter
+            )
         )
         super.init(window: window)
         window.delegate = self

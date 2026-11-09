@@ -4,7 +4,11 @@ struct ShortcutPopoverView: View {
     @ObservedObject var store: ShortcutStore
     @ObservedObject var pinnedWindowManager: PinnedMapWindowManager
     @ObservedObject var navigation: PopoverNavigation
+    @ObservedObject var contentNavigation: SharedContentNavigation
+    let clipboardWriter: (String) -> Bool
     @FocusState private var searchFieldFocused: Bool
+    @State private var errorMessage: String?
+    @State private var successMessage: String?
 
     private var selectedApplicationID: String? { navigation.selectedApplicationID }
 
@@ -24,6 +28,7 @@ struct ShortcutPopoverView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("popover.open-dashboard")
                 .background(
                     navigation.focusOnOpenButton ? Color.accentColor.opacity(0.14) : .clear,
                     in: RoundedRectangle(cornerRadius: 6)
@@ -60,32 +65,115 @@ struct ShortcutPopoverView: View {
 
             Divider()
 
-            Group {
-                if let selectedApplication {
-                    ShortcutMapView(
-                        application: selectedApplication,
-                        isPinned: pinnedWindowManager.isPinned(applicationID: selectedApplication.id),
-                        onTogglePin: { pinnedWindowManager.toggle(application: selectedApplication) },
-                        highlightedShortcutID: navigation.focusArea == .shortcuts ? navigation.selectedShortcutID : nil
-                    )
-                } else {
-                    VStack(spacing: 8) {
-                        Image(systemName: "keyboard")
-                            .font(.largeTitle)
-                            .foregroundStyle(.secondary)
-                        Text("選擇一個 App")
-                            .font(.headline)
-                        Text("將游標移至應用程式以查看快捷鍵地圖。")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                contentTabs
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+
+                Group {
+                    if let selectedApplication {
+                        if contentNavigation.selectedContentType == .shortcuts {
+                            ShortcutMapView(
+                                application: selectedApplication,
+                                isPinned: pinnedWindowManager.isPinned(applicationID: selectedApplication.id),
+                                onTogglePin: { pinnedWindowManager.toggle(application: selectedApplication) },
+                                highlightedShortcutID: navigation.focusArea == .shortcuts ? navigation.selectedShortcutID : nil
+                            )
+                        } else {
+                            KeyValueCheatsheetView(
+                                store: store,
+                                contentNavigation: contentNavigation,
+                                applicationID: selectedApplication.id,
+                                onError: {
+                                    errorMessage = $0
+                                    successMessage = nil
+                                },
+                                onCopySuccess: { successMessage = $0 },
+                                clipboardWriter: clipboardWriter,
+                                isReadOnly: true,
+                                onSearchFocusChanged: { navigation.keyValueSearchFocused = $0 },
+                                onJumpToDashboard: { result in
+                                    contentNavigation.requestJump(applicationID: selectedApplication.id, result: result)
+                                    navigation.openDashboard()
+                                }
+                            )
+                            .padding(12)
+                        }
+                    } else {
+                        VStack(spacing: 8) {
+                            Image(systemName: "keyboard")
+                                .font(.largeTitle)
+                                .foregroundStyle(.secondary)
+                            Text("選擇一個 App")
+                                .font(.headline)
+                            Text("將游標移至應用程式以查看參考內容。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(minWidth: 350)
         }
         .frame(width: 620, height: 480)
         .background(Color(nsColor: .windowBackgroundColor))
+        .accessibilityIdentifier("dashcues.popover")
+        .alert("無法完成操作", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("好", role: .cancel) { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "")
+        }
+        .overlay(alignment: .bottom) {
+            if let successMessage {
+                Text(successMessage)
+                    .accessibilityIdentifier("key-value.copy-feedback")
+                    .padding(10)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding()
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            self.successMessage = nil
+                        }
+                    }
+            }
+        }
+    }
+
+    private var contentTabs: some View {
+        HStack(spacing: 8) {
+            contentTab(.shortcuts, title: "快捷鍵")
+            contentTab(.keyValue, title: "Key-Value")
+            Spacer()
+        }
+    }
+
+    private func contentTab(_ content: DashboardContentType, title: String) -> some View {
+        Button {
+            contentNavigation.selectContentType(content)
+        } label: {
+            Text(title)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    contentNavigation.selectedContentType == content ? Color.accentColor.opacity(0.18) : .clear,
+                    in: Capsule()
+                )
+                .overlay {
+                    Capsule().stroke(
+                        contentNavigation.selectedContentType == content
+                            ? Color.accentColor
+                            : Color(nsColor: .separatorColor)
+                    )
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(content == .shortcuts ? "popover.tab.shortcuts" : "popover.tab.key-value")
+        .accessibilityValue(contentNavigation.selectedContentType == content ? "已選取" : "未選取")
     }
 
     private var searchField: some View {
@@ -146,6 +234,7 @@ struct ShortcutPopoverView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("popover.application.\(application.id)")
         .onHover { isHovering in
             if isHovering {
                 navigation.focusApplication(application.id)

@@ -58,6 +58,26 @@ final class ShortcutStore: ObservableObject {
         applications.first { $0.id == id }
     }
 
+    func searchKeyValueEntries(_ query: String, applicationID: String) -> [KeyValueSearchResult] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty, let application = application(id: applicationID) else { return [] }
+
+        return application.keyValueCheatsheets.flatMap { cheatsheet in
+            cheatsheet.entries.compactMap { entry in
+                guard entry.key.localizedCaseInsensitiveContains(query)
+                        || entry.value.localizedCaseInsensitiveContains(query)
+                else {
+                    return nil
+                }
+                return KeyValueSearchResult(
+                    cheatsheetID: cheatsheet.id,
+                    cheatsheetName: cheatsheet.name,
+                    entry: entry
+                )
+            }
+        }
+    }
+
     func setPinned(_ isPinned: Bool, applicationID: String) throws {
         guard var app = application(id: applicationID) else {
             throw ShortcutStoreError.applicationNotFound
@@ -167,6 +187,102 @@ final class ShortcutStore: ObservableObject {
         }
     }
 
+    @discardableResult
+    func createKeyValueCheatsheet(name: String, applicationID: String) throws -> String {
+        let cleanedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanedName.isEmpty else { throw ShortcutStoreError.invalidCheatsheetName }
+        guard let app = application(id: applicationID) else { throw ShortcutStoreError.applicationNotFound }
+        guard !app.keyValueCheatsheets.contains(where: {
+            Self.cheatsheetNameKey($0.name) == Self.cheatsheetNameKey(cleanedName)
+        }) else {
+            throw ShortcutStoreError.duplicateCheatsheetName
+        }
+
+        let cheatsheet = KeyValueCheatsheet(name: cleanedName)
+        try updateApplication(applicationID) { $0.keyValueCheatsheets.append(cheatsheet) }
+        return cheatsheet.id
+    }
+
+    func renameKeyValueCheatsheet(id: String, name: String, applicationID: String) throws {
+        let cleanedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanedName.isEmpty else { throw ShortcutStoreError.invalidCheatsheetName }
+        guard let app = application(id: applicationID) else { throw ShortcutStoreError.applicationNotFound }
+        guard app.keyValueCheatsheets.contains(where: { $0.id == id }) else {
+            throw ShortcutStoreError.cheatsheetNotFound
+        }
+        guard !app.keyValueCheatsheets.contains(where: {
+            $0.id != id && Self.cheatsheetNameKey($0.name) == Self.cheatsheetNameKey(cleanedName)
+        }) else {
+            throw ShortcutStoreError.duplicateCheatsheetName
+        }
+
+        try updateApplication(applicationID) { app in
+            guard let index = app.keyValueCheatsheets.firstIndex(where: { $0.id == id }) else { return }
+            app.keyValueCheatsheets[index].name = cleanedName
+        }
+    }
+
+    func deleteKeyValueCheatsheet(id: String, applicationID: String) throws {
+        guard let app = application(id: applicationID) else { throw ShortcutStoreError.applicationNotFound }
+        guard app.keyValueCheatsheets.contains(where: { $0.id == id }) else {
+            throw ShortcutStoreError.cheatsheetNotFound
+        }
+        try updateApplication(applicationID) { app in
+            app.keyValueCheatsheets.removeAll { $0.id == id }
+        }
+    }
+
+    func saveKeyValueEntry(
+        _ entry: KeyValueEntry,
+        cheatsheetID: String,
+        applicationID: String
+    ) throws {
+        guard !entry.isBlank else { throw ShortcutStoreError.invalidKeyValueEntry }
+        try updateKeyValueCheatsheet(cheatsheetID, applicationID: applicationID) { cheatsheet in
+            if let index = cheatsheet.entries.firstIndex(where: { $0.id == entry.id }) {
+                cheatsheet.entries[index] = entry
+            } else {
+                cheatsheet.entries.append(entry)
+            }
+        }
+    }
+
+    func deleteKeyValueEntry(id: String, cheatsheetID: String, applicationID: String) throws {
+        try updateKeyValueCheatsheet(cheatsheetID, applicationID: applicationID) { cheatsheet in
+            cheatsheet.entries.removeAll { $0.id == id }
+        }
+    }
+
+    func moveKeyValueEntries(
+        fromOffsets: IndexSet,
+        toOffset: Int,
+        cheatsheetID: String,
+        applicationID: String
+    ) throws {
+        try updateKeyValueCheatsheet(cheatsheetID, applicationID: applicationID) { cheatsheet in
+            cheatsheet.entries.move(fromOffsets: fromOffsets, toOffset: toOffset)
+        }
+    }
+
+    func hasDuplicateKey(
+        _ key: String,
+        cheatsheetID: String,
+        applicationID: String,
+        excludingEntryID: String? = nil
+    ) -> Bool {
+        let normalizedKey = key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedKey.isEmpty,
+              let cheatsheet = application(id: applicationID)?.keyValueCheatsheets.first(where: { $0.id == cheatsheetID })
+        else {
+            return false
+        }
+        return cheatsheet.entries.contains { entry in
+            entry.id != excludingEntryID
+                && !entry.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && entry.key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedKey
+        }
+    }
+
     func updateHotKey(_ configuration: HotKeyConfiguration) throws {
         try commit(applications: applications, hotKey: configuration)
     }
@@ -194,6 +310,25 @@ final class ShortcutStore: ObservableObject {
         }
         update(&updatedApplications[index])
         try commit(applications: updatedApplications, hotKey: hotKey)
+    }
+
+    private func updateKeyValueCheatsheet(
+        _ cheatsheetID: String,
+        applicationID: String,
+        update: (inout KeyValueCheatsheet) -> Void
+    ) throws {
+        guard let app = application(id: applicationID) else { throw ShortcutStoreError.applicationNotFound }
+        guard app.keyValueCheatsheets.contains(where: { $0.id == cheatsheetID }) else {
+            throw ShortcutStoreError.cheatsheetNotFound
+        }
+        try updateApplication(applicationID) { app in
+            guard let index = app.keyValueCheatsheets.firstIndex(where: { $0.id == cheatsheetID }) else { return }
+            update(&app.keyValueCheatsheets[index])
+        }
+    }
+
+    private static func cheatsheetNameKey(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private func snapshot(
@@ -253,6 +388,17 @@ final class ShortcutStore: ObservableObject {
                               && !shortcut.isBlank
                               && shortcut.keys.allSatisfy {
                                   !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                              }
+                      }
+                      && Set(application.keyValueCheatsheets.map(\.id)).count == application.keyValueCheatsheets.count
+                      && Set(application.keyValueCheatsheets.map { Self.cheatsheetNameKey($0.name) }).count
+                          == application.keyValueCheatsheets.count
+                      && application.keyValueCheatsheets.allSatisfy { cheatsheet in
+                          !cheatsheet.id.isEmpty
+                              && !cheatsheet.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                              && Set(cheatsheet.entries.map(\.id)).count == cheatsheet.entries.count
+                              && cheatsheet.entries.allSatisfy {
+                              !$0.id.isEmpty && !$0.isBlank
                               }
                       }
               }) else {

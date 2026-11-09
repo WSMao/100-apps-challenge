@@ -4,7 +4,9 @@ import UniformTypeIdentifiers
 
 struct DashboardView: View {
     @ObservedObject var store: ShortcutStore
+    @ObservedObject var contentNavigation: SharedContentNavigation
     let onHotKeyChanged: @MainActor (HotKeyConfiguration) throws -> Void
+    var clipboardWriter: (String) -> Bool = SystemClipboardWriter.write
 
     @State private var selectedApplicationID: String?
     @State private var searchText = ""
@@ -77,6 +79,7 @@ struct DashboardView: View {
                         }
                     }
                     .tag(application.id)
+                    .accessibilityIdentifier("dashboard.application.\(application.id)")
                 }
                 .onMove(perform: searchText.isEmpty ? { source, destination in
                     performStoreAction {
@@ -154,6 +157,7 @@ struct DashboardView: View {
         .overlay(alignment: .bottom) {
             if let successMessage {
                 Text(successMessage)
+                    .accessibilityIdentifier("key-value.copy-feedback")
                     .padding(10)
                     .background(.regularMaterial, in: Capsule())
                     .padding()
@@ -188,7 +192,9 @@ struct DashboardView: View {
         }
         .onAppear {
             selectedApplicationID = selectedApplicationID ?? store.applications.first?.id
+            followPendingJump()
         }
+        .onChange(of: contentNavigation.pendingJump) { _ in followPendingJump() }
     }
 
     private func applicationDetail(_ application: ShortcutApplication) -> some View {
@@ -227,9 +233,61 @@ struct DashboardView: View {
                 }
             }
 
-            ShortcutListView(store: store, applicationID: application.id) { errorMessage = $0 }
+            contentTabs
+
+            if contentNavigation.selectedContentType == .shortcuts {
+                ShortcutListView(store: store, applicationID: application.id) { errorMessage = $0 }
+            } else {
+                KeyValueCheatsheetView(
+                    store: store,
+                    contentNavigation: contentNavigation,
+                    applicationID: application.id,
+                    onError: {
+                        errorMessage = $0
+                        successMessage = nil
+                    },
+                    onCopySuccess: { successMessage = $0 },
+                    clipboardWriter: clipboardWriter
+                )
+            }
         }
         .padding(24)
+    }
+
+    private func followPendingJump() {
+        guard let jump = contentNavigation.pendingJump,
+              store.application(id: jump.applicationID) != nil else { return }
+        searchText = ""
+        selectedApplicationID = jump.applicationID
+    }
+
+    private var contentTabs: some View {
+        HStack(spacing: 8) {
+            contentTab(.shortcuts, title: "快捷鍵")
+            contentTab(.keyValue, title: "Key-Value")
+        }
+    }
+
+    private func contentTab(_ content: DashboardContentType, title: String) -> some View {
+        Button {
+            contentNavigation.selectContentType(content)
+        } label: {
+            Text(title)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    contentNavigation.selectedContentType == content ? Color.accentColor.opacity(0.18) : Color.clear,
+                    in: Capsule()
+                )
+                .overlay {
+                    Capsule().stroke(
+                        contentNavigation.selectedContentType == content ? Color.accentColor : Color(nsColor: .separatorColor)
+                    )
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(content == .shortcuts ? "dashboard.tab.shortcuts" : "dashboard.tab.key-value")
+        .accessibilityValue(contentNavigation.selectedContentType == content ? "已選取" : "未選取")
     }
 
     private var settingsSection: some View {
