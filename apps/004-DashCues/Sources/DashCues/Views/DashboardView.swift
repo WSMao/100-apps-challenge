@@ -4,11 +4,11 @@ import UniformTypeIdentifiers
 
 struct DashboardView: View {
     @ObservedObject var store: ShortcutStore
+    @ObservedObject var contentNavigation: SharedContentNavigation
     let onHotKeyChanged: @MainActor (HotKeyConfiguration) throws -> Void
     var clipboardWriter: (String) -> Bool = SystemClipboardWriter.write
 
     @State private var selectedApplicationID: String?
-    @State private var selectedContent: DashboardContentType = .shortcuts
     @State private var searchText = ""
     @State private var showingApplicationEditor = false
     @State private var showingSettings = false
@@ -232,11 +232,12 @@ struct DashboardView: View {
 
             contentTabs
 
-            if selectedContent == .shortcuts {
+            if contentNavigation.selectedContentType == .shortcuts {
                 ShortcutListView(store: store, applicationID: application.id) { errorMessage = $0 }
             } else {
                 KeyValueCheatsheetView(
                     store: store,
+                    contentNavigation: contentNavigation,
                     applicationID: application.id,
                     onError: {
                         errorMessage = $0
@@ -259,23 +260,24 @@ struct DashboardView: View {
 
     private func contentTab(_ content: DashboardContentType, title: String) -> some View {
         Button {
-            selectedContent = content
+            contentNavigation.selectContentType(content)
         } label: {
             Text(title)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(
-                    selectedContent == content ? Color.accentColor.opacity(0.18) : Color.clear,
+                    contentNavigation.selectedContentType == content ? Color.accentColor.opacity(0.18) : Color.clear,
                     in: Capsule()
                 )
                 .overlay {
                     Capsule().stroke(
-                        selectedContent == content ? Color.accentColor : Color(nsColor: .separatorColor)
+                        contentNavigation.selectedContentType == content ? Color.accentColor : Color(nsColor: .separatorColor)
                     )
                 }
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(content == .shortcuts ? "dashboard.tab.shortcuts" : "dashboard.tab.key-value")
+        .accessibilityValue(contentNavigation.selectedContentType == content ? "已選取" : "未選取")
     }
 
     private var settingsSection: some View {
@@ -369,9 +371,4 @@ struct DashboardView: View {
             errorMessage = error.localizedDescription
         }
     }
-}
-
-private enum DashboardContentType {
-    case shortcuts
-    case keyValue
 }

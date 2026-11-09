@@ -1,4 +1,58 @@
 import Combine
+import Foundation
+
+enum DashboardContentType: String {
+    case shortcuts
+    case keyValue
+}
+
+@MainActor
+final class SharedContentNavigation: ObservableObject {
+    private static let selectedContentKey = "DashCues.selectedContentType"
+    private static let selectedCheatsheetsKey = "DashCues.selectedCheatsheetIDs"
+
+    @Published private(set) var selectedContentType: DashboardContentType
+    @Published private(set) var lastSelectedCheatsheetIDs: [String: String]
+
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        selectedContentType = defaults.string(forKey: Self.selectedContentKey)
+            .flatMap(DashboardContentType.init(rawValue:)) ?? .shortcuts
+        lastSelectedCheatsheetIDs = defaults.dictionary(forKey: Self.selectedCheatsheetsKey) as? [String: String] ?? [:]
+    }
+
+    func selectContentType(_ contentType: DashboardContentType) {
+        guard selectedContentType != contentType else { return }
+        selectedContentType = contentType
+        defaults.set(contentType.rawValue, forKey: Self.selectedContentKey)
+    }
+
+    func selectedCheatsheetID(for applicationID: String, availableIDs: [String]) -> String? {
+        if let selectedID = lastSelectedCheatsheetIDs[applicationID], availableIDs.contains(selectedID) {
+            return selectedID
+        }
+        return availableIDs.first
+    }
+
+    func selectCheatsheet(_ cheatsheetID: String?, for applicationID: String) {
+        guard lastSelectedCheatsheetIDs[applicationID] != cheatsheetID else { return }
+        if let cheatsheetID {
+            lastSelectedCheatsheetIDs[applicationID] = cheatsheetID
+        } else {
+            lastSelectedCheatsheetIDs.removeValue(forKey: applicationID)
+        }
+        defaults.set(lastSelectedCheatsheetIDs, forKey: Self.selectedCheatsheetsKey)
+    }
+
+    func resetForTesting() {
+        defaults.removeObject(forKey: Self.selectedContentKey)
+        defaults.removeObject(forKey: Self.selectedCheatsheetsKey)
+        selectedContentType = .shortcuts
+        lastSelectedCheatsheetIDs = [:]
+    }
+}
 
 /// Keyboard focus for the menu-bar popover: the "open DashCues" button first, then every app in list order.
 @MainActor
@@ -20,11 +74,18 @@ final class PopoverNavigation: ObservableObject {
     }
 
     private let store: ShortcutStore
+    let contentNavigation: SharedContentNavigation
     private let onOpenDashboard: () -> Void
     private let onClose: () -> Void
 
-    init(store: ShortcutStore, onOpenDashboard: @escaping () -> Void, onClose: @escaping () -> Void) {
+    init(
+        store: ShortcutStore,
+        contentNavigation: SharedContentNavigation,
+        onOpenDashboard: @escaping () -> Void,
+        onClose: @escaping () -> Void
+    ) {
         self.store = store
+        self.contentNavigation = contentNavigation
         self.onOpenDashboard = onOpenDashboard
         self.onClose = onClose
         selectedApplicationID = orderedIDs.first
@@ -66,7 +127,8 @@ final class PopoverNavigation: ObservableObject {
     }
 
     private var currentShortcutIDs: [String] {
-        selectedApplicationID.flatMap { store.application(id: $0) }?.shortcuts.map(\.id) ?? []
+        guard contentNavigation.selectedContentType == .shortcuts else { return [] }
+        return selectedApplicationID.flatMap { store.application(id: $0) }?.shortcuts.map(\.id) ?? []
     }
 
     /// Returns true when the key was handled.

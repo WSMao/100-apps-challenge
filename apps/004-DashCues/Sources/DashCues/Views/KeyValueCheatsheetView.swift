@@ -3,12 +3,13 @@ import SwiftUI
 
 struct KeyValueCheatsheetView: View {
     @ObservedObject var store: ShortcutStore
+    @ObservedObject var contentNavigation: SharedContentNavigation
     let applicationID: String
     let onError: (String) -> Void
     let onCopySuccess: (String) -> Void
     let clipboardWriter: (String) -> Bool
+    var isReadOnly = false
 
-    @State private var selectedCheatsheetID: String?
     @State private var nameEditor: CheatsheetNameRequest?
     @State private var entryEditor: KeyValueEntry?
     @State private var cheatsheetPendingDelete: KeyValueCheatsheet?
@@ -25,6 +26,13 @@ struct KeyValueCheatsheetView: View {
         application?.keyValueCheatsheets ?? []
     }
 
+    private var selectedCheatsheetID: String? {
+        contentNavigation.selectedCheatsheetID(
+            for: applicationID,
+            availableIDs: cheatsheets.map(\.id)
+        )
+    }
+
     private var selectedCheatsheet: KeyValueCheatsheet? {
         cheatsheets.first { $0.id == selectedCheatsheetID }
     }
@@ -35,10 +43,12 @@ struct KeyValueCheatsheetView: View {
                 VStack(spacing: 10) {
                     Label("尚無 Key-Value 清單", systemImage: "list.bullet.rectangle")
                         .font(.headline)
-                    Text("建立清單來整理這個 App 的參考內容。")
+                    Text(isReadOnly ? "此 App 尚無 Key-Value 清單。" : "建立清單來整理這個 App 的參考內容。")
                         .foregroundStyle(.secondary)
-                    Button("建立清單") { createCheatsheet() }
-                        .accessibilityIdentifier("key-value.create-cheatsheet")
+                    if !isReadOnly {
+                        Button("建立清單") { createCheatsheet() }
+                            .accessibilityIdentifier("key-value.create-cheatsheet")
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -50,13 +60,11 @@ struct KeyValueCheatsheetView: View {
                 }
             }
         }
-        .accessibilityIdentifier("key-value.management")
+        .accessibilityIdentifier(isReadOnly ? "key-value.read-only" : "key-value.management")
         .onAppear(perform: selectFirstCheatsheetIfNeeded)
         .onChange(of: applicationID) { _ in selectFirstCheatsheetIfNeeded() }
         .onChange(of: cheatsheets.map(\.id)) { ids in
-            if !ids.contains(selectedCheatsheetID ?? "") {
-                selectedCheatsheetID = ids.first
-            }
+            if !ids.contains(selectedCheatsheetID ?? "") { selectFirstCheatsheetIfNeeded() }
         }
         .sheet(item: $nameEditor) { request in
             CheatsheetNameEditor(
@@ -106,7 +114,10 @@ struct KeyValueCheatsheetView: View {
 
     private var cheatsheetToolbar: some View {
         HStack(spacing: 8) {
-            Picker("Key-Value 清單", selection: $selectedCheatsheetID) {
+            Picker("Key-Value 清單", selection: Binding(
+                get: { selectedCheatsheetID },
+                set: { contentNavigation.selectCheatsheet($0, for: applicationID) }
+            )) {
                 ForEach(cheatsheets) { cheatsheet in
                     Text(cheatsheet.name).tag(Optional(cheatsheet.id))
                 }
@@ -114,36 +125,40 @@ struct KeyValueCheatsheetView: View {
             .labelsHidden()
             .accessibilityIdentifier("key-value.cheatsheet-selector")
             .accessibilityValue(selectedCheatsheet?.name ?? "")
-            .frame(maxWidth: 240)
+            .frame(maxWidth: isReadOnly ? 150 : 240)
 
             TextField("搜尋 Key 或 Value", text: $searchText)
                 .textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier("key-value.search")
-                .frame(maxWidth: 240)
+                .frame(maxWidth: isReadOnly ? 180 : 240)
 
-            Button("新增清單", action: createCheatsheet)
-                .accessibilityIdentifier("key-value.add-cheatsheet")
-            Button("重新命名") {
-                guard let selectedCheatsheet else { return }
-                nameEditor = CheatsheetNameRequest(
-                    title: "重新命名清單",
-                    initialName: selectedCheatsheet.name,
-                    cheatsheetID: selectedCheatsheet.id
-                )
+            if !isReadOnly {
+                Button("新增清單", action: createCheatsheet)
+                    .accessibilityIdentifier("key-value.add-cheatsheet")
+                Button("重新命名") {
+                    guard let selectedCheatsheet else { return }
+                    nameEditor = CheatsheetNameRequest(
+                        title: "重新命名清單",
+                        initialName: selectedCheatsheet.name,
+                        cheatsheetID: selectedCheatsheet.id
+                    )
+                }
+                .accessibilityIdentifier("key-value.rename-cheatsheet")
+                Button("刪除清單", role: .destructive) {
+                    cheatsheetPendingDelete = selectedCheatsheet
+                }
+                .accessibilityIdentifier("key-value.delete-cheatsheet")
             }
-            .accessibilityIdentifier("key-value.rename-cheatsheet")
-            Button("刪除清單", role: .destructive) {
-                cheatsheetPendingDelete = selectedCheatsheet
-            }
-            .accessibilityIdentifier("key-value.delete-cheatsheet")
             Spacer()
-            Button {
-                entryEditor = KeyValueEntry(key: "", value: "")
-            } label: {
-                Label("新增項目", systemImage: "plus")
+            if !isReadOnly {
+                Button {
+                    entryEditor = KeyValueEntry(key: "", value: "")
+                } label: {
+                    Label("新增項目", systemImage: "plus")
+                }
+                .disabled(selectedCheatsheet == nil)
+                .accessibilityIdentifier("key-value.add-entry")
             }
-            .disabled(selectedCheatsheet == nil)
-            .accessibilityIdentifier("key-value.add-entry")
         }
     }
 
@@ -178,7 +193,7 @@ struct KeyValueCheatsheetView: View {
                                     }
                                 ),
                                 onCopy: copy,
-                                onJump: { jump(to: result) }
+                                onJump: isReadOnly ? nil : { jump(to: result) }
                             )
                         }
                     }
@@ -211,6 +226,7 @@ struct KeyValueCheatsheetView: View {
                             ForEach(cheatsheet.entries) { entry in
                                 KeyValueEntryRow(
                                     entry: entry,
+                                    isReadOnly: isReadOnly,
                                     isExpanded: Binding(
                                         get: { expandedEntryIDs.contains(entry.id) },
                                         set: { expanded in
@@ -253,7 +269,7 @@ struct KeyValueCheatsheetView: View {
     }
 
     private func jump(to result: KeyValueSearchResult) {
-        selectedCheatsheetID = result.cheatsheetID
+        contentNavigation.selectCheatsheet(result.cheatsheetID, for: applicationID)
         expandedEntryIDs.insert(result.entry.id)
         pendingScrollEntryID = result.entry.id
         searchText = ""
@@ -303,9 +319,7 @@ struct KeyValueCheatsheetView: View {
     }
 
     private func selectFirstCheatsheetIfNeeded() {
-        if !cheatsheets.contains(where: { $0.id == selectedCheatsheetID }) {
-            selectedCheatsheetID = cheatsheets.first?.id
-        }
+        contentNavigation.selectCheatsheet(selectedCheatsheetID, for: applicationID)
     }
 
     private func saveCheatsheetName(_ name: String, request: CheatsheetNameRequest) -> Bool {
@@ -317,10 +331,11 @@ struct KeyValueCheatsheetView: View {
                     applicationID: applicationID
                 )
             } else {
-                selectedCheatsheetID = try store.createKeyValueCheatsheet(
+                let id = try store.createKeyValueCheatsheet(
                     name: name,
                     applicationID: applicationID
                 )
+                contentNavigation.selectCheatsheet(id, for: applicationID)
             }
             return true
         } catch {
@@ -351,6 +366,7 @@ struct KeyValueCheatsheetView: View {
 
 private struct KeyValueEntryRow: View {
     let entry: KeyValueEntry
+    let isReadOnly: Bool
     @Binding var isExpanded: Bool
     let onEdit: () -> Void
     let onDelete: () -> Void
@@ -367,7 +383,7 @@ private struct KeyValueEntryRow: View {
         return String(singleLine.prefix(99)) + "…"
     }
 
-    var body: some View {
+    private var rowContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Button {
@@ -383,15 +399,17 @@ private struct KeyValueEntryRow: View {
                 .accessibilityLabel(preview)
                 .accessibilityIdentifier("key-value.entry-preview.\(entry.id)")
 
-                Button("編輯", action: onEdit)
-                    .accessibilityIdentifier("key-value.edit-entry.\(entry.id)")
-                Button(role: .destructive, action: onDelete) {
-                    Image(systemName: "trash")
+                if !isReadOnly {
+                    Button("編輯", action: onEdit)
+                        .accessibilityIdentifier("key-value.edit-entry.\(entry.id)")
+                    Button(role: .destructive, action: onDelete) {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("刪除項目")
+                    .accessibilityLabel("刪除項目")
+                    .accessibilityIdentifier("key-value.delete-entry.\(entry.id)")
                 }
-                .buttonStyle(.borderless)
-                .help("刪除項目")
-                .accessibilityLabel("刪除項目")
-                .accessibilityIdentifier("key-value.delete-entry.\(entry.id)")
             }
 
             if isExpanded {
@@ -428,13 +446,23 @@ private struct KeyValueEntryRow: View {
         .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor)))
         .accessibilityElement(children: .contain)
-        .draggable(entry.id)
-        .dropDestination(for: String.self) { draggedIDs, _ in
-            guard let draggedEntryID = draggedIDs.first else { return false }
-            onMove(draggedEntryID)
-            return true
+    }
+
+    var body: some View {
+        Group {
+            if isReadOnly {
+                rowContent
+            } else {
+                rowContent
+                    .draggable(entry.id)
+                    .dropDestination(for: String.self) { draggedIDs, _ in
+                        guard let draggedEntryID = draggedIDs.first else { return false }
+                        onMove(draggedEntryID)
+                        return true
+                    }
+            }
         }
-        .help("拖曳以重新排序")
+        .help(isReadOnly ? "" : "拖曳以重新排序")
     }
 }
 
@@ -442,7 +470,7 @@ private struct KeyValueSearchResultRow: View {
     let result: KeyValueSearchResult
     @Binding var isExpanded: Bool
     let onCopy: (String, String) -> Void
-    let onJump: () -> Void
+    let onJump: (() -> Void)?
 
     private var preview: String {
         let key = result.entry.key.isEmpty ? "（空白 Key）" : result.entry.key
@@ -476,13 +504,15 @@ private struct KeyValueSearchResultRow: View {
                     .accessibilityIdentifier("key-value.search-result.preview.\(result.id)")
                 }
 
-                Button(action: onJump) {
-                    Image(systemName: "arrow.up.right.square")
+                if let onJump {
+                    Button(action: onJump) {
+                        Image(systemName: "arrow.up.right.square")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("前往清單")
+                    .accessibilityLabel("前往清單")
+                    .accessibilityIdentifier("key-value.search-result.jump.\(result.id)")
                 }
-                .buttonStyle(.borderless)
-                .help("前往清單")
-                .accessibilityLabel("前往清單")
-                .accessibilityIdentifier("key-value.search-result.jump.\(result.id)")
             }
 
             if isExpanded {

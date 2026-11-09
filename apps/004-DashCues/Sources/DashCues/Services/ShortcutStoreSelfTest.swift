@@ -261,7 +261,14 @@ enum ShortcutStoreSelfTest {
     private static func runPopoverNavigationChecks(store: ShortcutStore) throws {
         var opened = 0
         var closed = 0
-        let nav = PopoverNavigation(store: store, onOpenDashboard: { opened += 1 }, onClose: { closed += 1 })
+        let contentNavigationDefaults = UserDefaults(suiteName: "DashCues.SelfTest.\(UUID().uuidString)") ?? .standard
+        let contentNavigation = SharedContentNavigation(defaults: contentNavigationDefaults)
+        let nav = PopoverNavigation(
+            store: store,
+            contentNavigation: contentNavigation,
+            onOpenDashboard: { opened += 1 },
+            onClose: { closed += 1 }
+        )
         let ids = (store.pinnedApplications + store.otherApplications).map(\.id)
         try check(nav.searchFocused && !nav.focusOnOpenButton, "Popover should focus the search field first.")
         _ = nav.handle(keyCode: 126)
@@ -305,6 +312,18 @@ enum ShortcutStoreSelfTest {
         _ = nav.handle(keyCode: 126)
         _ = nav.handle(keyCode: 53)
         try check(closed == 1, "Esc did not close the popover.")
+
+        contentNavigation.selectContentType(.keyValue)
+        contentNavigation.selectCheatsheet("prompts", for: "self-test-app")
+        let restoredNavigation = SharedContentNavigation(defaults: contentNavigationDefaults)
+        try check(
+            restoredNavigation.selectedContentType == .keyValue,
+            "Selected content type did not persist."
+        )
+        try check(
+            restoredNavigation.selectedCheatsheetID(for: "self-test-app", availableIDs: ["commands", "prompts"]) == "prompts",
+            "Selected Key-Value cheatsheet did not persist per app."
+        )
     }
 
     @MainActor
