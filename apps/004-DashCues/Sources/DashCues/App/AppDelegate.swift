@@ -17,10 +17,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let environment = ProcessInfo.processInfo.environment
             let storageURL = environment["DASHCUES_UI_TEST_STORAGE_PATH"].map(URL.init(fileURLWithPath:))
             let store = try ShortcutStore(storageURL: storageURL)
-            let contentNavigation = SharedContentNavigation()
-            if environment["DASHCUES_UI_TEST_RESET_NAVIGATION"] == "1" {
-                contentNavigation.resetForTesting()
+            let defaults: UserDefaults
+            if environment["DASHCUES_UI_TESTING"] == "1" {
+                guard let suiteName = environment["DASHCUES_UI_TEST_DEFAULTS_SUITE"],
+                      !suiteName.isEmpty,
+                      let testDefaults = UserDefaults(suiteName: suiteName) else {
+                    throw AppDelegateError.missingTestDefaults
+                }
+                defaults = testDefaults
+            } else {
+                defaults = .standard
             }
+            let contentNavigation = SharedContentNavigation(defaults: defaults)
             let clipboardWriter: (String) -> Bool =
                 environment["DASHCUES_UI_TESTING"] == "1"
                     && environment["DASHCUES_UI_TEST_CLIPBOARD_FAILURE"] == "1"
@@ -98,9 +106,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 private enum AppDelegateError: LocalizedError {
     case unavailable
+    case missingTestDefaults
 
     var errorDescription: String? {
-        "DashCues 尚未完成初始化，請重新啟動 App。"
+        switch self {
+        case .unavailable: return "DashCues 尚未完成初始化，請重新啟動 App。"
+        case .missingTestDefaults: return "UI 測試必須指定獨立的偏好設定套件。"
+        }
     }
 }
 
@@ -311,7 +323,9 @@ private final class DashboardWindowController: NSWindowController, NSWindowDeleg
             defer: false
         )
         window.title = "DashCues"
-        window.setFrameAutosaveName("DashCuesDashboard")
+        if ProcessInfo.processInfo.environment["DASHCUES_UI_TESTING"] != "1" {
+            window.setFrameAutosaveName("DashCuesDashboard")
+        }
         window.contentViewController = NSHostingController(
             rootView: DashboardView(
                 store: store,

@@ -90,7 +90,12 @@ struct ShortcutPopoverView: View {
                                 },
                                 onCopySuccess: { successMessage = $0 },
                                 clipboardWriter: clipboardWriter,
-                                isReadOnly: true
+                                isReadOnly: true,
+                                onSearchFocusChanged: { navigation.keyValueSearchFocused = $0 },
+                                onJumpToDashboard: { result in
+                                    contentNavigation.requestJump(applicationID: selectedApplication.id, result: result)
+                                    navigation.openDashboard()
+                                }
                             )
                             .padding(12)
                         }
@@ -229,6 +234,7 @@ struct ShortcutPopoverView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("popover.application.\(application.id)")
         .onHover { isHovering in
             if isHovering {
                 navigation.focusApplication(application.id)

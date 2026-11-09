@@ -4,19 +4,19 @@ import XCTest
 final class KeyValueCheatsheetUITests: XCTestCase {
     private var app: XCUIApplication!
     private var testDataDirectory: URL!
+    private var defaultsSuiteName: String!
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+        let testID = UUID().uuidString
+        defaultsSuiteName = "DashCues.UITests.\(testID)"
         testDataDirectory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
-            .appendingPathComponent(".ui-test-data", isDirectory: true)
-        if FileManager.default.fileExists(atPath: testDataDirectory.path) {
-            try FileManager.default.removeItem(at: testDataDirectory)
-        }
+            .appendingPathComponent(".ui-test-data-\(testID)", isDirectory: true)
 
         app = XCUIApplication()
         app.launchEnvironment["DASHCUES_UI_TESTING"] = "1"
-        app.launchEnvironment["DASHCUES_UI_TEST_RESET_NAVIGATION"] = "1"
+        app.launchEnvironment["DASHCUES_UI_TEST_DEFAULTS_SUITE"] = defaultsSuiteName
         app.launchEnvironment["DASHCUES_UI_TEST_STORAGE_PATH"] = testDataDirectory
             .appendingPathComponent("shortcuts.json")
             .path
@@ -26,6 +26,9 @@ final class KeyValueCheatsheetUITests: XCTestCase {
 
     override func tearDownWithError() throws {
         app?.terminate()
+        if let defaultsSuiteName {
+            UserDefaults(suiteName: defaultsSuiteName)?.removePersistentDomain(forName: defaultsSuiteName)
+        }
         if let testDataDirectory, FileManager.default.fileExists(atPath: testDataDirectory.path) {
             try FileManager.default.removeItem(at: testDataDirectory)
         }
@@ -135,6 +138,16 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         XCTAssertTrue(previews.element(boundBy: 1).label.hasPrefix("First —"))
     }
 
+    func testNavigationPreferencesPersistAcrossRelaunchWithinTest() throws {
+        createCheatsheet(named: "Commands")
+        app.buttons["key-value.add-cheatsheet"].click()
+        enterText("Prompts", into: "key-value.cheatsheet-name")
+        app.buttons["key-value.save-cheatsheet-name"].click()
+        relaunch()
+        XCTAssertEqual(app.buttons["dashboard.tab.key-value"].value as? String, "已選取")
+        XCTAssertEqual(element("key-value.cheatsheet-selector").value as? String, "Prompts")
+    }
+
     func testKeyAndValueCopyIndependentlyWithSuccessFeedback() throws {
         createCheatsheet(named: "Prompts")
         let key = "Prompt\nTitle"
@@ -220,7 +233,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         addEntry(key: "Desired output", value: "Write in a concise tone")
         selectCheatsheet(named: "Commands")
 
-        app.windows.firstMatch.close()
+        app.typeKey("w", modifierFlags: .command)
         let statusItem = element("dashcues.status-item")
         XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
         statusItem.click()
@@ -267,7 +280,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         XCTAssertEqual(dashboardKeyValueTab.value as? String, "已選取")
         XCTAssertEqual(element("key-value.cheatsheet-selector").value as? String, "Prompts")
 
-        app.windows.firstMatch.close()
+        app.typeKey("w", modifierFlags: .command)
         XCTAssertTrue(element("dashcues.status-item").waitForExistence(timeout: 5))
         element("dashcues.status-item").click()
         XCTAssertTrue(app.buttons["popover.tab.shortcuts"].waitForExistence(timeout: 5))
@@ -281,7 +294,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         addEntry(key: "Build", value: "Compile the project")
         relaunch(clipboardFailure: true)
 
-        app.windows.firstMatch.close()
+        app.typeKey("w", modifierFlags: .command)
         let statusItem = element("dashcues.status-item")
         XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
         statusItem.click()
@@ -293,6 +306,69 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         XCTAssertTrue(error.waitForExistence(timeout: 5))
         XCTAssertTrue(error.staticTexts["無法複製 Key 到剪貼簿。"].exists)
         XCTAssertFalse(app.staticTexts["key-value.copy-feedback"].exists)
+    }
+
+    func testMenuBarEmptyCheatsheetCannotCreateEntries() throws {
+        createCheatsheet(named: "Empty")
+        app.typeKey("w", modifierFlags: .command)
+        element("dashcues.status-item").click()
+        XCTAssertTrue(app.buttons["popover.tab.key-value"].waitForExistence(timeout: 5))
+        app.buttons["popover.tab.key-value"].click()
+        XCTAssertTrue(element("key-value.read-only").waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["key-value.add-first-entry"].exists)
+        XCTAssertFalse(app.buttons["key-value.add-entry"].exists)
+        XCTAssertFalse(app.buttons["key-value.add-cheatsheet"].exists)
+        XCTAssertFalse(app.buttons["key-value.save-entry"].exists)
+    }
+
+    func testMenuBarSearchEditingKeysStayInSearchField() throws {
+        createCheatsheet(named: "Commands")
+        addEntry(key: "Build", value: "Compile the project")
+        app.typeKey("w", modifierFlags: .command)
+        element("dashcues.status-item").click()
+        XCTAssertTrue(app.buttons["popover.tab.key-value"].waitForExistence(timeout: 5))
+        app.buttons["popover.tab.key-value"].click()
+        let search = app.textFields["key-value.search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.click()
+        search.typeText("buld")
+        app.typeKey(.leftArrow, modifierFlags: [])
+        app.typeKey(.leftArrow, modifierFlags: [])
+        search.typeText("i")
+        XCTAssertEqual(search.value as? String, "build")
+        app.typeKey(.downArrow, modifierFlags: [])
+        app.typeKey(.upArrow, modifierFlags: [])
+        XCTAssertTrue(app.buttons["popover.tab.key-value"].exists)
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(app.buttons["popover.tab.key-value"].exists)
+    }
+
+    func testMenuBarSearchJumpOpensDashboardAtMatchingEntry() throws {
+        createCheatsheet(named: "Commands")
+        addEntry(key: "Build", value: "Compile the project")
+        app.buttons["key-value.add-cheatsheet"].click()
+        enterText("Prompts", into: "key-value.cheatsheet-name")
+        app.buttons["key-value.save-cheatsheet-name"].click()
+        addEntry(key: "Desired output", value: "Write in a concise tone")
+        selectCheatsheet(named: "Commands")
+        element("dashboard.application.com.apple.Safari").click()
+        element("dashcues.status-item").click()
+        XCTAssertTrue(app.buttons["popover.tab.key-value"].waitForExistence(timeout: 5))
+        app.buttons["popover.application.com.apple.finder"].click()
+        app.buttons["popover.tab.key-value"].click()
+        let search = app.textFields["key-value.search"]
+        search.click()
+        search.typeText("concise")
+        let jump = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "key-value.search-result.jump.")
+        ).firstMatch
+        XCTAssertTrue(jump.waitForExistence(timeout: 5))
+        jump.click()
+        XCTAssertTrue(app.buttons["dashboard.tab.key-value"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["com.apple.finder"].waitForExistence(timeout: 5))
+        XCTAssertEqual(element("key-value.cheatsheet-selector").value as? String, "Prompts")
+        XCTAssertTrue(entryPreviews.firstMatch.label.hasPrefix("Desired output —"))
+        XCTAssertEqual(app.staticTexts["key-value.entry-value-text"].label, "Write in a concise tone")
     }
 
     private var entryPreviews: XCUIElementQuery {
@@ -348,7 +424,6 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         if app.state == .runningForeground {
             app.terminate()
         }
-        app.launchEnvironment["DASHCUES_UI_TEST_RESET_NAVIGATION"] = nil
         app.launchEnvironment["DASHCUES_UI_TEST_CLIPBOARD_FAILURE"] = clipboardFailure ? "1" : nil
         app.launch()
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10))
