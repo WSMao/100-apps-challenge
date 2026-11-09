@@ -16,6 +16,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
 
         app = XCUIApplication()
         app.launchEnvironment["DASHCUES_UI_TESTING"] = "1"
+        app.launchEnvironment["DASHCUES_UI_TEST_RESET_NAVIGATION"] = "1"
         app.launchEnvironment["DASHCUES_UI_TEST_STORAGE_PATH"] = testDataDirectory
             .appendingPathComponent("shortcuts.json")
             .path
@@ -208,6 +209,92 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         XCTAssertEqual(app.staticTexts["key-value.entry-value-text"].label, "Write in a concise tone")
     }
 
+    func testMenuBarBrowsesSearchesAndCopiesKeyValueWithSharedNavigation() throws {
+        createCheatsheet(named: "Commands")
+        addEntry(key: "Build", value: "Compile the project")
+        app.buttons["key-value.add-cheatsheet"].click()
+        let nameField = app.textFields["key-value.cheatsheet-name"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 5))
+        nameField.typeText("Prompts")
+        app.buttons["key-value.save-cheatsheet-name"].click()
+        addEntry(key: "Desired output", value: "Write in a concise tone")
+        selectCheatsheet(named: "Commands")
+
+        app.windows.firstMatch.close()
+        let statusItem = element("dashcues.status-item")
+        XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
+        statusItem.click()
+
+        let keyValueTab = app.buttons["popover.tab.key-value"]
+        XCTAssertTrue(keyValueTab.waitForExistence(timeout: 5))
+        keyValueTab.click()
+        let selector = element("key-value.cheatsheet-selector")
+        XCTAssertTrue(selector.waitForExistence(timeout: 5))
+        XCTAssertEqual(selector.value as? String, "Commands")
+        XCTAssertFalse(app.buttons["key-value.add-cheatsheet"].exists)
+        XCTAssertFalse(app.buttons["key-value.add-entry"].exists)
+
+        selectCheatsheet(named: "Prompts")
+        let search = app.textFields["key-value.search"]
+        search.click()
+        search.typeText("concise")
+        let resultContext = app.staticTexts.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "key-value.search-result.sheet.")
+        ).firstMatch
+        XCTAssertTrue(resultContext.waitForExistence(timeout: 5))
+        XCTAssertEqual(resultContext.label, "Prompts")
+
+        let resultPreview = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "key-value.search-result.preview.")
+        ).firstMatch
+        XCTAssertTrue(resultPreview.waitForExistence(timeout: 5))
+        resultPreview.click()
+        let resultValue = app.staticTexts.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "key-value.search-result.value-text.")
+        ).firstMatch
+        XCTAssertTrue(resultValue.waitForExistence(timeout: 5))
+        XCTAssertEqual(resultValue.label, "Write in a concise tone")
+
+        app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "key-value.search-result.copy-key.")
+        ).firstMatch.click()
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Desired output")
+        XCTAssertTrue(app.staticTexts["key-value.copy-feedback"].waitForExistence(timeout: 5))
+
+        app.buttons["popover.open-dashboard"].click()
+        let dashboardKeyValueTab = app.buttons["dashboard.tab.key-value"]
+        XCTAssertTrue(dashboardKeyValueTab.waitForExistence(timeout: 5))
+        XCTAssertEqual(dashboardKeyValueTab.value as? String, "已選取")
+        XCTAssertEqual(element("key-value.cheatsheet-selector").value as? String, "Prompts")
+
+        app.windows.firstMatch.close()
+        XCTAssertTrue(element("dashcues.status-item").waitForExistence(timeout: 5))
+        element("dashcues.status-item").click()
+        XCTAssertTrue(app.buttons["popover.tab.shortcuts"].waitForExistence(timeout: 5))
+        let shortcutsTab = app.buttons["popover.tab.shortcuts"]
+        shortcutsTab.click()
+        XCTAssertEqual(shortcutsTab.value as? String, "已選取")
+    }
+
+    func testMenuBarSurfacesClipboardFailure() throws {
+        createCheatsheet(named: "Commands")
+        addEntry(key: "Build", value: "Compile the project")
+        relaunch(clipboardFailure: true)
+
+        app.windows.firstMatch.close()
+        let statusItem = element("dashcues.status-item")
+        XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
+        statusItem.click()
+        app.buttons["popover.tab.key-value"].click()
+        entryPreviews.firstMatch.click()
+        copyButton(containing: "copy-key").click()
+
+        let error = app.alerts["無法完成操作"]
+        XCTAssertTrue(error.waitForExistence(timeout: 5))
+        XCTAssertTrue(error.staticTexts["無法複製 Key 到剪貼簿。"].exists)
+        XCTAssertFalse(app.staticTexts["key-value.copy-feedback"].exists)
+    }
+
     private var entryPreviews: XCUIElementQuery {
         app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "key-value.entry-preview.")
@@ -239,6 +326,18 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         XCTAssertTrue(entryPreviews.firstMatch.waitForExistence(timeout: 5))
     }
 
+    private func selectCheatsheet(named name: String) {
+        let selector = element("key-value.cheatsheet-selector")
+        XCTAssertTrue(selector.waitForExistence(timeout: 5))
+        selector.click()
+        let option = app.menuItems[name]
+        if option.waitForExistence(timeout: 2) {
+            option.click()
+        } else {
+            app.buttons[name].click()
+        }
+    }
+
     private func copyButton(containing field: String) -> XCUIElement {
         app.buttons.matching(
             NSPredicate(format: "identifier CONTAINS %@", field)
@@ -249,6 +348,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         if app.state == .runningForeground {
             app.terminate()
         }
+        app.launchEnvironment["DASHCUES_UI_TEST_RESET_NAVIGATION"] = nil
         app.launchEnvironment["DASHCUES_UI_TEST_CLIPBOARD_FAILURE"] = clipboardFailure ? "1" : nil
         app.launch()
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10))
