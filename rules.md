@@ -51,9 +51,35 @@
 - 將規格轉換為工作項目 Issues：調用 `/to-tickets` skill。
 - 互動與架構可行性探索：調用 `/prototype` skill 建立拋棄式原型。
 
+### 初始化 GitHub Issue/Project Label
+- **App 標籤**：開發 App 時，請確認對應該 App 的標籤 `app-<NNN>` 已存在（`gh label list`）；若不存在須先用 `gh label create` 建立。
+
 ---
 
-## 4. 專案文件 (Documentation Architecture)
+## 4. 開發流程 (Development Workflow)
+
+開發者若沒有明確表示「直接開發」，就不要直接開發，而是按照「mattpocock skills」流程：
+1. `/grill-me`：釐清需求與設計決策。若過程需要同步沉澱領域名詞或架構決策，改用 `/grill-with-docs`。
+2. `/to-spec`：產出規格 Spec Issue。
+3. `/to-tickets`：把較大的 Spec Issue 拆成數個較小的 Issues。
+4. 由開發者下命令觸發：
+   - `/implement <ticket>`：單張 ticket，遵循 `/tdd`，完成後自動呼叫 `/code-review` 檢查。
+   - `/implement-spec`：整份規格含多張 ticket，按 ticket 依賴圖由多個 subagent 平行實作（每個 subagent 遵循 `/tdd`），合併到整合分支，完成後自動呼叫 `/code-review` 檢查。
+5. `/pr`：`/code-review` 檢查沒問題後就撰寫 PR 內文並發 PR 到專案主分支，由開發者審核與合併。
+
+走「mattpocock skills」流程需按照上述步驟一一執行。
+- `/grill-me` 到 `/to-tickets` 這幾個階段需要開發者決策，請引導開發者一步步的執行，在 `/to-tickets` 之後停下來等開發者下一步指示。
+- 從開發者下達實作命令 `/implement` 或 `/implement-spec` 時，Agent 才開始自動做開發工作。
+
+### 分支與 PR 規則
+- **分支命名**：一律為 `feat/<project>/#<issue>-<描述>`（參見 `/monorepo-gitflow` skill），`<issue>` 為 GitHub Issue 編號。issue 跟 ticket 是同一個概念，只是用詞不同，`/implement` 單張 ticket 就是對應到該 ticket 的 Issue 編號，`/implement-spec` 的整合分支用規格 Issue 的編號，該規格下開出來的 ticket 也是同樣用 Issue 編號為分支命名。
+- **`/implement`**：從專案主分支切出對應分支；每張 ticket 各發一個 PR。
+- **`/implement-spec`**：每張 ticket 各有自己的分支與 worktree，完成後合併進整合分支並清除，不單獨發 PR；只有整合分支發 PR 到專案主分支。
+- **發 PR 之後**：Agent 不得自行合併。若還有不被未合併 PR 擋住、可並行的 ticket，就繼續執行，讓開發者有空時能一次審核多個 PR。
+
+---
+
+## 5. 專案文件 (Documentation Architecture)
 
 本專案文件嚴格遵守 Single Source of Truth 原則，按用途分為 4 種：
 1. **公開展示用 (`apps/<id>-<app-name>/README.md`)**：面向 GitHub 訪問者（使用者與外部開發者），專注產品解決了什麼問題，提供什麼價值。
@@ -63,7 +89,7 @@
 
 詳細規範請一律參照 `project-docs` skill 及其[範本](.skills-repo/wsmao/project-docs/resources/app-readme-template.md)進行撰寫或重構。
 
-## 5. showcase 展示
+## 6. showcase 展示
 每個項目（包含第一個項目）都會是第一個項目`001-Challenge Showcase`的展示內容，而第一個項目的設計架構為「資料驅動」。
 - 每個子專案根目錄都放置一個標準的 `app-manifest.json` 如：
    ```json
@@ -82,7 +108,7 @@
 
 - 第一個項目只需自動讀取各 App 的 json，無需手動修改程式碼。
 
-## 6. Obsidian 專案與知識庫紀錄
+## 7. Obsidian 專案與知識庫紀錄
 
 專案筆記為開發者構思專案原型想法、沉澱技術概念以及記錄開發過程的地方。
 當需要將對話精華、技術概念或新點子保存至個人 Obsidian 知識庫時，請一律調用：
@@ -90,7 +116,7 @@
 👉 **`/to-obsidian-note` skill**（支援全對話導出 `/to-obsidian-note all` 與分類提取 `/to-obsidian-note <category> <scope> <style>`，並嚴格遵循技術討論比對與點子分類規則）。
 
 
-## 7. Git 與 GitHub 規範
+## 8. Git 與 GitHub 規範
 
 本專案為多個子專案的架構，故採用 monorepo 方式建立 GitHub 儲存庫，並以 GitHub Project 來管理任務。
 
@@ -111,9 +137,9 @@ Agent 開發前務必確認任務與邊界，使用正確的分支進行開發�
 
 ---
 
-## 8. 自動化測試規範 (Automated Testing Standards)
+## 9. 自動化測試規範 (Automated Testing Standards)
 
-### 8.1 測試設計原則與分層邊界 (Testing Principles & Boundaries)
+### 9.1 測試設計原則與分層邊界 (Testing Principles & Boundaries)
 
 測試設計與實作一律以 **TDD skill** 為最高設計指導：
 - **核心心法**：測試只驗證公開介面（Public Seams）可觀察的功能行為，嚴禁依賴私有變數或原始碼字串等實作細節（詳見 TDD 之 Anti-patterns）。
@@ -126,7 +152,7 @@ Agent 開發前務必確認任務與邊界，使用正確的分支進行開發�
 
 ---
 
-### 8.2 開發目標平台測試規範：通用 Web 應用 (Webapp Development)
+### 9.2 開發目標平台測試規範：通用 Web 應用 (Webapp Development)
 
 針對所有 Web 應用（無論是 SPA、SSR、圖形畫布、資料儀表板或一般後台），依功能層級嚴格對應測試選型，並遵守 Bug 修復驗收標準：
 
@@ -155,7 +181,7 @@ Agent 開發前務必確認任務與邊界，使用正確的分支進行開發�
 
 ---
 
-### 8.3 開發目標平台測試規範：Apple 原生應用 (iOS / iPadOS / macOS)
+### 9.3 開發目標平台測試規範：Apple 原生應用 (iOS / iPadOS / macOS)
 
 針對以 Swift / SwiftUI / UIKit / AppKit 開發之 Apple 生態系應用專案，各層級測試必須嚴格落實以下規範：
 
@@ -183,7 +209,7 @@ Agent 開發前務必確認任務與邊界，使用正確的分支進行開發�
 
 ---
 
-### 8.4 測試豁免與輕量化驗收規範 (Test-Exempt Fast-Track)
+### 9.4 測試豁免與輕量化驗收規範 (Test-Exempt Fast-Track)
 
 為避免 AI Agent 陷入「過度防衛型無效測試（Over-testing / Testing Overkill）」或因瑣碎變更無端耗費驗證成本，特別明定以下豁免條款：
 
@@ -204,7 +230,7 @@ Agent 開發前務必確認任務與邊界，使用正確的分支進行開發�
 
 ---
 
-## 9. Agent Skills 規範 (Agent Skills Workflow)
+## 10. Agent Skills 規範 (Agent Skills Workflow)
 
 本專案支援由 [mattpocock/skills](https://github.com/mattpocock/skills) 擴充之工程與生產力工作流程。當在對話中使用相關技能（如 `/to-spec`、`/to-tickets`、`/implement`、`/grill-with-docs`、`/triage`）時，遵循以下統一規格：
 
