@@ -90,6 +90,8 @@ struct ShortcutApplication: Codable, Identifiable, Equatable {
     var name: String
     var bundleIdentifier: String
     var symbolName: String
+    /// PNG data of a user-picked icon; overrides the app's real icon when set.
+    var customIconData: Data?
     var isBuiltIn: Bool
     var isPinned: Bool
     var shortcuts: [ShortcutItem]
@@ -101,6 +103,7 @@ struct ShortcutApplication: Codable, Identifiable, Equatable {
         name: String,
         bundleIdentifier: String = "",
         symbolName: String = "app",
+        customIconData: Data? = nil,
         isBuiltIn: Bool = false,
         isPinned: Bool = false,
         shortcuts: [ShortcutItem] = [],
@@ -110,6 +113,7 @@ struct ShortcutApplication: Codable, Identifiable, Equatable {
         self.name = name
         self.bundleIdentifier = bundleIdentifier
         self.symbolName = symbolName
+        self.customIconData = customIconData
         self.isBuiltIn = isBuiltIn
         self.isPinned = isPinned
         self.shortcuts = shortcuts
@@ -118,7 +122,7 @@ struct ShortcutApplication: Codable, Identifiable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, bundleIdentifier, symbolName, isBuiltIn, isPinned, shortcuts, tags
+        case id, name, bundleIdentifier, symbolName, customIconData, isBuiltIn, isPinned, shortcuts, tags
     }
 
     init(from decoder: Decoder) throws {
@@ -127,6 +131,7 @@ struct ShortcutApplication: Codable, Identifiable, Equatable {
         name = try container.decode(String.self, forKey: .name)
         bundleIdentifier = try container.decode(String.self, forKey: .bundleIdentifier)
         symbolName = try container.decode(String.self, forKey: .symbolName)
+        customIconData = try container.decodeIfPresent(Data.self, forKey: .customIconData)
         isBuiltIn = try container.decode(Bool.self, forKey: .isBuiltIn)
         isPinned = try container.decode(Bool.self, forKey: .isPinned)
         shortcuts = try container.decode([ShortcutItem].self, forKey: .shortcuts)

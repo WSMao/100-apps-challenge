@@ -4,12 +4,13 @@ import UniformTypeIdentifiers
 
 struct ApplicationEditorSheet: View {
     let existingApplication: ShortcutApplication?
-    let onSave: (String, String, String, [TagEdit]?) -> Void
+    let onSave: (String, String, String, Data?, [TagEdit]?) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var bundleIdentifier: String
     private let symbolName: String
+    @State private var customIconData: Data?
     @State private var tagRows: [TagRow]
 
     private struct TagRow: Identifiable {
@@ -20,13 +21,14 @@ struct ApplicationEditorSheet: View {
 
     init(
         existingApplication: ShortcutApplication?,
-        onSave: @escaping (String, String, String, [TagEdit]?) -> Void
+        onSave: @escaping (String, String, String, Data?, [TagEdit]?) -> Void
     ) {
         self.existingApplication = existingApplication
         self.onSave = onSave
         _name = State(initialValue: existingApplication?.name ?? "")
         _bundleIdentifier = State(initialValue: existingApplication?.bundleIdentifier ?? "")
         symbolName = existingApplication?.symbolName ?? "app"
+        _customIconData = State(initialValue: existingApplication?.customIconData)
         _tagRows = State(initialValue: (existingApplication?.tags ?? []).map { TagRow(original: $0, name: $0) })
     }
 
@@ -37,7 +39,8 @@ struct ApplicationEditorSheet: View {
                     application: ShortcutApplication(
                         name: name,
                         bundleIdentifier: bundleIdentifier,
-                        symbolName: symbolName
+                        symbolName: symbolName,
+                        customIconData: customIconData
                     ),
                     size: 48
                 )
@@ -46,7 +49,13 @@ struct ApplicationEditorSheet: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
-                    Button("選擇 App…", action: chooseApplication)
+                    HStack {
+                        Button("選擇 App…", action: chooseApplication)
+                        Button("自訂圖示…", action: chooseCustomIcon)
+                        if customIconData != nil {
+                            Button("還原圖示") { customIconData = nil }
+                        }
+                    }
                 }
             }
 
@@ -62,7 +71,7 @@ struct ApplicationEditorSheet: View {
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("儲存") {
-                    onSave(name, bundleIdentifier, symbolName, existingApplication == nil ? nil : tagRows.map { TagEdit(original: $0.original, name: $0.name) })
+                    onSave(name, bundleIdentifier, symbolName, customIconData, existingApplication == nil ? nil : tagRows.map { TagEdit(original: $0.original, name: $0.name) })
                     dismiss()
                 }
                 .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !tagsAreValid)
@@ -110,6 +119,39 @@ struct ApplicationEditorSheet: View {
                 .font(.caption2)
                 .foregroundStyle(tagsAreValid ? Color.secondary : Color.red)
         }
+    }
+
+    private func chooseCustomIcon() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.prompt = "選擇"
+        guard panel.runModal() == .OK, let url = panel.url,
+              let image = NSImage(contentsOf: url),
+              let png = Self.pngData(from: image, maxSide: 512)
+        else { return }
+        customIconData = png
+    }
+
+    /// Scales the image down (never up) to fit `maxSide` and encodes it as PNG.
+    private static func pngData(from image: NSImage, maxSide: CGFloat) -> Data? {
+        let source = image.size
+        guard source.width > 0, source.height > 0 else { return nil }
+        let scale = min(1, maxSide / max(source.width, source.height))
+        let width = max(1, Int((source.width * scale).rounded()))
+        let height = max(1, Int((source.height * scale).rounded()))
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        NSGraphicsContext.current?.imageInterpolation = .high
+        image.draw(in: NSRect(x: 0, y: 0, width: width, height: height))
+        NSGraphicsContext.restoreGraphicsState()
+        return rep.representation(using: .png, properties: [:])
     }
 
     private func chooseApplication() {

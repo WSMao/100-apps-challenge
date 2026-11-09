@@ -121,7 +121,7 @@ struct DashboardView: View {
             }
         }
         .sheet(isPresented: $showingApplicationEditor) {
-            ApplicationEditorSheet(existingApplication: applicationToEdit) { name, bundleIdentifier, symbolName, tagEdits in
+            ApplicationEditorSheet(existingApplication: applicationToEdit) { name, bundleIdentifier, symbolName, iconData, tagEdits in
                 performStoreAction {
                     if let applicationToEdit {
                         try store.updateApplicationDetails(
@@ -129,13 +129,15 @@ struct DashboardView: View {
                             name: name,
                             bundleIdentifier: bundleIdentifier,
                             symbolName: symbolName,
+                            customIconData: .some(iconData),
                             tagEdits: tagEdits
                         )
                     } else {
                         selectedApplicationID = try store.addApplication(
                             name: name,
                             bundleIdentifier: bundleIdentifier,
-                            symbolName: symbolName
+                            symbolName: symbolName,
+                            customIconData: iconData
                         )
                     }
                 }
