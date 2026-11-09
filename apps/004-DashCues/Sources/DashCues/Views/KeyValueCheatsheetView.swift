@@ -13,6 +13,9 @@ struct KeyValueCheatsheetView: View {
     @State private var entryEditor: KeyValueEntry?
     @State private var cheatsheetPendingDelete: KeyValueCheatsheet?
     @State private var expandedEntryIDs = Set<String>()
+    @State private var expandedSearchResultIDs = Set<String>()
+    @State private var searchText = ""
+    @State private var pendingScrollEntryID: String?
 
     private var application: ShortcutApplication? {
         store.application(id: applicationID)
@@ -40,7 +43,9 @@ struct KeyValueCheatsheetView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 cheatsheetToolbar
-                if let selectedCheatsheet {
+                if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    searchResults
+                } else if let selectedCheatsheet {
                     entryList(selectedCheatsheet)
                 }
             }
@@ -108,7 +113,13 @@ struct KeyValueCheatsheetView: View {
             }
             .labelsHidden()
             .accessibilityIdentifier("key-value.cheatsheet-selector")
+            .accessibilityValue(selectedCheatsheet?.name ?? "")
             .frame(maxWidth: 240)
+
+            TextField("搜尋 Key 或 Value", text: $searchText)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("key-value.search")
+                .frame(maxWidth: 240)
 
             Button("新增清單", action: createCheatsheet)
                 .accessibilityIdentifier("key-value.add-cheatsheet")
@@ -136,6 +147,51 @@ struct KeyValueCheatsheetView: View {
         }
     }
 
+    private var searchResults: some View {
+        let results = store.searchKeyValueEntries(searchText, applicationID: applicationID)
+        return Group {
+            if results.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                    Text("找不到符合的項目")
+                        .font(.headline)
+                    Text("請嘗試其他搜尋文字。")
+                        .foregroundStyle(.secondary)
+                }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(results) { result in
+                            KeyValueSearchResultRow(
+                                result: result,
+                                isExpanded: Binding(
+                                    get: { expandedSearchResultIDs.contains(result.id) },
+                                    set: { expanded in
+                                        if expanded {
+                                            expandedSearchResultIDs.insert(result.id)
+                                        } else {
+                                            expandedSearchResultIDs.remove(result.id)
+                                        }
+                                    }
+                                ),
+                                onCopy: copy,
+                                onJump: { jump(to: result) }
+                            )
+                        }
+                    }
+                    .padding(8)
+                }
+                .accessibilityIdentifier("key-value.search-results")
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor)))
+            }
+        }
+        .frame(maxHeight: .infinity)
+    }
+
     private func entryList(_ cheatsheet: KeyValueCheatsheet) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             if cheatsheet.entries.isEmpty {
@@ -149,46 +205,70 @@ struct KeyValueCheatsheetView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 8) {
-                        ForEach(cheatsheet.entries) { entry in
-                            KeyValueEntryRow(
-                                entry: entry,
-                                isExpanded: Binding(
-                                    get: { expandedEntryIDs.contains(entry.id) },
-                                    set: { expanded in
-                                        if expanded {
-                                            expandedEntryIDs.insert(entry.id)
-                                        } else {
-                                            expandedEntryIDs.remove(entry.id)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 8) {
+                            ForEach(cheatsheet.entries) { entry in
+                                KeyValueEntryRow(
+                                    entry: entry,
+                                    isExpanded: Binding(
+                                        get: { expandedEntryIDs.contains(entry.id) },
+                                        set: { expanded in
+                                            if expanded {
+                                                expandedEntryIDs.insert(entry.id)
+                                            } else {
+                                                expandedEntryIDs.remove(entry.id)
+                                            }
                                         }
+                                    ),
+                                    onEdit: { entryEditor = entry },
+                                    onDelete: {
+                                        performStoreAction {
+                                            try store.deleteKeyValueEntry(
+                                                id: entry.id,
+                                                cheatsheetID: cheatsheet.id,
+                                                applicationID: applicationID
+                                            )
+                                        }
+                                    },
+                                    onCopy: copy,
+                                    onMove: { draggedEntryID in
+                                        moveEntry(draggedEntryID, to: entry.id, in: cheatsheet)
                                     }
-                                ),
-                                onEdit: { entryEditor = entry },
-                                onDelete: {
-                                    performStoreAction {
-                                        try store.deleteKeyValueEntry(
-                                            id: entry.id,
-                                            cheatsheetID: cheatsheet.id,
-                                            applicationID: applicationID
-                                        )
-                                    }
-                                },
-                                onCopy: copy,
-                                onMove: { draggedEntryID in
-                                    moveEntry(draggedEntryID, to: entry.id, in: cheatsheet)
-                                }
-                            )
+                                )
+                                .id(entry.id)
+                            }
                         }
+                        .padding(8)
                     }
-                    .padding(8)
+                    .accessibilityIdentifier("key-value.entries")
+                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor)))
+                    .onAppear { scrollToPendingEntry(using: proxy) }
+                    .onChange(of: pendingScrollEntryID) { _ in scrollToPendingEntry(using: proxy) }
                 }
-                .accessibilityIdentifier("key-value.entries")
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor)))
             }
         }
         .frame(maxHeight: .infinity)
+    }
+
+    private func jump(to result: KeyValueSearchResult) {
+        selectedCheatsheetID = result.cheatsheetID
+        expandedEntryIDs.insert(result.entry.id)
+        pendingScrollEntryID = result.entry.id
+        searchText = ""
+    }
+
+    private func scrollToPendingEntry(using proxy: ScrollViewProxy) {
+        guard let entryID = pendingScrollEntryID else { return }
+        DispatchQueue.main.async {
+            withAnimation {
+                proxy.scrollTo(entryID, anchor: .center)
+            }
+            if pendingScrollEntryID == entryID {
+                pendingScrollEntryID = nil
+            }
+        }
     }
 
     private func copy(_ text: String, field: String) {
@@ -355,6 +435,90 @@ private struct KeyValueEntryRow: View {
             return true
         }
         .help("拖曳以重新排序")
+    }
+}
+
+private struct KeyValueSearchResultRow: View {
+    let result: KeyValueSearchResult
+    @Binding var isExpanded: Bool
+    let onCopy: (String, String) -> Void
+    let onJump: () -> Void
+
+    private var preview: String {
+        let key = result.entry.key.isEmpty ? "（空白 Key）" : result.entry.key
+        let value = result.entry.value.isEmpty ? "（空白 Value）" : result.entry.value
+        let singleLine = "\(key) — \(value)"
+            .components(separatedBy: .newlines)
+            .joined(separator: " ")
+        guard singleLine.count > 100 else { return singleLine }
+        return String(singleLine.prefix(99)) + "…"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(result.cheatsheetName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("key-value.search-result.sheet.\(result.id)")
+                    Button {
+                        isExpanded.toggle()
+                    } label: {
+                        Text(preview)
+                            .font(.headline)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(preview)
+                    .accessibilityIdentifier("key-value.search-result.preview.\(result.id)")
+                }
+
+                Button(action: onJump) {
+                    Image(systemName: "arrow.up.right.square")
+                }
+                .buttonStyle(.borderless)
+                .help("前往清單")
+                .accessibilityLabel("前往清單")
+                .accessibilityIdentifier("key-value.search-result.jump.\(result.id)")
+            }
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Key")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(result.entry.key.isEmpty ? "（空白 Key）" : result.entry.key)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("key-value.search-result.key-text.\(result.id)")
+                        Button("複製 Key") { onCopy(result.entry.key, "Key") }
+                            .accessibilityIdentifier("key-value.search-result.copy-key.\(result.id)")
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Value")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(result.entry.value.isEmpty ? "（空白 Value）" : result.entry.value)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("key-value.search-result.value-text.\(result.id)")
+                        Button("複製 Value") { onCopy(result.entry.value, "Value") }
+                            .accessibilityIdentifier("key-value.search-result.copy-value.\(result.id)")
+                    }
+                }
+                .padding(.top, 4)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor)))
+        .accessibilityElement(children: .contain)
     }
 }
 

@@ -163,6 +163,51 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["key-value.copy-feedback"].exists)
     }
 
+    func testSearchAcrossCheatsheetsExpandsResultAndJumpsToItsSheet() throws {
+        createCheatsheet(named: "Commands")
+        addEntry(key: "Open", value: "Launch the terminal")
+
+        app.buttons["key-value.add-cheatsheet"].click()
+        let nameField = app.textFields["key-value.cheatsheet-name"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 5))
+        nameField.typeText("Prompts")
+        app.buttons["key-value.save-cheatsheet-name"].click()
+        addEntry(key: "Desired output", value: "Write in a concise tone")
+
+        let searchField = app.textFields["key-value.search"]
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5))
+        searchField.click()
+        searchField.typeText("concise")
+
+        let resultSheet = app.staticTexts.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "key-value.search-result.sheet.")
+        ).firstMatch
+        XCTAssertTrue(resultSheet.waitForExistence(timeout: 5))
+        XCTAssertEqual(resultSheet.label, "Prompts")
+
+        let resultPreview = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "key-value.search-result.preview.")
+        ).firstMatch
+        XCTAssertTrue(resultPreview.waitForExistence(timeout: 5))
+        resultPreview.click()
+        let resultValue = app.staticTexts.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "key-value.search-result.value-text.")
+        ).firstMatch
+        XCTAssertTrue(resultValue.waitForExistence(timeout: 5))
+        XCTAssertEqual(resultValue.label, "Write in a concise tone")
+
+        app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "key-value.search-result.jump.")
+        ).firstMatch.click()
+
+        let selectedCheatsheet = app.descendants(matching: .any)["key-value.cheatsheet-selector"]
+        let targetPreview = entryPreviews.firstMatch
+        XCTAssertTrue(targetPreview.waitForExistence(timeout: 5))
+        XCTAssertTrue(targetPreview.label.hasPrefix("Desired output —"))
+        XCTAssertEqual(selectedCheatsheet.value as? String, "Prompts")
+        XCTAssertEqual(app.staticTexts["key-value.entry-value-text"].label, "Write in a concise tone")
+    }
+
     private var entryPreviews: XCUIElementQuery {
         app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "key-value.entry-preview.")

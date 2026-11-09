@@ -58,6 +58,26 @@ final class ShortcutStore: ObservableObject {
         applications.first { $0.id == id }
     }
 
+    func searchKeyValueEntries(_ query: String, applicationID: String) -> [KeyValueSearchResult] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty, let application = application(id: applicationID) else { return [] }
+
+        return application.keyValueCheatsheets.flatMap { cheatsheet in
+            cheatsheet.entries.compactMap { entry in
+                guard entry.key.localizedCaseInsensitiveContains(query)
+                        || entry.value.localizedCaseInsensitiveContains(query)
+                else {
+                    return nil
+                }
+                return KeyValueSearchResult(
+                    cheatsheetID: cheatsheet.id,
+                    cheatsheetName: cheatsheet.name,
+                    entry: entry
+                )
+            }
+        }
+    }
+
     func setPinned(_ isPinned: Bool, applicationID: String) throws {
         guard var app = application(id: applicationID) else {
             throw ShortcutStoreError.applicationNotFound

@@ -132,6 +132,27 @@ enum ShortcutStoreSelfTest {
             cheatsheetID: commandsID,
             applicationID: applicationID
         )
+        try store.saveKeyValueEntry(
+            KeyValueEntry(key: "Desired output", value: "Write in a concise tone"),
+            cheatsheetID: promptsID,
+            applicationID: applicationID
+        )
+        let searchResults = store.searchKeyValueEntries("CONCISE", applicationID: applicationID)
+        try check(
+            searchResults.count == 1
+                && searchResults.first?.cheatsheetID == promptsID
+                && searchResults.first?.cheatsheetName == "Prompts"
+                && searchResults.first?.entry.value == "Write in a concise tone",
+            "Key-Value search did not find a value across cheatsheets with its context."
+        )
+        try check(
+            store.searchKeyValueEntries("desired", applicationID: applicationID).first?.entry.key == "Desired output",
+            "Key-Value search did not match the Key field."
+        )
+        try check(
+            store.searchKeyValueEntries("concise", applicationID: anotherAppID).isEmpty,
+            "Key-Value search returned content from another app."
+        )
         try check(
             store.hasDuplicateKey(
                 "hello",
