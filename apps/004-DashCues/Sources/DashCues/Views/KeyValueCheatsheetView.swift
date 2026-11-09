@@ -9,7 +9,10 @@ struct KeyValueCheatsheetView: View {
     let onCopySuccess: (String) -> Void
     let clipboardWriter: (String) -> Bool
     var isReadOnly = false
+    var onSearchFocusChanged: (Bool) -> Void = { _ in }
+    var onJumpToDashboard: ((KeyValueSearchResult) -> Void)?
 
+    @FocusState private var searchFocused: Bool
     @State private var nameEditor: CheatsheetNameRequest?
     @State private var entryEditor: KeyValueEntry?
     @State private var cheatsheetPendingDelete: KeyValueCheatsheet?
@@ -61,8 +64,17 @@ struct KeyValueCheatsheetView: View {
             }
         }
         .accessibilityIdentifier(isReadOnly ? "key-value.read-only" : "key-value.management")
-        .onAppear(perform: selectFirstCheatsheetIfNeeded)
-        .onChange(of: applicationID) { _ in selectFirstCheatsheetIfNeeded() }
+        .onAppear {
+            selectFirstCheatsheetIfNeeded()
+            followPendingJump()
+        }
+        .onChange(of: applicationID) { _ in
+            selectFirstCheatsheetIfNeeded()
+            followPendingJump()
+        }
+        .onChange(of: contentNavigation.pendingJump) { _ in followPendingJump() }
+        .onChange(of: searchFocused) { onSearchFocusChanged($0) }
+        .onDisappear { onSearchFocusChanged(false) }
         .onChange(of: cheatsheets.map(\.id)) { ids in
             if !ids.contains(selectedCheatsheetID ?? "") { selectFirstCheatsheetIfNeeded() }
         }
@@ -129,6 +141,7 @@ struct KeyValueCheatsheetView: View {
 
             TextField("搜尋 Key 或 Value", text: $searchText)
                 .textFieldStyle(.roundedBorder)
+                .focused($searchFocused)
                 .accessibilityIdentifier("key-value.search")
                 .frame(maxWidth: isReadOnly ? 180 : 240)
 
@@ -193,7 +206,9 @@ struct KeyValueCheatsheetView: View {
                                     }
                                 ),
                                 onCopy: copy,
-                                onJump: isReadOnly ? nil : { jump(to: result) }
+                                onJump: isReadOnly
+                                    ? onJumpToDashboard.map { action in { action(result) } }
+                                    : { jump(to: result) }
                             )
                         }
                     }
@@ -213,10 +228,12 @@ struct KeyValueCheatsheetView: View {
                 VStack(spacing: 10) {
                     Label("此清單尚無項目", systemImage: "text.alignleft")
                         .font(.headline)
-                    Text("新增 Key 與 Value 來建立第一個參考項目。")
+                    Text(isReadOnly ? "此清單尚無參考項目。" : "新增 Key 與 Value 來建立第一個參考項目。")
                         .foregroundStyle(.secondary)
-                    Button("新增項目") { entryEditor = KeyValueEntry(key: "", value: "") }
-                        .accessibilityIdentifier("key-value.add-first-entry")
+                    if !isReadOnly {
+                        Button("新增項目") { entryEditor = KeyValueEntry(key: "", value: "") }
+                            .accessibilityIdentifier("key-value.add-first-entry")
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -273,6 +290,19 @@ struct KeyValueCheatsheetView: View {
         expandedEntryIDs.insert(result.entry.id)
         pendingScrollEntryID = result.entry.id
         searchText = ""
+    }
+
+    private func followPendingJump() {
+        guard !isReadOnly, let jump = contentNavigation.pendingJump,
+              jump.applicationID == applicationID,
+              cheatsheets.contains(where: { sheet in
+                  sheet.id == jump.cheatsheetID && sheet.entries.contains { $0.id == jump.entryID }
+              }) else { return }
+        contentNavigation.selectCheatsheet(jump.cheatsheetID, for: applicationID)
+        expandedEntryIDs.insert(jump.entryID)
+        pendingScrollEntryID = jump.entryID
+        searchText = ""
+        contentNavigation.completeJump(jump)
     }
 
     private func scrollToPendingEntry(using proxy: ScrollViewProxy) {

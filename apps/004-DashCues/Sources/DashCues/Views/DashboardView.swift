@@ -79,6 +79,7 @@ struct DashboardView: View {
                         }
                     }
                     .tag(application.id)
+                    .accessibilityIdentifier("dashboard.application.\(application.id)")
                 }
                 .onMove(perform: searchText.isEmpty ? { source, destination in
                     performStoreAction {
@@ -191,7 +192,9 @@ struct DashboardView: View {
         }
         .onAppear {
             selectedApplicationID = selectedApplicationID ?? store.applications.first?.id
+            followPendingJump()
         }
+        .onChange(of: contentNavigation.pendingJump) { _ in followPendingJump() }
     }
 
     private func applicationDetail(_ application: ShortcutApplication) -> some View {
@@ -249,6 +252,13 @@ struct DashboardView: View {
             }
         }
         .padding(24)
+    }
+
+    private func followPendingJump() {
+        guard let jump = contentNavigation.pendingJump,
+              store.application(id: jump.applicationID) != nil else { return }
+        searchText = ""
+        selectedApplicationID = jump.applicationID
     }
 
     private var contentTabs: some View {

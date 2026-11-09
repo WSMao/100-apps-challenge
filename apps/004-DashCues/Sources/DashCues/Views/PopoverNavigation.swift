@@ -6,6 +6,12 @@ enum DashboardContentType: String {
     case keyValue
 }
 
+struct KeyValueJump: Equatable {
+    let applicationID: String
+    let cheatsheetID: String
+    let entryID: String
+}
+
 @MainActor
 final class SharedContentNavigation: ObservableObject {
     private static let selectedContentKey = "DashCues.selectedContentType"
@@ -13,6 +19,7 @@ final class SharedContentNavigation: ObservableObject {
 
     @Published private(set) var selectedContentType: DashboardContentType
     @Published private(set) var lastSelectedCheatsheetIDs: [String: String]
+    @Published private(set) var pendingJump: KeyValueJump?
 
     private let defaults: UserDefaults
 
@@ -46,6 +53,20 @@ final class SharedContentNavigation: ObservableObject {
         defaults.set(lastSelectedCheatsheetIDs, forKey: Self.selectedCheatsheetsKey)
     }
 
+    func requestJump(applicationID: String, result: KeyValueSearchResult) {
+        selectCheatsheet(result.cheatsheetID, for: applicationID)
+        selectContentType(.keyValue)
+        pendingJump = KeyValueJump(
+            applicationID: applicationID,
+            cheatsheetID: result.cheatsheetID,
+            entryID: result.entry.id
+        )
+    }
+
+    func completeJump(_ jump: KeyValueJump) {
+        if pendingJump == jump { pendingJump = nil }
+    }
+
     func resetForTesting() {
         defaults.removeObject(forKey: Self.selectedContentKey)
         defaults.removeObject(forKey: Self.selectedCheatsheetsKey)
@@ -64,6 +85,7 @@ final class PopoverNavigation: ObservableObject {
     @Published private(set) var focusOnOpenButton = false
     @Published private(set) var selectedApplicationID: String?
     @Published var searchFocused = true
+    var keyValueSearchFocused = false
     @Published var searchText = "" {
         didSet {
             guard searchText != oldValue else { return }
@@ -133,6 +155,7 @@ final class PopoverNavigation: ObservableObject {
 
     /// Returns true when the key was handled.
     func handle(keyCode: UInt16) -> Bool {
+        if keyValueSearchFocused { return false }
         if searchFocused { return handleSearchKey(keyCode: keyCode) }
         switch keyCode {
         case 53:

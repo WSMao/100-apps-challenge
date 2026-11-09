@@ -261,7 +261,11 @@ enum ShortcutStoreSelfTest {
     private static func runPopoverNavigationChecks(store: ShortcutStore) throws {
         var opened = 0
         var closed = 0
-        let contentNavigationDefaults = UserDefaults(suiteName: "DashCues.SelfTest.\(UUID().uuidString)") ?? .standard
+        let suiteName = "DashCues.SelfTest.\(UUID().uuidString)"
+        guard let contentNavigationDefaults = UserDefaults(suiteName: suiteName) else {
+            throw ShortcutStoreSelfTestError.failed("Could not create isolated preferences.")
+        }
+        defer { contentNavigationDefaults.removePersistentDomain(forName: suiteName) }
         let contentNavigation = SharedContentNavigation(defaults: contentNavigationDefaults)
         let nav = PopoverNavigation(
             store: store,
@@ -271,6 +275,11 @@ enum ShortcutStoreSelfTest {
         )
         let ids = (store.pinnedApplications + store.otherApplications).map(\.id)
         try check(nav.searchFocused && !nav.focusOnOpenButton, "Popover should focus the search field first.")
+        nav.keyValueSearchFocused = true
+        for key in [UInt16(123), 124, 125, 126, 53] {
+            try check(!nav.handle(keyCode: key), "Key-Value search editing key was intercepted.")
+        }
+        nav.keyValueSearchFocused = false
         _ = nav.handle(keyCode: 126)
         try check(nav.focusOnOpenButton && !nav.searchFocused, "Up from search did not reach the open button.")
         _ = nav.handle(keyCode: 36)
@@ -324,6 +333,15 @@ enum ShortcutStoreSelfTest {
             restoredNavigation.selectedCheatsheetID(for: "self-test-app", availableIDs: ["commands", "prompts"]) == "prompts",
             "Selected Key-Value cheatsheet did not persist per app."
         )
+        let result = KeyValueSearchResult(
+            cheatsheetID: "commands", cheatsheetName: "Commands",
+            entry: KeyValueEntry(id: "entry", key: "Build", value: "Run")
+        )
+        contentNavigation.requestJump(applicationID: "other-app", result: result)
+        let expected = KeyValueJump(applicationID: "other-app", cheatsheetID: "commands", entryID: "entry")
+        try check(contentNavigation.pendingJump == expected, "Search jump lost its target.")
+        contentNavigation.completeJump(expected)
+        try check(contentNavigation.pendingJump == nil, "Search jump was not consumed.")
     }
 
     @MainActor
