@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 final class KeyValueCheatsheetUITests: XCTestCase {
@@ -48,8 +49,11 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         enterText("Build", into: "key-value.entry-key")
         enterText("First line\nSecond line", into: "key-value.entry-value")
         app.buttons["key-value.save-entry"].click()
-        XCTAssertTrue(app.staticTexts["Build"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["First line\nSecond line"].exists)
+        let preview = entryPreviews.firstMatch
+        XCTAssertTrue(preview.waitForExistence(timeout: 5))
+        preview.click()
+        XCTAssertTrue(app.staticTexts["key-value.entry-value-text"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["key-value.entry-value-text"].label, "First line\nSecond line")
 
         let editEntry = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "key-value.edit-entry.")
@@ -90,11 +94,119 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         XCTAssertTrue(app.buttons["key-value.create-cheatsheet"].waitForExistence(timeout: 5))
     }
 
+    func testCollapsedPreviewIsSingleLineTruncatedAndExpandsFullMultilineText() throws {
+        createCheatsheet(named: "Commands")
+        let key = "Build\nTarget"
+        let value = "Long response\n" + String(repeating: "A", count: 180)
+        addEntry(key: key, value: value)
+
+        let preview = entryPreviews.firstMatch
+        XCTAssertTrue(preview.waitForExistence(timeout: 5))
+        XCTAssertTrue(preview.label.hasPrefix("Build Target — Long response"))
+        XCTAssertTrue(preview.label.hasSuffix("…"))
+        XCTAssertFalse(preview.label.contains(String(repeating: "A", count: 180)))
+
+        preview.click()
+        let expandedKey = app.staticTexts["key-value.entry-key-text"]
+        let expandedValue = app.staticTexts["key-value.entry-value-text"]
+        XCTAssertTrue(expandedKey.waitForExistence(timeout: 5))
+        XCTAssertTrue(expandedValue.waitForExistence(timeout: 5))
+        XCTAssertEqual(expandedKey.label, key)
+        XCTAssertEqual(expandedValue.label, value)
+    }
+
+    func testEntryOrderCanBeDraggedAndPersistsAfterRelaunch() throws {
+        createCheatsheet(named: "Commands")
+        addEntry(key: "First", value: "One")
+        addEntry(key: "Second", value: "Two")
+
+        let previews = entryPreviews
+        XCTAssertEqual(previews.count, 2)
+        let first = previews.element(boundBy: 0)
+        let second = previews.element(boundBy: 1)
+        first.press(forDuration: 1, thenDragTo: second)
+        XCTAssertTrue(previews.element(boundBy: 0).label.hasPrefix("Second —"))
+
+        relaunch()
+        app.buttons["dashboard.tab.key-value"].click()
+        XCTAssertTrue(previews.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(previews.element(boundBy: 0).label.hasPrefix("Second —"))
+        XCTAssertTrue(previews.element(boundBy: 1).label.hasPrefix("First —"))
+    }
+
+    func testKeyAndValueCopyIndependentlyWithSuccessFeedback() throws {
+        createCheatsheet(named: "Prompts")
+        let key = "Prompt\nTitle"
+        let value = "First line\nSecond line\n"
+        addEntry(key: key, value: value)
+        entryPreviews.firstMatch.click()
+
+        copyButton(containing: "copy-key").click()
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), key)
+        XCTAssertEqual(app.staticTexts["key-value.copy-feedback"].label, "Key 已複製。")
+
+        copyButton(containing: "copy-value").click()
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), value)
+        XCTAssertEqual(app.staticTexts["key-value.copy-feedback"].label, "Value 已複製。")
+    }
+
+    func testClipboardFailureIsShownAsAnError() throws {
+        relaunch(clipboardFailure: true)
+        createCheatsheet(named: "Commands")
+        addEntry(key: "Build", value: "Compile the project")
+        entryPreviews.firstMatch.click()
+        copyButton(containing: "copy-key").click()
+
+        let error = app.alerts["無法完成操作"]
+        XCTAssertTrue(error.waitForExistence(timeout: 5))
+        XCTAssertTrue(error.staticTexts["無法複製 Key 到剪貼簿。"].exists)
+        XCTAssertFalse(app.staticTexts["key-value.copy-feedback"].exists)
+    }
+
+    private var entryPreviews: XCUIElementQuery {
+        app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "key-value.entry-preview.")
+        )
+    }
+
     private func enterText(_ text: String, into identifier: String) {
         let editor = element(identifier)
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
         editor.click()
         editor.typeText(text)
+    }
+
+    private func createCheatsheet(named name: String) {
+        app.buttons["dashboard.tab.key-value"].click()
+        app.buttons["key-value.create-cheatsheet"].click()
+        let nameField = app.textFields["key-value.cheatsheet-name"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 5))
+        nameField.typeText(name)
+        app.buttons["key-value.save-cheatsheet-name"].click()
+        XCTAssertTrue(app.buttons["key-value.add-entry"].waitForExistence(timeout: 5))
+    }
+
+    private func addEntry(key: String, value: String) {
+        app.buttons["key-value.add-entry"].click()
+        enterText(key, into: "key-value.entry-key")
+        enterText(value, into: "key-value.entry-value")
+        app.buttons["key-value.save-entry"].click()
+        XCTAssertTrue(entryPreviews.firstMatch.waitForExistence(timeout: 5))
+    }
+
+    private func copyButton(containing field: String) -> XCUIElement {
+        app.buttons.matching(
+            NSPredicate(format: "identifier CONTAINS %@", field)
+        ).firstMatch
+    }
+
+    private func relaunch(clipboardFailure: Bool = false) {
+        if app.state == .runningForeground {
+            app.terminate()
+        }
+        app.launchEnvironment["DASHCUES_UI_TEST_CLIPBOARD_FAILURE"] = clipboardFailure ? "1" : nil
+        app.launch()
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10))
     }
 
     private func element(_ identifier: String) -> XCUIElement {
