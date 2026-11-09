@@ -77,7 +77,7 @@ final class ShortcutStore: ObservableObject {
         try commit(applications: updated, hotKey: hotKey)
     }
 
-    func addApplication(name: String, bundleIdentifier: String, symbolName: String) throws -> String {
+    func addApplication(name: String, bundleIdentifier: String, symbolName: String, customIconData: Data? = nil) throws -> String {
         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ShortcutStoreError.invalidApplication
         }
@@ -90,7 +90,8 @@ final class ShortcutStore: ObservableObject {
         let application = ShortcutApplication(
             name: name.trimmingCharacters(in: .whitespacesAndNewlines),
             bundleIdentifier: bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines),
-            symbolName: symbolName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "app" : symbolName
+            symbolName: symbolName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "app" : symbolName,
+            customIconData: customIconData
         )
         try commit(applications: applications + [application], hotKey: hotKey)
         return application.id
@@ -101,6 +102,7 @@ final class ShortcutStore: ObservableObject {
         name: String,
         bundleIdentifier: String,
         symbolName: String,
+        customIconData: Data?? = .none,
         tagEdits: [TagEdit]? = nil
     ) throws {
         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -120,6 +122,8 @@ final class ShortcutStore: ObservableObject {
             $0.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
             $0.bundleIdentifier = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
             $0.symbolName = symbolName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "app" : symbolName
+            // .none leaves the icon untouched; .some(nil) removes the custom icon.
+            if let customIconData { $0.customIconData = customIconData }
             if let tagEdits { $0.applyTagEdits(tagEdits) }
         }
     }
