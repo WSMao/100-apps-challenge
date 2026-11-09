@@ -32,7 +32,7 @@
 ## 3. 初始化專案
 先建立專案資料夾及說明文件：
 - 在 `apps/` 下，以專案名稱建立專案資料夾 `apps/<id>-<app-name>`。
-- 在專案資料夾下建立 `README.md` 說明文件，內容結構遵循 [`.agents/skills/project-docs/SKILL.md`](.agents/skills/project-docs/SKILL.md)。
+- 在專案資料夾下建立 `README.md` 說明文件，內容結構遵循 `project-docs` skill。
 
 若初次建立專案時，開發者未提供以下幾點資訊（或者不夠詳盡），則進入 plan 模式，與開發者討論出方向：
 - **專案命名**
@@ -46,10 +46,10 @@
 **提供技術選型建議**：按照開發者需求，依照使用場景，目標平台甚至是跨平台、多平台應用，提供 2～3 種可行的技術路線，做利弊分析後提供給開發者選擇。
 
 👉 **引導與規格工具推薦**：
-- 需求深入盤查與架構決策：調用 `/grill-me` ([`.agents/skills/grilling/SKILL.md`](.agents/skills/grilling/SKILL.md)) 進行問題樹訪談。
-- 討論成案與規格產出：調用 `/to-spec` ([`.agents/skills/to-spec/SKILL.md`](.agents/skills/to-spec/SKILL.md)) 。
-- 將規格轉換為工作項目 Issues：調用 `/to-tickets`([`.agents/skills/to-tickets/SKILL.md`](.agents/skills/to-tickets/SKILL.md))。 
-- 互動與架構可行性探索：調用 `/prototype` ([`.agents/skills/prototype/SKILL.md`](.agents/skills/prototype/SKILL.md)) 建立拋棄式原型。
+- 需求深入盤查與架構決策：調用 `/grill-me` skill 進行問題樹訪談。
+- 討論成案與規格產出：調用 `/to-spec` skill。
+- 將規格轉換為工作項目 Issues：調用 `/to-tickets` skill。
+- 互動與架構可行性探索：調用 `/prototype` skill 建立拋棄式原型。
 
 ---
 
@@ -58,10 +58,10 @@
 本專案文件嚴格遵守 Single Source of Truth 原則，按用途分為 4 種：
 1. **公開展示用 (`apps/<id>-<app-name>/README.md`)**：面向 GitHub 訪問者（使用者與外部開發者），專注產品解決了什麼問題，提供什麼價值。
 2. **動態任務用 (GitHub Projects & Issues)**：日常 Sprint、功能拆票（`/to-tickets`）、Bug 追蹤與阻擋依賴。
-3. **架構知識用 (`GLOSSARY.md` & `docs/adr/`)**：領域專有名詞與架構決策（遵循 `/domain-modeling` 技能）。
+3. **架構知識用 (`GLOSSARY.md` & `docs/adr/`)**：領域專有名詞與架構決策（遵循 `/domain-modeling` skill）。
 4. **個人認知用 (Obsidian 筆記庫)**：個人做中學反思與技術深入探討。
 
-詳細規範請一律參照 [`.agents/skills/project-docs/SKILL.md`](.agents/skills/project-docs/SKILL.md) 及其範本 [`resources/app-readme-template.md`](.agents/skills/project-docs/resources/app-readme-template.md) 進行撰寫或重構。
+詳細規範請一律參照 `project-docs` skill 及其[範本](.skills-repo/wsmao/project-docs/resources/app-readme-template.md)進行撰寫或重構。
 
 ## 5. showcase 展示
 每個項目（包含第一個項目）都會是第一個項目`001-Challenge Showcase`的展示內容，而第一個項目的設計架構為「資料驅動」。
@@ -87,7 +87,7 @@
 專案筆記為開發者構思專案原型想法、沉澱技術概念以及記錄開發過程的地方。
 當需要將對話精華、技術概念或新點子保存至個人 Obsidian 知識庫時，請一律調用：
 
-👉 **[`/to-obsidian-note`](.agents/skills/to-obsidian-note/SKILL.md)** 技能（支援全對話導出 `/to-obsidian-note all` 與分類提取 `/to-obsidian-note <category> <scope> <style>`，並嚴格遵循技術討論比對與點子分類規則）。
+👉 **`/to-obsidian-note` skill**（支援全對話導出 `/to-obsidian-note all` 與分類提取 `/to-obsidian-note <category> <scope> <style>`，並嚴格遵循技術討論比對與點子分類規則）。
 
 
 ## 7. Git 與 GitHub 規範
@@ -103,7 +103,7 @@ Agent 開發前務必確認任務與邊界，使用正確的分支進行開發�
   - App 變更：`<scope>` 為 3 碼 App 編號（例如 `001`、`002`）。
   - 全域變更：`<scope>` 為 `base`（例如 `feat(base): ...`）。
 
-👉 這邊沒有明確規範到的 git 使用操作，請遵守 skill `/monorepo-gitflow` ([`.agents/skills/monorepo-gitglow/SKILL.md`](.agents/skills/monorepo-gitglow/SKILL.md)) 的規範。
+👉 這邊沒有明確規範到的 git 使用操作，請遵守 `/monorepo-gitflow` skill 的規範。
 
 ### 資安防護
 - 禁止 Commit 敏感憑證：各 App 必須在自己的目錄或全域 .gitignore 中明確排除 .env、*.local、金鑰文件。
@@ -115,10 +115,10 @@ Agent 開發前務必確認任務與邊界，使用正確的分支進行開發�
 
 ### 8.1 測試設計原則與分層邊界 (Testing Principles & Boundaries)
 
-測試設計與實作一律以 **TDD Skill**（全域 plugin `~/.gemini/config/plugins/mattpocock-skills/skills/tdd/SKILL.md`）為最高設計指導：
+測試設計與實作一律以 **TDD skill** 為最高設計指導：
 - **核心心法**：測試只驗證公開介面（Public Seams）可觀察的功能行為，嚴禁依賴私有變數或原始碼字串等實作細節（詳見 TDD 之 Anti-patterns）。
 - **紅綠循環與 Mock 邊界**：遵循 Red-Green 逐步推進，Mock 僅限於系統外部邊界（API、資料庫、時間），嚴禁 Mock 內部協作者。
-- **疑難排查**：疑難 Bug 與效能回歸遵循 **Diagnosing Bugs Skill**（`diagnosing-bugs/SKILL.md`）建立 Feedback Loop 迴圈。
+- **疑難排查**：疑難 Bug 與效能回歸遵循 **Diagnosing Bugs skill** 建立 Feedback Loop 迴圈。
 
 > [!CAUTION] 測試分層防禦與誠實驗證原則 (Anti-Cheat & Layered Boundaries)
 > 1. **嚴禁用單元測試假冒 UI 正常**：純內部邏輯測試通過僅代表運算無誤，**絕對無法保證**真實 DOM 渲染、組件生命週期與事件監聽沒有崩潰。
@@ -207,6 +207,8 @@ Agent 開發前務必確認任務與邊界，使用正確的分支進行開發�
 ## 9. Agent Skills 規範 (Agent Skills Workflow)
 
 本專案支援由 [mattpocock/skills](https://github.com/mattpocock/skills) 擴充之工程與生產力工作流程。當在對話中使用相關技能（如 `/to-spec`、`/to-tickets`、`/implement`、`/grill-with-docs`、`/triage`）時，遵循以下統一規格：
+
+所有自訂與引入的 skills 以 `.skills-repo/` 為唯一來源，依 skill 名稱使用；本文件不重複列出已安裝 skills 的載入路徑。
 
 ### Issue tracker
 
