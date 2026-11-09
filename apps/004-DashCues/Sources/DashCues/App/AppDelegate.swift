@@ -45,12 +45,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let store else { return }
         NSApp.setActivationPolicy(.regular)
         if dashboardWindowController == nil {
+            let environment = ProcessInfo.processInfo.environment
+            let clipboardWriter: (String) -> Bool =
+                environment["DASHCUES_UI_TESTING"] == "1"
+                    && environment["DASHCUES_UI_TEST_CLIPBOARD_FAILURE"] == "1"
+                    ? { _ in false }
+                    : SystemClipboardWriter.write
             dashboardWindowController = DashboardWindowController(
                 store: store,
                 onHotKeyChanged: { [weak self] configuration in
                     guard let self else { throw AppDelegateError.unavailable }
                     try self.updateHotKey(configuration)
                 },
+                clipboardWriter: clipboardWriter,
                 onClose: { [weak self] in
                     self?.dashboardWindowController = nil
                     NSApp.setActivationPolicy(.accessory)
@@ -271,6 +278,7 @@ private final class DashboardWindowController: NSWindowController, NSWindowDeleg
     init(
         store: ShortcutStore,
         onHotKeyChanged: @escaping @MainActor (HotKeyConfiguration) throws -> Void,
+        clipboardWriter: @escaping (String) -> Bool,
         onClose: @escaping () -> Void
     ) {
         self.onClose = onClose
@@ -283,7 +291,11 @@ private final class DashboardWindowController: NSWindowController, NSWindowDeleg
         window.title = "DashCues"
         window.setFrameAutosaveName("DashCuesDashboard")
         window.contentViewController = NSHostingController(
-            rootView: DashboardView(store: store, onHotKeyChanged: onHotKeyChanged)
+            rootView: DashboardView(
+                store: store,
+                onHotKeyChanged: onHotKeyChanged,
+                clipboardWriter: clipboardWriter
+            )
         )
         super.init(window: window)
         window.delegate = self

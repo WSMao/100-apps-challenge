@@ -1,14 +1,18 @@
+import AppKit
 import SwiftUI
 
 struct KeyValueCheatsheetView: View {
     @ObservedObject var store: ShortcutStore
     let applicationID: String
     let onError: (String) -> Void
+    let onCopySuccess: (String) -> Void
+    let clipboardWriter: (String) -> Bool
 
     @State private var selectedCheatsheetID: String?
     @State private var nameEditor: CheatsheetNameRequest?
     @State private var entryEditor: KeyValueEntry?
     @State private var cheatsheetPendingDelete: KeyValueCheatsheet?
+    @State private var expandedEntryIDs = Set<String>()
 
     private var application: ShortcutApplication? {
         store.application(id: applicationID)
@@ -150,6 +154,16 @@ struct KeyValueCheatsheetView: View {
                         ForEach(cheatsheet.entries) { entry in
                             KeyValueEntryRow(
                                 entry: entry,
+                                isExpanded: Binding(
+                                    get: { expandedEntryIDs.contains(entry.id) },
+                                    set: { expanded in
+                                        if expanded {
+                                            expandedEntryIDs.insert(entry.id)
+                                        } else {
+                                            expandedEntryIDs.remove(entry.id)
+                                        }
+                                    }
+                                ),
                                 onEdit: { entryEditor = entry },
                                 onDelete: {
                                     performStoreAction {
@@ -159,6 +173,10 @@ struct KeyValueCheatsheetView: View {
                                             applicationID: applicationID
                                         )
                                     }
+                                },
+                                onCopy: copy,
+                                onMove: { draggedEntryID in
+                                    moveEntry(draggedEntryID, to: entry.id, in: cheatsheet)
                                 }
                             )
                         }
@@ -171,6 +189,33 @@ struct KeyValueCheatsheetView: View {
             }
         }
         .frame(maxHeight: .infinity)
+    }
+
+    private func copy(_ text: String, field: String) {
+        guard clipboardWriter(text) else {
+            onError("無法複製 \(field) 到剪貼簿。")
+            return
+        }
+        onCopySuccess("\(field) 已複製。")
+    }
+
+    private func moveEntry(_ draggedEntryID: String, to targetEntryID: String, in cheatsheet: KeyValueCheatsheet) {
+        guard let source = cheatsheet.entries.firstIndex(where: { $0.id == draggedEntryID }),
+              let target = cheatsheet.entries.firstIndex(where: { $0.id == targetEntryID }),
+              source != target
+        else {
+            return
+        }
+
+        let destination = source < target ? target + 1 : target
+        performStoreAction {
+            try store.moveKeyValueEntries(
+                fromOffsets: IndexSet(integer: source),
+                toOffset: destination,
+                cheatsheetID: cheatsheet.id,
+                applicationID: applicationID
+            )
+        }
     }
 
     private func createCheatsheet() {
@@ -226,33 +271,98 @@ struct KeyValueCheatsheetView: View {
 
 private struct KeyValueEntryRow: View {
     let entry: KeyValueEntry
+    @Binding var isExpanded: Bool
     let onEdit: () -> Void
     let onDelete: () -> Void
+    let onCopy: (String, String) -> Void
+    let onMove: (String) -> Void
+
+    private var preview: String {
+        let key = entry.key.isEmpty ? "（空白 Key）" : entry.key
+        let value = entry.value.isEmpty ? "（空白 Value）" : entry.value
+        let singleLine = "\(key) — \(value)"
+            .components(separatedBy: .newlines)
+            .joined(separator: " ")
+        guard singleLine.count > 100 else { return singleLine }
+        return String(singleLine.prefix(99)) + "…"
+    }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text(entry.key.isEmpty ? "（空白 Key）" : entry.key)
-                .font(.headline)
-                .frame(minWidth: 130, alignment: .leading)
-                .textSelection(.enabled)
-            Text(entry.value.isEmpty ? "（空白 Value）" : entry.value)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-            Button("編輯", action: onEdit)
-                .accessibilityIdentifier("key-value.edit-entry.\(entry.id)")
-            Button(role: .destructive, action: onDelete) {
-                Image(systemName: "trash")
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Button {
+                    isExpanded.toggle()
+                } label: {
+                    Text(preview)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(preview)
+                .accessibilityIdentifier("key-value.entry-preview.\(entry.id)")
+
+                Button("編輯", action: onEdit)
+                    .accessibilityIdentifier("key-value.edit-entry.\(entry.id)")
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .help("刪除項目")
+                .accessibilityLabel("刪除項目")
+                .accessibilityIdentifier("key-value.delete-entry.\(entry.id)")
             }
-            .buttonStyle(.borderless)
-            .help("刪除項目")
-            .accessibilityLabel("刪除項目")
-            .accessibilityIdentifier("key-value.delete-entry.\(entry.id)")
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Key")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(entry.key.isEmpty ? "（空白 Key）" : entry.key)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("key-value.entry-key-text")
+                        Button("複製 Key") { onCopy(entry.key, "Key") }
+                            .accessibilityIdentifier("key-value.copy-key.\(entry.id)")
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Value")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(entry.value.isEmpty ? "（空白 Value）" : entry.value)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("key-value.entry-value-text")
+                        Button("複製 Value") { onCopy(entry.value, "Value") }
+                            .accessibilityIdentifier("key-value.copy-value.\(entry.id)")
+                    }
+                }
+                .padding(.top, 4)
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor)))
         .accessibilityElement(children: .contain)
+        .draggable(entry.id)
+        .dropDestination(for: String.self) { draggedIDs, _ in
+            guard let draggedEntryID = draggedIDs.first else { return false }
+            onMove(draggedEntryID)
+            return true
+        }
+        .help("拖曳以重新排序")
+    }
+}
+
+enum SystemClipboardWriter {
+    static func write(_ text: String) -> Bool {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        return pasteboard.setString(text, forType: .string)
     }
 }
 

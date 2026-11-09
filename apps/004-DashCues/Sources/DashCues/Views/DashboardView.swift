@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct DashboardView: View {
     @ObservedObject var store: ShortcutStore
     let onHotKeyChanged: @MainActor (HotKeyConfiguration) throws -> Void
+    var clipboardWriter: (String) -> Bool = SystemClipboardWriter.write
 
     @State private var selectedApplicationID: String?
     @State private var selectedContent: DashboardContentType = .shortcuts
@@ -155,6 +156,7 @@ struct DashboardView: View {
         .overlay(alignment: .bottom) {
             if let successMessage {
                 Text(successMessage)
+                    .accessibilityIdentifier("key-value.copy-feedback")
                     .padding(10)
                     .background(.regularMaterial, in: Capsule())
                     .padding()
@@ -233,7 +235,16 @@ struct DashboardView: View {
             if selectedContent == .shortcuts {
                 ShortcutListView(store: store, applicationID: application.id) { errorMessage = $0 }
             } else {
-                KeyValueCheatsheetView(store: store, applicationID: application.id) { errorMessage = $0 }
+                KeyValueCheatsheetView(
+                    store: store,
+                    applicationID: application.id,
+                    onError: {
+                        errorMessage = $0
+                        successMessage = nil
+                    },
+                    onCopySuccess: { successMessage = $0 },
+                    clipboardWriter: clipboardWriter
+                )
             }
         }
         .padding(24)
