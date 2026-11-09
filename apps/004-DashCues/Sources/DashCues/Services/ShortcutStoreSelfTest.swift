@@ -3,8 +3,8 @@ import Foundation
 enum ShortcutStoreSelfTest {
     @MainActor
     static func run() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("DashCuesSelfTest-\(UUID().uuidString)", isDirectory: true)
+        let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+            .appendingPathComponent(".self-test-data-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer {
             do {
@@ -89,14 +89,151 @@ enum ShortcutStoreSelfTest {
 
         try runPopoverNavigationChecks(store: reopenedStore)
         try runShortcutListChecks(store: reopenedStore, applicationID: appID)
+        try runKeyValueChecks(store: reopenedStore, applicationID: appID, directory: directory)
 
         try reopenedStore.exportBackup(to: backupURL)
         try reopenedStore.deleteApplication(id: appID)
         try check(reopenedStore.application(id: appID) == nil, "App deletion did not work.")
         try reopenedStore.restoreBackup(from: backupURL)
-        try check(reopenedStore.application(id: appID) != nil, "Backup restore did not restore app data.")
+        try check(
+            reopenedStore.application(id: appID)?.keyValueCheatsheets.first?.entries.count == 2,
+            "Backup restore did not restore Key-Value data."
+        )
+
+        try runLegacySnapshotCheck(in: directory)
 
         print("DashCues self-test passed.")
+    }
+
+    @MainActor
+    private static func runKeyValueChecks(
+        store: ShortcutStore,
+        applicationID: String,
+        directory: URL
+    ) throws {
+        let commandsID = try store.createKeyValueCheatsheet(name: "Commands", applicationID: applicationID)
+        let promptsID = try store.createKeyValueCheatsheet(name: "Prompts", applicationID: applicationID)
+        try expectError(ShortcutStoreError.duplicateCheatsheetName) {
+            _ = try store.createKeyValueCheatsheet(name: " commands ", applicationID: applicationID)
+        }
+        try expectError(ShortcutStoreError.invalidCheatsheetName) {
+            _ = try store.createKeyValueCheatsheet(name: "  ", applicationID: applicationID)
+        }
+
+        let anotherAppID = try store.addApplication(
+            name: "Another Self Test App",
+            bundleIdentifier: "com.example.self-test-other",
+            symbolName: "app"
+        )
+        _ = try store.createKeyValueCheatsheet(name: "Commands", applicationID: anotherAppID)
+
+        try store.saveKeyValueEntry(
+            KeyValueEntry(key: "  Hello  ", value: "First line\nSecond line"),
+            cheatsheetID: commandsID,
+            applicationID: applicationID
+        )
+        try check(
+            store.hasDuplicateKey(
+                "hello",
+                cheatsheetID: commandsID,
+                applicationID: applicationID
+            ),
+            "Duplicate Key detection did not trim whitespace and ignore case."
+        )
+        try check(
+            !store.hasDuplicateKey(
+                "hello",
+                cheatsheetID: promptsID,
+                applicationID: applicationID
+            ),
+            "Duplicate Keys should be scoped to one cheatsheet."
+        )
+        try store.saveKeyValueEntry(
+            KeyValueEntry(key: "hello", value: ""),
+            cheatsheetID: commandsID,
+            applicationID: applicationID
+        )
+        try expectError(ShortcutStoreError.invalidKeyValueEntry) {
+            try store.saveKeyValueEntry(
+                KeyValueEntry(key: " \n ", value: " "),
+                cheatsheetID: commandsID,
+                applicationID: applicationID
+            )
+        }
+
+        let firstEntryID = store.application(id: applicationID)?
+            .keyValueCheatsheets.first(where: { $0.id == commandsID })?.entries.first?.id
+        try check(firstEntryID != nil, "Key-Value entry was not saved.")
+        try store.saveKeyValueEntry(
+            KeyValueEntry(id: firstEntryID!, key: "Renamed", value: "Updated\nvalue"),
+            cheatsheetID: commandsID,
+            applicationID: applicationID
+        )
+        try check(
+            store.application(id: applicationID)?
+                .keyValueCheatsheets.first(where: { $0.id == commandsID })?.entries.first?.value == "Updated\nvalue",
+            "Key-Value entry edits did not preserve multiline text."
+        )
+
+        try expectError(ShortcutStoreError.duplicateCheatsheetName) {
+            try store.renameKeyValueCheatsheet(
+                id: promptsID,
+                name: " commands ",
+                applicationID: applicationID
+            )
+        }
+        try store.renameKeyValueCheatsheet(id: promptsID, name: "Ideas", applicationID: applicationID)
+        try store.deleteKeyValueCheatsheet(id: promptsID, applicationID: applicationID)
+        try check(
+            store.application(id: applicationID)?.keyValueCheatsheets.map(\.name) == ["Commands"],
+            "Cheatsheet rename or delete failed."
+        )
+        try store.deleteApplication(id: anotherAppID)
+
+        let reopened = try ShortcutStore(storageURL: directory.appendingPathComponent("shortcuts.json"))
+        try check(
+            reopened.application(id: applicationID)?.keyValueCheatsheets.first?.entries.count == 2,
+            "Key-Value data did not persist after reload."
+        )
+    }
+
+    @MainActor
+    private static func runLegacySnapshotCheck(in directory: URL) throws {
+        let legacyURL = directory.appendingPathComponent("legacy.json")
+        let legacyData = Data(
+            """
+            {
+              "schemaVersion": 1,
+              "applications": [{
+                "id": "legacy-app",
+                "name": "Legacy App",
+                "bundleIdentifier": "com.example.legacy",
+                "symbolName": "app",
+                "isBuiltIn": false,
+                "isPinned": false,
+                "shortcuts": [{
+                  "id": "legacy-shortcut",
+                  "title": "Open",
+                  "keys": ["⌘", "O"],
+                  "tags": [],
+                  "notes": ""
+                }],
+                "tags": []
+              }],
+              "hotKey": {"keyCode": 40, "modifiers": 6400}
+            }
+            """.utf8
+        )
+        try legacyData.write(to: legacyURL)
+        let store = try ShortcutStore(storageURL: legacyURL)
+        try check(
+            store.application(id: "legacy-app")?.shortcuts.map(\.title) == ["Open"],
+            "Schema-version-1 shortcut data did not load."
+        )
+        try check(
+            store.application(id: "legacy-app")?.keyValueCheatsheets.isEmpty == true,
+            "Legacy app did not initialize with an empty Key-Value collection."
+        )
     }
 
     @MainActor

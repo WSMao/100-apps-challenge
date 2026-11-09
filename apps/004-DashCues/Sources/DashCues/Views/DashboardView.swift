@@ -7,6 +7,7 @@ struct DashboardView: View {
     let onHotKeyChanged: @MainActor (HotKeyConfiguration) throws -> Void
 
     @State private var selectedApplicationID: String?
+    @State private var selectedContent: DashboardContentType = .shortcuts
     @State private var searchText = ""
     @State private var showingApplicationEditor = false
     @State private var showingSettings = false
@@ -227,9 +228,43 @@ struct DashboardView: View {
                 }
             }
 
-            ShortcutListView(store: store, applicationID: application.id) { errorMessage = $0 }
+            contentTabs
+
+            if selectedContent == .shortcuts {
+                ShortcutListView(store: store, applicationID: application.id) { errorMessage = $0 }
+            } else {
+                KeyValueCheatsheetView(store: store, applicationID: application.id) { errorMessage = $0 }
+            }
         }
         .padding(24)
+    }
+
+    private var contentTabs: some View {
+        HStack(spacing: 8) {
+            contentTab(.shortcuts, title: "快捷鍵")
+            contentTab(.keyValue, title: "Key-Value")
+        }
+    }
+
+    private func contentTab(_ content: DashboardContentType, title: String) -> some View {
+        Button {
+            selectedContent = content
+        } label: {
+            Text(title)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    selectedContent == content ? Color.accentColor.opacity(0.18) : Color.clear,
+                    in: Capsule()
+                )
+                .overlay {
+                    Capsule().stroke(
+                        selectedContent == content ? Color.accentColor : Color(nsColor: .separatorColor)
+                    )
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(content == .shortcuts ? "dashboard.tab.shortcuts" : "dashboard.tab.key-value")
     }
 
     private var settingsSection: some View {
@@ -323,4 +358,9 @@ struct DashboardView: View {
             errorMessage = error.localizedDescription
         }
     }
+}
+
+private enum DashboardContentType {
+    case shortcuts
+    case keyValue
 }

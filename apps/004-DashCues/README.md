@@ -38,6 +38,7 @@
 ### 3) 管理 App 與快捷鍵
 
 - 點擊「打開 DashCues」進入 Dashboard。
+- 在「快捷鍵」與「Key-Value」頁籤間切換；Key-Value 清單可按 App 分別建立與管理多組 Key／Value 參考內容。
 - 可新增/編輯/刪除 App 與快捷鍵，並釘選常用 App。
 - 支援關鍵字、標籤與按鍵組合搜尋，方便快速定位。
 
@@ -91,6 +92,10 @@ swift build
 
 # Validation (store persistence, CRUD rules, backup/restore checks)
 swift run DashCues --self-test
+
+# Main-window Key-Value user journey (requires Xcode and a Mac Development signing identity)
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild test -project DashCues.xcodeproj -scheme DashCues -destination 'platform=macOS'
 
 # Package .app bundle and launch
 ./Scripts/build-app.sh

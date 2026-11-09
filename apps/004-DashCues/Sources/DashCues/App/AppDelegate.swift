@@ -12,7 +12,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         do {
-            let store = try ShortcutStore()
+            let environment = ProcessInfo.processInfo.environment
+            let storageURL = environment["DASHCUES_UI_TEST_STORAGE_PATH"].map(URL.init(fileURLWithPath:))
+            let store = try ShortcutStore(storageURL: storageURL)
             let pinnedWindowManager = PinnedMapWindowManager()
             self.store = store
             self.pinnedWindowManager = pinnedWindowManager
@@ -29,6 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try manager.register(store.hotKey)
             } catch {
                 showError(error, title: "全域快捷鍵無法使用")
+            }
+            if environment["DASHCUES_UI_TESTING"] == "1" {
+                DispatchQueue.main.async { self.openDashboard() }
             }
         } catch {
             showError(error, title: "DashCues 啟動失敗")

@@ -26,6 +26,35 @@ struct TagEdit: Equatable {
     var name: String
 }
 
+struct KeyValueEntry: Codable, Identifiable, Equatable {
+    var id: String
+    var key: String
+    var value: String
+
+    init(id: String = UUID().uuidString, key: String, value: String) {
+        self.id = id
+        self.key = key
+        self.value = value
+    }
+
+    var isBlank: Bool {
+        key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+struct KeyValueCheatsheet: Codable, Identifiable, Equatable {
+    var id: String
+    var name: String
+    var entries: [KeyValueEntry]
+
+    init(id: String = UUID().uuidString, name: String, entries: [KeyValueEntry] = []) {
+        self.id = id
+        self.name = name
+        self.entries = entries
+    }
+}
+
 struct ShortcutItem: Codable, Identifiable, Equatable {
     var id: String
     var title: String
@@ -95,6 +124,7 @@ struct ShortcutApplication: Codable, Identifiable, Equatable {
     var isBuiltIn: Bool
     var isPinned: Bool
     var shortcuts: [ShortcutItem]
+    var keyValueCheatsheets: [KeyValueCheatsheet]
     /// The app's own tag list. Always contains every tag used by its shortcuts.
     var tags: [String]
 
@@ -107,6 +137,7 @@ struct ShortcutApplication: Codable, Identifiable, Equatable {
         isBuiltIn: Bool = false,
         isPinned: Bool = false,
         shortcuts: [ShortcutItem] = [],
+        keyValueCheatsheets: [KeyValueCheatsheet] = [],
         tags: [String] = []
     ) {
         self.id = id
@@ -117,12 +148,14 @@ struct ShortcutApplication: Codable, Identifiable, Equatable {
         self.isBuiltIn = isBuiltIn
         self.isPinned = isPinned
         self.shortcuts = shortcuts
+        self.keyValueCheatsheets = keyValueCheatsheets
         self.tags = tags
         syncTags()
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, bundleIdentifier, symbolName, customIconData, isBuiltIn, isPinned, shortcuts, tags
+        case id, name, bundleIdentifier, symbolName, customIconData, isBuiltIn, isPinned
+        case shortcuts, keyValueCheatsheets, tags
     }
 
     init(from decoder: Decoder) throws {
@@ -135,6 +168,7 @@ struct ShortcutApplication: Codable, Identifiable, Equatable {
         isBuiltIn = try container.decode(Bool.self, forKey: .isBuiltIn)
         isPinned = try container.decode(Bool.self, forKey: .isPinned)
         shortcuts = try container.decode([ShortcutItem].self, forKey: .shortcuts)
+        keyValueCheatsheets = try container.decodeIfPresent([KeyValueCheatsheet].self, forKey: .keyValueCheatsheets) ?? []
         tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
         syncTags()
     }
@@ -198,6 +232,10 @@ enum ShortcutStoreError: LocalizedError {
     case invalidBackup
     case invalidTag
     case duplicateTag
+    case invalidCheatsheetName
+    case duplicateCheatsheetName
+    case cheatsheetNotFound
+    case invalidKeyValueEntry
 
     var errorDescription: String? {
         switch self {
@@ -221,6 +259,14 @@ enum ShortcutStoreError: LocalizedError {
             "標籤名稱不可空白。"
         case .duplicateTag:
             "標籤名稱重複。"
+        case .invalidCheatsheetName:
+            "清單名稱不可空白。"
+        case .duplicateCheatsheetName:
+            "此 App 已有同名清單。"
+        case .cheatsheetNotFound:
+            "找不到指定的 Key-Value 清單。"
+        case .invalidKeyValueEntry:
+            "Key 與 Value 不可同時空白。"
         }
     }
 }
