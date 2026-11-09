@@ -55,6 +55,16 @@ struct KeyValueCheatsheet: Codable, Identifiable, Equatable {
     }
 }
 
+struct KeyValueSearchResult: Identifiable, Equatable {
+    let cheatsheetID: String
+    let cheatsheetName: String
+    let entry: KeyValueEntry
+
+    var id: String {
+        "\(cheatsheetID):\(entry.id)"
+    }
+}
+
 struct ShortcutItem: Codable, Identifiable, Equatable {
     var id: String
     var title: String
