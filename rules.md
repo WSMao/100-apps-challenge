@@ -65,7 +65,7 @@
 4. 由開發者下命令觸發：
    - `/implement <ticket>`：單張 ticket，遵循 `/tdd`，完成後自動呼叫 `/code-review` 檢查。
    - `/implement-spec`：整份規格含多張 ticket，按 ticket 依賴圖由多個 subagent 平行實作（每個 subagent 遵循 `/tdd`），合併到整合分支，完成後自動呼叫 `/code-review` 檢查。
-5. `/pr`：`/code-review` 檢查沒問題後，先透過 Skill 工具載入並遵循 `pr` skill，再建立 PR 到專案主分支，由開發者審核與合併。實際 GitHub 操作可使用 `gh` CLI，但不得以直接執行 `gh pr create` 取代 `pr` skill 的流程。
+5. `/pr`：`/code-review` 檢查沒問題後，先透過 Skill 工具載入並遵循 `pr` skill，再建立 PR 到專案主分支，由開發者審核與合併。
 
 走「mattpocock skills」流程需按照上述步驟一一執行。
 - `/grill-me` 到 `/to-tickets` 這幾個階段需要開發者決策，請引導開發者一步步的執行，在 `/to-tickets` 之後停下來等開發者下一步指示。
@@ -242,7 +242,6 @@ Agent 開發前務必確認任務與邊界，使用正確的分支進行開發�
 - 當工作流程、使用者指令或其他 Skill 要求使用某個 Skill 時，必須先透過 Skill 工具以該 Skill 的正式名稱載入，再依其指引執行。
 - 閱讀 `SKILL.md` 可用於補充理解或查閱細節，但不等同於透過 Skill 工具載入，也不能取代載入步驟。不得只閱讀 Skill 文件便宣稱已使用或載入該 Skill。
 - Skill 工具載入後若要求閱讀相關文件，仍須閱讀；工具載入與閱讀文件是可並行要求的步驟，不可互相替代。
-- 建立、撰寫或發布 Pull Request 前，必須先載入 `pr` Skill 並遵循其流程；GitHub 的實際操作使用 `gh` CLI 不構成略過此要求。
 
 ### Issue tracker
 
