@@ -65,7 +65,7 @@
 4. 由開發者下命令觸發：
    - `/implement <ticket>`：單張 ticket，遵循 `/tdd`，完成後自動呼叫 `/code-review` 檢查。
    - `/implement-spec`：整份規格含多張 ticket，按 ticket 依賴圖由多個 subagent 平行實作（每個 subagent 遵循 `/tdd`），合併到整合分支，完成後自動呼叫 `/code-review` 檢查。
-5. `/pr`：`/code-review` 檢查沒問題後就撰寫 PR 內文並發 PR 到專案主分支，由開發者審核與合併。
+5. `/pr`：`/code-review` 檢查沒問題後，先透過 Skill 工具載入並遵循 `pr` skill，再建立 PR 到專案主分支，由開發者審核與合併。實際 GitHub 操作可使用 `gh` CLI，但不得以直接執行 `gh pr create` 取代 `pr` skill 的流程。
 
 走「mattpocock skills」流程需按照上述步驟一一執行。
 - `/grill-me` 到 `/to-tickets` 這幾個階段需要開發者決策，請引導開發者一步步的執行，在 `/to-tickets` 之後停下來等開發者下一步指示。
@@ -144,6 +144,7 @@ Agent 開發前務必確認任務與邊界，使用正確的分支進行開發�
 測試設計與實作一律以 **TDD skill** 為最高設計指導：
 - **核心心法**：測試只驗證公開介面（Public Seams）可觀察的功能行為，嚴禁依賴私有變數或原始碼字串等實作細節（詳見 TDD 之 Anti-patterns）。
 - **紅綠循環與 Mock 邊界**：遵循 Red-Green 逐步推進，Mock 僅限於系統外部邊界（API、資料庫、時間），嚴禁 Mock 內部協作者。
+- **可核對的 TDD 紀錄**：每個實作 ticket 的 Agent 必須按垂直切片遵循「先新增或修改行為測試並執行至 Red，再寫最少實作使該測試 Green，最後執行相關回歸測試」的順序。完成回報須逐個列出代表性測試名稱及 Red、Green 的實際結果（例如失敗／通過的測試輸出或診斷），並列出最後執行的回歸測試結果；僅回報最終測試通過不算紅綠循環證據。若變更不適用自動化測試、無法觀察 Red，或環境阻礙執行，須明確說明原因與實際完成的驗證，不得宣稱已完成 Red-Green。
 - **疑難排查**：疑難 Bug 與效能回歸遵循 **Diagnosing Bugs skill** 建立 Feedback Loop 迴圈。
 
 > [!CAUTION] 測試分層防禦與誠實驗證原則 (Anti-Cheat & Layered Boundaries)
@@ -236,6 +237,13 @@ Agent 開發前務必確認任務與邊界，使用正確的分支進行開發�
 
 所有自訂與引入的 skills 以 `.skills-repo/` 為唯一來源，依 skill 名稱使用；本文件不重複列出已安裝 skills 的載入路徑。
 
+### Skill 正式載入
+
+- 當工作流程、使用者指令或其他 Skill 要求使用某個 Skill 時，必須先透過 Skill 工具以該 Skill 的正式名稱載入，再依其指引執行。
+- 閱讀 `SKILL.md` 可用於補充理解或查閱細節，但不等同於透過 Skill 工具載入，也不能取代載入步驟。不得只閱讀 Skill 文件便宣稱已使用或載入該 Skill。
+- Skill 工具載入後若要求閱讀相關文件，仍須閱讀；工具載入與閱讀文件是可並行要求的步驟，不可互相替代。
+- 建立、撰寫或發布 Pull Request 前，必須先載入 `pr` Skill 並遵循其流程；GitHub 的實際操作使用 `gh` CLI 不構成略過此要求。
+
 ### Issue tracker
 
 GitHub issues & projects via `gh` CLI. See `docs/agents/issue-tracker.md`.
@@ -247,7 +255,6 @@ Canonical triage vocabulary with `triage:` prefix (`triage: needs-triage`, `tria
 ### Domain docs
 
 Multi-context layout (`GLOSSARY-MAP.md` mapping to per-app `apps/<id>/GLOSSARY.md` & `apps/<id>/docs/adr/`). See `docs/agents/domain.md`.
-
 
 
 
