@@ -34,6 +34,9 @@ apps/*/.turbo/
 .temp/
 apps/*/.temp/
 
+# Build artifacts
+.build/
+
 # Framework specific
 .next/
 apps/*/.next/

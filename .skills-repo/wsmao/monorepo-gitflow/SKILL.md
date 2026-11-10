@@ -118,9 +118,11 @@ git add rules.md .agents/
 # 3. 提交變更
 git commit -m "chore(base): <description>" -m "- 項目說明\n\nAgent: Antigravity"
 
-# 4. 推送 base 分支至 GitHub
+# 4. 等待開發者審核確認，同意修改
+
+# 5. 推送 base 分支至 GitHub
 git push origin base
 
-# 5. 切回原工作分支
+# 6. 切回原工作分支
 git checkout <project-name>
 ```
