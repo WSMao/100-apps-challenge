@@ -80,6 +80,7 @@ struct KeyValueCheatsheetView: View {
         .onChange(of: searchFocused) { onSearchFocusChanged($0) }
         .onDisappear { onSearchFocusChanged(false) }
         .onChange(of: selectedCheatsheetID) { _ in
+            searchText = ""
             if let editSession, editSession.isEditing { editSession.cancel() }
         }
         .onChange(of: cheatsheets.map(\.id)) { ids in
@@ -308,7 +309,6 @@ struct KeyValueCheatsheetView: View {
 
     private func jump(to result: KeyValueSearchResult) {
         contentNavigation.selectCheatsheet(result.cheatsheetID, for: applicationID)
-        expandedEntryIDs.insert(result.entry.id)
         pendingScrollEntryID = result.entry.id
         searchText = ""
     }
@@ -320,7 +320,6 @@ struct KeyValueCheatsheetView: View {
                   sheet.id == jump.cheatsheetID && sheet.entries.contains { $0.id == jump.entryID }
               }) else { return }
         contentNavigation.selectCheatsheet(jump.cheatsheetID, for: applicationID)
-        expandedEntryIDs.insert(jump.entryID)
         pendingScrollEntryID = jump.entryID
         searchText = ""
         contentNavigation.completeJump(jump)

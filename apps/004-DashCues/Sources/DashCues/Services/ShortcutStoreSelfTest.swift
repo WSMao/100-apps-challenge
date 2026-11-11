@@ -103,6 +103,7 @@ enum ShortcutStoreSelfTest {
         try runSheetManagementChecks(in: directory)
         try runTableArrangementChecks(in: directory)
         try TableNavigationSelfTest.run(store: reopenedStore)
+        try CrossSheetSearchSelfTest.run(store: reopenedStore)
 
         print("DashCues self-test passed.")
     }
