@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct DashboardView: View {
     @ObservedObject var store: ShortcutStore
     @ObservedObject var contentNavigation: SharedContentNavigation
+    @ObservedObject var editSession: KeyValueEditSession
     let onHotKeyChanged: @MainActor (HotKeyConfiguration) throws -> Void
     var clipboardWriter: (String) -> Bool = SystemClipboardWriter.write
 
@@ -65,7 +66,13 @@ struct DashboardView: View {
     }
 
     private var applicationList: some View {
-        List(selection: $selectedApplicationID) {
+        List(selection: Binding(
+            get: { selectedApplicationID },
+            set: { newID in
+                guard newID != selectedApplicationID else { return }
+                editSession.requestLeave { selectedApplicationID = newID }
+            }
+        )) {
                 ForEach(filteredApplications) { application in
                     HStack(spacing: 8) {
                         ApplicationIconView(application: application, size: 18)
@@ -195,6 +202,20 @@ struct DashboardView: View {
             followPendingJump()
         }
         .onChange(of: contentNavigation.pendingJump) { _ in followPendingJump() }
+        .confirmationDialog(
+            "有未儲存的變更",
+            isPresented: Binding(
+                get: { editSession.isPromptingToLeave },
+                set: { if !$0 { editSession.resolveLeave(.continueEditing) } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("儲存") { editSession.resolveLeave(.save) }
+            Button("捨棄", role: .destructive) { editSession.resolveLeave(.discard) }
+            Button("繼續編輯", role: .cancel) { editSession.resolveLeave(.continueEditing) }
+        } message: {
+            Text("要儲存、捨棄，還是繼續編輯這個項目？")
+        }
     }
 
     private func applicationDetail(_ application: ShortcutApplication) -> some View {
@@ -247,7 +268,8 @@ struct DashboardView: View {
                         successMessage = nil
                     },
                     onCopySuccess: { successMessage = $0 },
-                    clipboardWriter: clipboardWriter
+                    clipboardWriter: clipboardWriter,
+                    editSession: editSession
                 )
             }
         }
@@ -279,11 +301,13 @@ struct DashboardView: View {
                         isSelected: isSelected,
                         identifier: "dashboard.sheet-tab.\(sheet.kind == .shortcuts ? "shortcuts" : "key-value").\(sheet.id)"
                     ) {
-                        if sheet.kind == .shortcuts {
-                            contentNavigation.selectContentType(.shortcuts)
-                        } else {
-                            contentNavigation.selectCheatsheet(sheet.id, for: application.id)
-                            contentNavigation.selectContentType(.keyValue)
+                        editSession.requestLeave {
+                            if sheet.kind == .shortcuts {
+                                contentNavigation.selectContentType(.shortcuts)
+                            } else {
+                                contentNavigation.selectCheatsheet(sheet.id, for: application.id)
+                                contentNavigation.selectContentType(.keyValue)
+                            }
                         }
                     }
                 }

@@ -90,6 +90,7 @@ enum ShortcutStoreSelfTest {
         try runPopoverNavigationChecks(store: reopenedStore)
         try runShortcutListChecks(store: reopenedStore, applicationID: appID)
         try runKeyValueChecks(store: reopenedStore, applicationID: appID, directory: directory)
+        try KeyValueEditSessionSelfTest.run(store: reopenedStore)
 
         try reopenedStore.exportBackup(to: backupURL)
         try reopenedStore.deleteApplication(id: appID)
