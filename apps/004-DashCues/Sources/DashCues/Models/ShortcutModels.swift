@@ -55,6 +55,98 @@ struct KeyValueCheatsheet: Codable, Identifiable, Equatable {
     }
 }
 
+struct ShortcutSheet: Codable, Identifiable, Equatable {
+    static let defaultName = "快捷鍵"
+
+    var id: String
+    var name: String
+    var shortcuts: [ShortcutItem]
+
+    init(id: String = UUID().uuidString, name: String = ShortcutSheet.defaultName, shortcuts: [ShortcutItem] = []) {
+        self.id = id
+        self.name = name
+        self.shortcuts = shortcuts
+    }
+}
+
+enum SheetKind: String, Codable, Equatable, CaseIterable {
+    case shortcuts
+    case keyValue
+}
+
+/// One ordered, named tab of an app: either a shortcut sheet or a Key-Value sheet.
+enum AppSheet: Codable, Identifiable, Equatable {
+    case shortcuts(ShortcutSheet)
+    case keyValue(KeyValueCheatsheet)
+
+    var id: String {
+        switch self {
+        case .shortcuts(let sheet): sheet.id
+        case .keyValue(let sheet): sheet.id
+        }
+    }
+
+    var name: String {
+        switch self {
+        case .shortcuts(let sheet): sheet.name
+        case .keyValue(let sheet): sheet.name
+        }
+    }
+
+    var kind: SheetKind {
+        switch self {
+        case .shortcuts: .shortcuts
+        case .keyValue: .keyValue
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type, id, name, shortcuts, entries
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try container.decode(String.self, forKey: .id)
+        let name = try container.decode(String.self, forKey: .name)
+        switch try container.decode(SheetKind.self, forKey: .type) {
+        case .shortcuts:
+            self = .shortcuts(ShortcutSheet(
+                id: id, name: name, shortcuts: try container.decode([ShortcutItem].self, forKey: .shortcuts)
+            ))
+        case .keyValue:
+            self = .keyValue(KeyValueCheatsheet(
+                id: id, name: name, entries: try container.decode([KeyValueEntry].self, forKey: .entries)
+            ))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(kind, forKey: .type)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        switch self {
+        case .shortcuts(let sheet): try container.encode(sheet.shortcuts, forKey: .shortcuts)
+        case .keyValue(let sheet): try container.encode(sheet.entries, forKey: .entries)
+        }
+    }
+
+    /// Builds the ordered sheets for data saved before sheets existed: the shortcut sheet comes
+    /// first and is renamed (`快捷鍵 2`, `快捷鍵 3`, …) if a Key-Value sheet already uses its name.
+    static func migrated(shortcuts: [ShortcutItem], keyValueCheatsheets: [KeyValueCheatsheet]) -> [AppSheet] {
+        let taken = Set(keyValueCheatsheets.map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() })
+        var name = ShortcutSheet.defaultName
+        var suffix = 2
+        while taken.contains(name.lowercased()) {
+            name = "\(ShortcutSheet.defaultName) \(suffix)"
+            suffix += 1
+        }
+        return [.shortcuts(ShortcutSheet(name: name, shortcuts: shortcuts))] + keyValueCheatsheets.map {
+            .keyValue($0)
+        }
+    }
+}
+
 struct KeyValueSearchResult: Identifiable, Equatable {
     let cheatsheetID: String
     let cheatsheetName: String
@@ -133,8 +225,7 @@ struct ShortcutApplication: Codable, Identifiable, Equatable {
     var customIconData: Data?
     var isBuiltIn: Bool
     var isPinned: Bool
-    var shortcuts: [ShortcutItem]
-    var keyValueCheatsheets: [KeyValueCheatsheet]
+    var sheets: [AppSheet]
     /// The app's own tag list. Always contains every tag used by its shortcuts.
     var tags: [String]
 
@@ -146,6 +237,7 @@ struct ShortcutApplication: Codable, Identifiable, Equatable {
         customIconData: Data? = nil,
         isBuiltIn: Bool = false,
         isPinned: Bool = false,
+        sheets: [AppSheet]? = nil,
         shortcuts: [ShortcutItem] = [],
         keyValueCheatsheets: [KeyValueCheatsheet] = [],
         tags: [String] = []
@@ -157,15 +249,20 @@ struct ShortcutApplication: Codable, Identifiable, Equatable {
         self.customIconData = customIconData
         self.isBuiltIn = isBuiltIn
         self.isPinned = isPinned
-        self.shortcuts = shortcuts
-        self.keyValueCheatsheets = keyValueCheatsheets
+        if let sheets {
+            self.sheets = sheets
+        } else if !shortcuts.isEmpty || !keyValueCheatsheets.isEmpty {
+            self.sheets = AppSheet.migrated(shortcuts: shortcuts, keyValueCheatsheets: keyValueCheatsheets)
+        } else {
+            self.sheets = [.shortcuts(ShortcutSheet())]
+        }
         self.tags = tags
         syncTags()
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, bundleIdentifier, symbolName, customIconData, isBuiltIn, isPinned
-        case shortcuts, keyValueCheatsheets, tags
+        case sheets, shortcuts, keyValueCheatsheets, tags
     }
 
     init(from decoder: Decoder) throws {
@@ -177,15 +274,124 @@ struct ShortcutApplication: Codable, Identifiable, Equatable {
         customIconData = try container.decodeIfPresent(Data.self, forKey: .customIconData)
         isBuiltIn = try container.decode(Bool.self, forKey: .isBuiltIn)
         isPinned = try container.decode(Bool.self, forKey: .isPinned)
-        shortcuts = try container.decode([ShortcutItem].self, forKey: .shortcuts)
-        keyValueCheatsheets = try container.decodeIfPresent([KeyValueCheatsheet].self, forKey: .keyValueCheatsheets) ?? []
+        if let decodedSheets = try container.decodeIfPresent([AppSheet].self, forKey: .sheets) {
+            sheets = decodedSheets
+        } else {
+            sheets = AppSheet.migrated(
+                shortcuts: try container.decodeIfPresent([ShortcutItem].self, forKey: .shortcuts) ?? [],
+                keyValueCheatsheets: try container.decodeIfPresent([KeyValueCheatsheet].self, forKey: .keyValueCheatsheets) ?? []
+            )
+        }
         tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
         syncTags()
     }
 
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(bundleIdentifier, forKey: .bundleIdentifier)
+        try container.encode(symbolName, forKey: .symbolName)
+        try container.encodeIfPresent(customIconData, forKey: .customIconData)
+        try container.encode(isBuiltIn, forKey: .isBuiltIn)
+        try container.encode(isPinned, forKey: .isPinned)
+        try container.encode(sheets, forKey: .sheets)
+        try container.encode(tags, forKey: .tags)
+    }
+
+    var shortcuts: [ShortcutItem] {
+        get {
+            sheets.compactMap { sheet in
+                if case .shortcuts(let s) = sheet { return s.shortcuts }
+                return nil
+            }.first ?? []
+        }
+        set {
+            if let index = sheets.firstIndex(where: { $0.kind == .shortcuts }) {
+                guard case .shortcuts(var sheet) = sheets[index] else { return }
+                sheet.shortcuts = newValue
+                sheets[index] = .shortcuts(sheet)
+            } else {
+                sheets.insert(.shortcuts(ShortcutSheet(shortcuts: newValue)), at: 0)
+            }
+        }
+    }
+
+    var allShortcuts: [ShortcutItem] {
+        sheets.flatMap { sheet in
+            if case .shortcuts(let s) = sheet { return s.shortcuts }
+            return []
+        }
+    }
+
+    var keyValueCheatsheets: [KeyValueCheatsheet] {
+        get {
+            sheets.compactMap { sheet in
+                if case .keyValue(let cheatsheet) = sheet { return cheatsheet }
+                return nil
+            }
+        }
+        set {
+            let nonKeyValue = sheets.filter { $0.kind != .keyValue }
+            sheets = nonKeyValue + newValue.map { .keyValue($0) }
+        }
+    }
+
+    mutating func saveShortcut(_ shortcut: ShortcutItem, sheetID: String? = nil) {
+        if let sheetID, let index = sheets.firstIndex(where: { $0.id == sheetID && $0.kind == .shortcuts }) {
+            guard case .shortcuts(var sheet) = sheets[index] else { return }
+            if let itemIndex = sheet.shortcuts.firstIndex(where: { $0.id == shortcut.id }) {
+                sheet.shortcuts[itemIndex] = shortcut
+            } else {
+                sheet.shortcuts.append(shortcut)
+            }
+            sheets[index] = .shortcuts(sheet)
+            return
+        }
+
+        if let index = sheets.firstIndex(where: { sheet in
+            if case .shortcuts(let s) = sheet { return s.shortcuts.contains(where: { $0.id == shortcut.id }) }
+            return false
+        }) {
+            guard case .shortcuts(var sheet) = sheets[index] else { return }
+            if let itemIndex = sheet.shortcuts.firstIndex(where: { $0.id == shortcut.id }) {
+                sheet.shortcuts[itemIndex] = shortcut
+            }
+            sheets[index] = .shortcuts(sheet)
+            return
+        }
+
+        if let index = sheets.firstIndex(where: { $0.kind == .shortcuts }) {
+            guard case .shortcuts(var sheet) = sheets[index] else { return }
+            sheet.shortcuts.append(shortcut)
+            sheets[index] = .shortcuts(sheet)
+            return
+        }
+
+        sheets.append(.shortcuts(ShortcutSheet(shortcuts: [shortcut])))
+    }
+
+    mutating func deleteShortcut(id: String) {
+        for index in sheets.indices {
+            if case .shortcuts(var sheet) = sheets[index] {
+                sheet.shortcuts.removeAll { $0.id == id }
+                sheets[index] = .shortcuts(sheet)
+            }
+        }
+    }
+
+    mutating func deleteShortcuts(ids: Set<String>) {
+        for index in sheets.indices {
+            if case .shortcuts(var sheet) = sheets[index] {
+                sheet.shortcuts.removeAll { ids.contains($0.id) }
+                sheets[index] = .shortcuts(sheet)
+            }
+        }
+    }
+
     /// Keeps the app tag list a superset of the tags used by its shortcuts.
     mutating func syncTags() {
-        tags = TagList.normalized(tags + shortcuts.flatMap(\.tags))
+        tags = TagList.normalized(tags + allShortcuts.flatMap(\.tags))
     }
 
     /// Maps tags to the spelling already used in this app's tag list.
@@ -198,8 +404,13 @@ struct ShortcutApplication: Codable, Identifiable, Equatable {
     mutating func applyTagEdits(_ edits: [TagEdit]) {
         var mapping: [String: String] = [:]
         for edit in edits { mapping[TagList.key(edit.original)] = TagList.clean(edit.name) }
-        for index in shortcuts.indices {
-            shortcuts[index].tags = TagList.normalized(shortcuts[index].tags.compactMap { mapping[TagList.key($0)] })
+        for index in sheets.indices {
+            if case .shortcuts(var sheet) = sheets[index] {
+                for sIndex in sheet.shortcuts.indices {
+                    sheet.shortcuts[sIndex].tags = TagList.normalized(sheet.shortcuts[sIndex].tags.compactMap { mapping[TagList.key($0)] })
+                }
+                sheets[index] = .shortcuts(sheet)
+            }
         }
         tags = TagList.normalized(edits.map(\.name))
         syncTags()
@@ -228,7 +439,9 @@ struct ShortcutStoreSnapshot: Codable, Equatable {
     var applications: [ShortcutApplication]
     var hotKey: HotKeyConfiguration
 
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
+    /// Versions that can be loaded or restored; version 1 predates sheets and is migrated.
+    static let supportedSchemaVersions = 1...currentSchemaVersion
 }
 
 enum ShortcutStoreError: LocalizedError {

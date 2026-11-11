@@ -207,7 +207,9 @@ struct DashboardView: View {
                     Text(application.bundleIdentifier.isEmpty ? "自訂 App" : application.bundleIdentifier)
                         .foregroundStyle(.secondary)
                 }
-                Spacer()
+                contentTabs(for: application)
+                    .padding(.leading, 12)
+                Spacer(minLength: 8)
                 Button {
                     performStoreAction { try store.setPinned(!application.isPinned, applicationID: application.id) }
                 } label: {
@@ -232,8 +234,6 @@ struct DashboardView: View {
                     .fixedSize()
                 }
             }
-
-            contentTabs
 
             if contentNavigation.selectedContentType == .shortcuts {
                 ShortcutListView(store: store, applicationID: application.id) { errorMessage = $0 }
@@ -261,33 +261,66 @@ struct DashboardView: View {
         selectedApplicationID = jump.applicationID
     }
 
-    private var contentTabs: some View {
-        HStack(spacing: 8) {
-            contentTab(.shortcuts, title: "快捷鍵")
-            contentTab(.keyValue, title: "Key-Value")
+    private func contentTabs(for application: ShortcutApplication) -> some View {
+        let selectedShortcutSheetID = application.sheets.first { $0.kind == .shortcuts }?.id
+        let selectedKeyValueID = contentNavigation.selectedCheatsheetID(
+            for: application.id,
+            availableIDs: application.keyValueCheatsheets.map(\.id)
+        )
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(application.sheets) { sheet in
+                    let isSelected = sheet.kind == .shortcuts
+                        ? contentNavigation.selectedContentType == .shortcuts && sheet.id == selectedShortcutSheetID
+                        : contentNavigation.selectedContentType == .keyValue && sheet.id == selectedKeyValueID
+                    sheetTab(
+                        title: sheet.name,
+                        systemImage: sheet.kind == .shortcuts ? "keyboard" : "list.bullet.rectangle",
+                        isSelected: isSelected,
+                        identifier: "dashboard.sheet-tab.\(sheet.kind == .shortcuts ? "shortcuts" : "key-value").\(sheet.id)"
+                    ) {
+                        if sheet.kind == .shortcuts {
+                            contentNavigation.selectContentType(.shortcuts)
+                        } else {
+                            contentNavigation.selectCheatsheet(sheet.id, for: application.id)
+                            contentNavigation.selectContentType(.keyValue)
+                        }
+                    }
+                }
+                if application.keyValueCheatsheets.isEmpty {
+                    // Entry point for creating the app's first Key-Value sheet.
+                    sheetTab(
+                        title: "Key-Value",
+                        systemImage: "list.bullet.rectangle",
+                        isSelected: contentNavigation.selectedContentType == .keyValue,
+                        identifier: "dashboard.tab.key-value"
+                    ) {
+                        contentNavigation.selectContentType(.keyValue)
+                    }
+                }
+            }
         }
     }
 
-    private func contentTab(_ content: DashboardContentType, title: String) -> some View {
-        Button {
-            contentNavigation.selectContentType(content)
-        } label: {
-            Text(title)
+    private func sheetTab(
+        title: String,
+        systemImage: String,
+        isSelected: Bool,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(
-                    contentNavigation.selectedContentType == content ? Color.accentColor.opacity(0.18) : Color.clear,
-                    in: Capsule()
-                )
+                .background(isSelected ? Color.accentColor.opacity(0.18) : Color.clear, in: Capsule())
                 .overlay {
-                    Capsule().stroke(
-                        contentNavigation.selectedContentType == content ? Color.accentColor : Color(nsColor: .separatorColor)
-                    )
+                    Capsule().stroke(isSelected ? Color.accentColor : Color(nsColor: .separatorColor))
                 }
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier(content == .shortcuts ? "dashboard.tab.shortcuts" : "dashboard.tab.key-value")
-        .accessibilityValue(contentNavigation.selectedContentType == content ? "已選取" : "未選取")
+        .accessibilityIdentifier(identifier)
+        .accessibilityValue(isSelected ? "已選取" : "未選取")
     }
 
     private var settingsSection: some View {

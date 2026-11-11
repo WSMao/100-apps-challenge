@@ -42,11 +42,14 @@ final class ShortcutStore: ObservableObject {
 
         if FileManager.default.fileExists(atPath: self.storageURL.path) {
             let snapshot = try decoder.decode(ShortcutStoreSnapshot.self, from: Data(contentsOf: self.storageURL))
-            guard snapshot.schemaVersion == ShortcutStoreSnapshot.currentSchemaVersion else {
+            guard ShortcutStoreSnapshot.supportedSchemaVersions.contains(snapshot.schemaVersion) else {
                 throw ShortcutStoreError.unsupportedSchema(snapshot.schemaVersion)
             }
             applications = Self.pinnedFirst(snapshot.applications)
             hotKey = snapshot.hotKey
+            if snapshot.schemaVersion != ShortcutStoreSnapshot.currentSchemaVersion {
+                try persist()
+            }
         } else {
             applications = ShortcutCatalog.builtIns
             hotKey = .defaultValue
@@ -158,7 +161,7 @@ final class ShortcutStore: ObservableObject {
         try commit(applications: applications.filter { $0.id != id }, hotKey: hotKey)
     }
 
-    func saveShortcut(_ shortcut: ShortcutItem, applicationID: String) throws {
+    func saveShortcut(_ shortcut: ShortcutItem, applicationID: String, sheetID: String? = nil) throws {
         guard !shortcut.isBlank,
               shortcut.keys.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
             throw ShortcutStoreError.invalidShortcut
@@ -166,24 +169,20 @@ final class ShortcutStore: ObservableObject {
         try updateApplication(applicationID) { app in
             var shortcut = shortcut
             shortcut.tags = app.canonicalTags(shortcut.tags)
-            if let index = app.shortcuts.firstIndex(where: { $0.id == shortcut.id }) {
-                app.shortcuts[index] = shortcut
-            } else {
-                app.shortcuts.append(shortcut)
-            }
+            app.saveShortcut(shortcut, sheetID: sheetID)
             app.syncTags()
         }
     }
 
     func deleteShortcut(id: String, applicationID: String) throws {
         try updateApplication(applicationID) { app in
-            app.shortcuts.removeAll { $0.id == id }
+            app.deleteShortcut(id: id)
         }
     }
 
     func deleteShortcuts(ids: Set<String>, applicationID: String) throws {
         try updateApplication(applicationID) { app in
-            app.shortcuts.removeAll { ids.contains($0.id) }
+            app.deleteShortcuts(ids: ids)
         }
     }
 
@@ -192,14 +191,14 @@ final class ShortcutStore: ObservableObject {
         let cleanedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanedName.isEmpty else { throw ShortcutStoreError.invalidCheatsheetName }
         guard let app = application(id: applicationID) else { throw ShortcutStoreError.applicationNotFound }
-        guard !app.keyValueCheatsheets.contains(where: {
+        guard !app.sheets.contains(where: {
             Self.cheatsheetNameKey($0.name) == Self.cheatsheetNameKey(cleanedName)
         }) else {
             throw ShortcutStoreError.duplicateCheatsheetName
         }
 
         let cheatsheet = KeyValueCheatsheet(name: cleanedName)
-        try updateApplication(applicationID) { $0.keyValueCheatsheets.append(cheatsheet) }
+        try updateApplication(applicationID) { $0.sheets.append(.keyValue(cheatsheet)) }
         return cheatsheet.id
     }
 
@@ -207,28 +206,30 @@ final class ShortcutStore: ObservableObject {
         let cleanedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanedName.isEmpty else { throw ShortcutStoreError.invalidCheatsheetName }
         guard let app = application(id: applicationID) else { throw ShortcutStoreError.applicationNotFound }
-        guard app.keyValueCheatsheets.contains(where: { $0.id == id }) else {
+        guard app.sheets.contains(where: { $0.id == id && $0.kind == .keyValue }) else {
             throw ShortcutStoreError.cheatsheetNotFound
         }
-        guard !app.keyValueCheatsheets.contains(where: {
+        guard !app.sheets.contains(where: {
             $0.id != id && Self.cheatsheetNameKey($0.name) == Self.cheatsheetNameKey(cleanedName)
         }) else {
             throw ShortcutStoreError.duplicateCheatsheetName
         }
 
         try updateApplication(applicationID) { app in
-            guard let index = app.keyValueCheatsheets.firstIndex(where: { $0.id == id }) else { return }
-            app.keyValueCheatsheets[index].name = cleanedName
+            guard let index = app.sheets.firstIndex(where: { $0.id == id }) else { return }
+            guard case .keyValue(var cheatsheet) = app.sheets[index] else { return }
+            cheatsheet.name = cleanedName
+            app.sheets[index] = .keyValue(cheatsheet)
         }
     }
 
     func deleteKeyValueCheatsheet(id: String, applicationID: String) throws {
         guard let app = application(id: applicationID) else { throw ShortcutStoreError.applicationNotFound }
-        guard app.keyValueCheatsheets.contains(where: { $0.id == id }) else {
+        guard app.sheets.contains(where: { $0.id == id && $0.kind == .keyValue }) else {
             throw ShortcutStoreError.cheatsheetNotFound
         }
         try updateApplication(applicationID) { app in
-            app.keyValueCheatsheets.removeAll { $0.id == id }
+            app.sheets.removeAll { $0.id == id }
         }
     }
 
@@ -293,7 +294,7 @@ final class ShortcutStore: ObservableObject {
 
     func restoreBackup(from url: URL) throws {
         let imported = try decoder.decode(ShortcutStoreSnapshot.self, from: Data(contentsOf: url))
-        guard imported.schemaVersion == ShortcutStoreSnapshot.currentSchemaVersion else {
+        guard ShortcutStoreSnapshot.supportedSchemaVersions.contains(imported.schemaVersion) else {
             throw ShortcutStoreError.unsupportedSchema(imported.schemaVersion)
         }
         try validateBackup(imported)
@@ -318,12 +319,13 @@ final class ShortcutStore: ObservableObject {
         update: (inout KeyValueCheatsheet) -> Void
     ) throws {
         guard let app = application(id: applicationID) else { throw ShortcutStoreError.applicationNotFound }
-        guard app.keyValueCheatsheets.contains(where: { $0.id == cheatsheetID }) else {
+        guard let index = app.sheets.firstIndex(where: { $0.id == cheatsheetID && $0.kind == .keyValue }) else {
             throw ShortcutStoreError.cheatsheetNotFound
         }
         try updateApplication(applicationID) { app in
-            guard let index = app.keyValueCheatsheets.firstIndex(where: { $0.id == cheatsheetID }) else { return }
-            update(&app.keyValueCheatsheets[index])
+            guard case .keyValue(var cheatsheet) = app.sheets[index] else { return }
+            update(&cheatsheet)
+            app.sheets[index] = .keyValue(cheatsheet)
         }
     }
 
@@ -390,9 +392,12 @@ final class ShortcutStore: ObservableObject {
                                   !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                               }
                       }
-                      && Set(application.keyValueCheatsheets.map(\.id)).count == application.keyValueCheatsheets.count
-                      && Set(application.keyValueCheatsheets.map { Self.cheatsheetNameKey($0.name) }).count
-                          == application.keyValueCheatsheets.count
+                      && Set(application.sheets.map(\.id)).count == application.sheets.count
+                      && Set(application.sheets.map { Self.cheatsheetNameKey($0.name) }).count
+                          == application.sheets.count
+                      && application.sheets.allSatisfy {
+                          !$0.id.isEmpty && !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                      }
                       && application.keyValueCheatsheets.allSatisfy { cheatsheet in
                           !cheatsheet.id.isEmpty
                               && !cheatsheet.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

@@ -35,7 +35,6 @@ final class KeyValueCheatsheetUITests: XCTestCase {
     }
 
     func testMainWindowCanCreateAndManageKeyValueCheatsheet() throws {
-        let keyValueTab = app.buttons["dashboard.tab.key-value"]
         XCTAssertTrue(keyValueTab.waitForExistence(timeout: 5))
         keyValueTab.click()
 
@@ -132,7 +131,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         XCTAssertTrue(previews.element(boundBy: 0).label.hasPrefix("Second —"))
 
         relaunch()
-        app.buttons["dashboard.tab.key-value"].click()
+        keyValueTab.click()
         XCTAssertTrue(previews.firstMatch.waitForExistence(timeout: 5))
         XCTAssertTrue(previews.element(boundBy: 0).label.hasPrefix("Second —"))
         XCTAssertTrue(previews.element(boundBy: 1).label.hasPrefix("First —"))
@@ -144,7 +143,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         enterText("Prompts", into: "key-value.cheatsheet-name")
         app.buttons["key-value.save-cheatsheet-name"].click()
         relaunch()
-        XCTAssertEqual(app.buttons["dashboard.tab.key-value"].value as? String, "已選取")
+        XCTAssertEqual(keyValueTab.value as? String, "已選取")
         XCTAssertEqual(element("key-value.cheatsheet-selector").value as? String, "Prompts")
     }
 
@@ -275,7 +274,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["key-value.copy-feedback"].waitForExistence(timeout: 5))
 
         app.buttons["popover.open-dashboard"].click()
-        let dashboardKeyValueTab = app.buttons["dashboard.tab.key-value"]
+        let dashboardKeyValueTab = keyValueTab
         XCTAssertTrue(dashboardKeyValueTab.waitForExistence(timeout: 5))
         XCTAssertEqual(dashboardKeyValueTab.value as? String, "已選取")
         XCTAssertEqual(element("key-value.cheatsheet-selector").value as? String, "Prompts")
@@ -364,7 +363,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         ).firstMatch
         XCTAssertTrue(jump.waitForExistence(timeout: 5))
         jump.click()
-        XCTAssertTrue(app.buttons["dashboard.tab.key-value"].waitForExistence(timeout: 5))
+        XCTAssertTrue(keyValueTab.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["com.apple.finder"].waitForExistence(timeout: 5))
         XCTAssertEqual(element("key-value.cheatsheet-selector").value as? String, "Prompts")
         XCTAssertTrue(entryPreviews.firstMatch.label.hasPrefix("Desired output —"))
@@ -385,7 +384,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
     }
 
     private func createCheatsheet(named name: String) {
-        app.buttons["dashboard.tab.key-value"].click()
+        keyValueTab.click()
         app.buttons["key-value.create-cheatsheet"].click()
         let nameField = app.textFields["key-value.cheatsheet-name"]
         XCTAssertTrue(nameField.waitForExistence(timeout: 5))
@@ -427,6 +426,37 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         app.launchEnvironment["DASHCUES_UI_TEST_CLIPBOARD_FAILURE"] = clipboardFailure ? "1" : nil
         app.launch()
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10))
+    }
+
+    /// The first Key-Value tab: the per-sheet tab when one exists, otherwise the "create" entry tab.
+    private var keyValueTab: XCUIElement {
+        app.buttons.matching(NSPredicate(
+            format: "identifier == 'dashboard.tab.key-value' OR identifier BEGINSWITH 'dashboard.sheet-tab.key-value.'"
+        )).firstMatch
+    }
+
+    private var shortcutSheetTab: XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'dashboard.sheet-tab.shortcuts.'")).firstMatch
+    }
+
+    func testMainWindowShowsSelectableSheetTabsNextToLogo() throws {
+        XCTAssertTrue(shortcutSheetTab.waitForExistence(timeout: 5))
+        XCTAssertTrue(shortcutSheetTab.label.contains("快捷鍵"))
+        XCTAssertEqual(shortcutSheetTab.value as? String, "已選取")
+
+        createCheatsheet(named: "Commands")
+        addEntry(key: "Build", value: "swift build")
+        XCTAssertTrue(keyValueTab.label.contains("Commands"))
+        XCTAssertEqual(keyValueTab.value as? String, "已選取")
+        XCTAssertEqual(shortcutSheetTab.value as? String, "未選取")
+
+        shortcutSheetTab.click()
+        XCTAssertEqual(shortcutSheetTab.value as? String, "已選取")
+        XCTAssertFalse(entryPreviews.firstMatch.exists)
+
+        keyValueTab.click()
+        XCTAssertTrue(entryPreviews.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertEqual(keyValueTab.value as? String, "已選取")
     }
 
     private func element(_ identifier: String) -> XCUIElement {
