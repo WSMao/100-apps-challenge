@@ -230,11 +230,15 @@ struct KeyValueCheatsheetView: View {
                         cheatsheetID: cheatsheet.id,
                         applicationID: applicationID,
                         entries: cheatsheet.entries,
+                        layout: cheatsheet.layout,
                         session: editSession,
                         expandedEntryIDs: $expandedEntryIDs,
                         onCopy: copy,
                         onDelete: { entryPendingDelete = $0 },
-                        onMove: { dragged, target in moveEntry(dragged, to: target, in: cheatsheet) }
+                        onMove: { dragged, target in moveEntry(dragged, to: target, in: cheatsheet) },
+                        onUpdateLayout: { newOrder, keyWidth, valueWidth in
+                            updateLayout(newOrder: newOrder, keyWidth: keyWidth, valueWidth: valueWidth, in: cheatsheet)
+                        }
                     )
                     .onAppear { scrollToPendingEntry(using: proxy) }
                     .onChange(of: pendingScrollEntryID) { _ in scrollToPendingEntry(using: proxy) }
@@ -370,6 +374,23 @@ struct KeyValueCheatsheetView: View {
                 toOffset: destination,
                 cheatsheetID: cheatsheet.id,
                 applicationID: applicationID
+            )
+        }
+    }
+
+    private func updateLayout(
+        newOrder: [KeyValueColumn]?,
+        keyWidth: Double?,
+        valueWidth: Double?,
+        in cheatsheet: KeyValueCheatsheet
+    ) {
+        performStoreAction {
+            try store.updateKeyValueLayout(
+                cheatsheetID: cheatsheet.id,
+                applicationID: applicationID,
+                columnOrder: newOrder,
+                keyWidth: keyWidth,
+                valueWidth: valueWidth
             )
         }
     }

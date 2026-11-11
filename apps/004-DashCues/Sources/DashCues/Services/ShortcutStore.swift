@@ -299,6 +299,26 @@ final class ShortcutStore: ObservableObject {
         }
     }
 
+    func updateKeyValueLayout(
+        cheatsheetID: String,
+        applicationID: String,
+        columnOrder: [KeyValueColumn]? = nil,
+        keyWidth: Double? = nil,
+        valueWidth: Double? = nil
+    ) throws {
+        try updateKeyValueCheatsheet(cheatsheetID, applicationID: applicationID) { cheatsheet in
+            if let columnOrder {
+                cheatsheet.columnOrder = KeyValueTableLayout.normalized(columnOrder)
+            }
+            if let keyWidth {
+                cheatsheet.keyWidth = keyWidth
+            }
+            if let valueWidth {
+                cheatsheet.valueWidth = valueWidth
+            }
+        }
+    }
+
     func hasDuplicateKey(
         _ key: String,
         cheatsheetID: String,

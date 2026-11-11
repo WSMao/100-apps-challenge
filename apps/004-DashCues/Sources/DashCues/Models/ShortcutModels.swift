@@ -43,15 +43,125 @@ struct KeyValueEntry: Codable, Identifiable, Equatable {
     }
 }
 
+enum KeyValueColumn: String, Codable, Equatable, CaseIterable {
+    case key
+    case value
+
+    var title: String {
+        switch self {
+        case .key: "Key"
+        case .value: "Value"
+        }
+    }
+}
+
+struct KeyValueTableLayout: Codable, Equatable {
+    static let minColumnWidth: Double = 120
+    static let defaultOrder: [KeyValueColumn] = [.key, .value]
+
+    var columnOrder: [KeyValueColumn]
+    var keyWidth: Double?
+    var valueWidth: Double?
+
+    init(
+        columnOrder: [KeyValueColumn] = defaultOrder,
+        keyWidth: Double? = nil,
+        valueWidth: Double? = nil
+    ) {
+        self.columnOrder = Self.normalized(columnOrder)
+        self.keyWidth = keyWidth
+        self.valueWidth = valueWidth
+    }
+
+    static func normalized(_ order: [KeyValueColumn]) -> [KeyValueColumn] {
+        var result: [KeyValueColumn] = []
+        for col in order where !result.contains(col) {
+            result.append(col)
+        }
+        for col in KeyValueColumn.allCases where !result.contains(col) {
+            result.append(col)
+        }
+        return result
+    }
+
+    /// Computes resolved widths for (key, value) given available container width.
+    func resolvedWidths(containerWidth: Double) -> (key: Double, value: Double) {
+        let minW = Self.minColumnWidth
+        let available = max(containerWidth, minW * 2)
+        switch (keyWidth, valueWidth) {
+        case let (.some(kw), .some(vw)):
+            return (max(kw, minW), max(vw, minW))
+        case let (.some(kw), .none):
+            let clampedKey = max(kw, minW)
+            return (clampedKey, max(available - clampedKey, minW))
+        case let (.none, .some(vw)):
+            let clampedValue = max(vw, minW)
+            return (max(available - clampedValue, minW), clampedValue)
+        case (.none, .none):
+            let half = max(available / 2, minW)
+            return (half, half)
+        }
+    }
+}
+
 struct KeyValueCheatsheet: Codable, Identifiable, Equatable {
     var id: String
     var name: String
     var entries: [KeyValueEntry]
+    var columnOrder: [KeyValueColumn]
+    var keyWidth: Double?
+    var valueWidth: Double?
 
-    init(id: String = UUID().uuidString, name: String, entries: [KeyValueEntry] = []) {
+    init(
+        id: String = UUID().uuidString,
+        name: String,
+        entries: [KeyValueEntry] = [],
+        columnOrder: [KeyValueColumn] = KeyValueTableLayout.defaultOrder,
+        keyWidth: Double? = nil,
+        valueWidth: Double? = nil
+    ) {
         self.id = id
         self.name = name
         self.entries = entries
+        self.columnOrder = KeyValueTableLayout.normalized(columnOrder)
+        self.keyWidth = keyWidth
+        self.valueWidth = valueWidth
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, entries, columnOrder, keyWidth, valueWidth
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        entries = try container.decode([KeyValueEntry].self, forKey: .entries)
+        let rawOrder = try? container.decode([KeyValueColumn].self, forKey: .columnOrder)
+        columnOrder = KeyValueTableLayout.normalized(rawOrder ?? KeyValueTableLayout.defaultOrder)
+        keyWidth = try? container.decode(Double.self, forKey: .keyWidth)
+        valueWidth = try? container.decode(Double.self, forKey: .valueWidth)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(entries, forKey: .entries)
+        try container.encode(columnOrder, forKey: .columnOrder)
+        try container.encodeIfPresent(keyWidth, forKey: .keyWidth)
+        try container.encodeIfPresent(valueWidth, forKey: .valueWidth)
+    }
+
+    var layout: KeyValueTableLayout {
+        get {
+            KeyValueTableLayout(columnOrder: columnOrder, keyWidth: keyWidth, valueWidth: valueWidth)
+        }
+        set {
+            columnOrder = newValue.columnOrder
+            keyWidth = newValue.keyWidth
+            valueWidth = newValue.valueWidth
+        }
     }
 }
 
@@ -101,7 +211,7 @@ enum AppSheet: Codable, Identifiable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type, id, name, shortcuts, entries
+        case type, id, name, shortcuts, entries, columnOrder, keyWidth, valueWidth
     }
 
     init(from decoder: Decoder) throws {
@@ -114,8 +224,17 @@ enum AppSheet: Codable, Identifiable, Equatable {
                 id: id, name: name, shortcuts: try container.decode([ShortcutItem].self, forKey: .shortcuts)
             ))
         case .keyValue:
+            let rawOrder = try? container.decode([KeyValueColumn].self, forKey: .columnOrder)
+            let columnOrder = KeyValueTableLayout.normalized(rawOrder ?? KeyValueTableLayout.defaultOrder)
+            let keyWidth = try? container.decode(Double.self, forKey: .keyWidth)
+            let valueWidth = try? container.decode(Double.self, forKey: .valueWidth)
             self = .keyValue(KeyValueCheatsheet(
-                id: id, name: name, entries: try container.decode([KeyValueEntry].self, forKey: .entries)
+                id: id,
+                name: name,
+                entries: try container.decode([KeyValueEntry].self, forKey: .entries),
+                columnOrder: columnOrder,
+                keyWidth: keyWidth,
+                valueWidth: valueWidth
             ))
         }
     }
@@ -126,8 +245,13 @@ enum AppSheet: Codable, Identifiable, Equatable {
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
         switch self {
-        case .shortcuts(let sheet): try container.encode(sheet.shortcuts, forKey: .shortcuts)
-        case .keyValue(let sheet): try container.encode(sheet.entries, forKey: .entries)
+        case .shortcuts(let sheet):
+            try container.encode(sheet.shortcuts, forKey: .shortcuts)
+        case .keyValue(let sheet):
+            try container.encode(sheet.entries, forKey: .entries)
+            try container.encode(sheet.columnOrder, forKey: .columnOrder)
+            try container.encodeIfPresent(sheet.keyWidth, forKey: .keyWidth)
+            try container.encodeIfPresent(sheet.valueWidth, forKey: .valueWidth)
         }
     }
 

@@ -1,18 +1,23 @@
 import AppKit
 import SwiftUI
 
-/// Two-column Key-Value table with single-click expansion, per-cell copy, and inline editing.
+/// Two-column Key-Value table with single-click expansion, per-cell copy, column reordering, resizing, and inline editing.
 struct KeyValueTableView: View {
     let cheatsheetID: String
     let applicationID: String
     let entries: [KeyValueEntry]
+    var layout: KeyValueTableLayout = KeyValueTableLayout()
     @ObservedObject var session: KeyValueEditSession
     @Binding var expandedEntryIDs: Set<String>
     let onCopy: (String, String) -> Bool
     let onDelete: (KeyValueEntry) -> Void
     let onMove: (String, String) -> Void
+    var onUpdateLayout: ([KeyValueColumn]?, Double?, Double?) -> Void = { _, _, _ in }
 
     @State private var copiedCell: CopiedCell?
+    @State private var dragKeyWidth: Double?
+    @State private var dragValueWidth: Double?
+    @State private var initialDragWidths: (key: Double, value: Double)?
 
     private struct CopiedCell: Equatable {
         let entryID: String
@@ -23,21 +28,37 @@ struct KeyValueTableView: View {
         session.isNewEntry && session.editingEntryID != nil
     }
 
+    private var columnOrder: [KeyValueColumn] {
+        layout.columnOrder
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(entries) { entry in
-                        row(entry)
-                        Divider()
-                    }
-                    if showsNewRow, let id = session.editingEntryID {
-                        editingRow(id: id)
-                        Divider()
+        GeometryReader { geometry in
+            let availableWidth = max(geometry.size.width - 44, KeyValueTableLayout.minColumnWidth * 2)
+            let activeLayout = KeyValueTableLayout(
+                columnOrder: layout.columnOrder,
+                keyWidth: dragKeyWidth ?? layout.keyWidth,
+                valueWidth: dragValueWidth ?? layout.valueWidth
+            )
+            let widths = activeLayout.resolvedWidths(containerWidth: availableWidth)
+            let totalTableWidth = widths.key + widths.value + 44
+
+            ScrollView([.horizontal, .vertical]) {
+                VStack(alignment: .leading, spacing: 0) {
+                    header(widths: widths)
+                    Divider()
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(entries) { entry in
+                            row(entry, widths: widths)
+                            Divider()
+                        }
+                        if showsNewRow, let id = session.editingEntryID {
+                            editingRow(id: id, widths: widths)
+                            Divider()
+                        }
                     }
                 }
+                .frame(width: max(totalTableWidth, geometry.size.width), alignment: .leading)
             }
             .accessibilityIdentifier("key-value.entries")
         }
@@ -46,17 +67,16 @@ struct KeyValueTableView: View {
         .accessibilityIdentifier("key-value.table")
     }
 
-    private var header: some View {
-        HStack(spacing: 0) {
-            Text("Key")
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("key-value.header-key")
-            Divider()
-            Text("Value")
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("key-value.header-value")
+    private func header(widths: (key: Double, value: Double)) -> some View {
+        let firstCol = columnOrder[0]
+        let secondCol = columnOrder[1]
+        let firstWidth = firstCol == .key ? widths.key : widths.value
+        let secondWidth = secondCol == .key ? widths.key : widths.value
+
+        return HStack(spacing: 0) {
+            headerCell(for: firstCol, width: firstWidth)
+            separatorView(widths: widths)
+            headerCell(for: secondCol, width: secondWidth)
             Divider()
             Color.clear.frame(width: 44)
         }
@@ -65,16 +85,92 @@ struct KeyValueTableView: View {
         .frame(height: 32)
     }
 
+    private func headerCell(for column: KeyValueColumn, width: Double) -> some View {
+        Text(column.title)
+            .padding(10)
+            .frame(width: width, alignment: .leading)
+            .accessibilityIdentifier("key-value.header-\(column.rawValue)")
+            .draggable(column.rawValue)
+            .dropDestination(for: String.self) { draggedColumns, _ in
+                guard let draggedRaw = draggedColumns.first,
+                      let draggedCol = KeyValueColumn(rawValue: draggedRaw),
+                      draggedCol != column else { return false }
+                let newOrder = columnOrder.reversed()
+                onUpdateLayout(Array(newOrder), layout.keyWidth, layout.valueWidth)
+                return true
+            }
+    }
+
+    private func separatorView(widths: (key: Double, value: Double)) -> some View {
+        HStack(spacing: 0) {
+            Divider()
+        }
+        .frame(width: 9)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    handleSeparatorDrag(translation: value.translation.width, widths: widths)
+                }
+                .onEnded { _ in
+                    commitSeparatorDrag()
+                }
+        )
+        .onHover { inside in
+            if inside {
+                NSCursor.resizeLeftRight.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .accessibilityIdentifier("key-value.column-separator")
+    }
+
+    private func handleSeparatorDrag(translation: Double, widths: (key: Double, value: Double)) {
+        let base = initialDragWidths ?? widths
+        if initialDragWidths == nil {
+            initialDragWidths = base
+        }
+        let minW = KeyValueTableLayout.minColumnWidth
+        let firstCol = columnOrder[0]
+
+        if firstCol == .key {
+            let newKey = max(base.key + translation, minW)
+            let newValue = max(base.value - translation, minW)
+            dragKeyWidth = newKey
+            dragValueWidth = newValue
+        } else {
+            let newValue = max(base.value + translation, minW)
+            let newKey = max(base.key - translation, minW)
+            dragValueWidth = newValue
+            dragKeyWidth = newKey
+        }
+    }
+
+    private func commitSeparatorDrag() {
+        if let k = dragKeyWidth, let v = dragValueWidth {
+            onUpdateLayout(columnOrder, k, v)
+        }
+        dragKeyWidth = nil
+        dragValueWidth = nil
+        initialDragWidths = nil
+    }
+
     @ViewBuilder
-    private func row(_ entry: KeyValueEntry) -> some View {
+    private func row(_ entry: KeyValueEntry, widths: (key: Double, value: Double)) -> some View {
         if session.editingEntryID == entry.id {
-            editingRow(id: entry.id)
+            editingRow(id: entry.id, widths: widths)
         } else {
             let isExpanded = expandedEntryIDs.contains(entry.id)
+            let firstCol = columnOrder[0]
+            let secondCol = columnOrder[1]
+            let firstWidth = firstCol == .key ? widths.key : widths.value
+            let secondWidth = secondCol == .key ? widths.key : widths.value
+
             HStack(alignment: .top, spacing: 0) {
-                cell(entry, column: .key, isExpanded: isExpanded)
+                cell(entry, column: firstCol == .key ? .key : .value, isExpanded: isExpanded, width: firstWidth)
                 Divider()
-                cell(entry, column: .value, isExpanded: isExpanded)
+                cell(entry, column: secondCol == .key ? .key : .value, isExpanded: isExpanded, width: secondWidth)
                 Divider()
                 Button(role: .destructive) { onDelete(entry) } label: {
                     Image(systemName: "trash")
@@ -96,7 +192,7 @@ struct KeyValueTableView: View {
         }
     }
 
-    private func cell(_ entry: KeyValueEntry, column: KeyValueEditSession.Column, isExpanded: Bool) -> some View {
+    private func cell(_ entry: KeyValueEntry, column: KeyValueEditSession.Column, isExpanded: Bool, width: Double) -> some View {
         let text = column == .key ? entry.key : entry.value
         let name = column == .key ? "Key" : "Value"
         let idName = column == .key ? "key" : "value"
@@ -131,7 +227,7 @@ struct KeyValueTableView: View {
             .accessibilityIdentifier("key-value.copy-\(idName).\(entry.id)")
         }
         .padding(10)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(width: width, alignment: .topLeading)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             session.begin(entry: entry, column: column, cheatsheetID: cheatsheetID, applicationID: applicationID)
@@ -141,26 +237,17 @@ struct KeyValueTableView: View {
         }
     }
 
-    private func editingRow(id: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+    private func editingRow(id: String, widths: (key: Double, value: Double)) -> some View {
+        let firstCol = columnOrder[0]
+        let secondCol = columnOrder[1]
+        let firstWidth = firstCol == .key ? widths.key : widths.value
+        let secondWidth = secondCol == .key ? widths.key : widths.value
+
+        return VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 0) {
-                InlineTextEditor(
-                    text: $session.draftKey,
-                    identifier: "key-value.entry-key",
-                    wantsFocus: session.focusColumn == .key,
-                    onSubmit: { session.save() },
-                    onCancel: { session.cancel() }
-                )
-                .padding(10)
+                inlineEditor(for: firstCol, width: firstWidth)
                 Divider()
-                InlineTextEditor(
-                    text: $session.draftValue,
-                    identifier: "key-value.entry-value",
-                    wantsFocus: session.focusColumn == .value,
-                    onSubmit: { session.save() },
-                    onCancel: { session.cancel() }
-                )
-                .padding(10)
+                inlineEditor(for: secondCol, width: secondWidth)
                 Divider()
                 Color.clear.frame(width: 44)
             }
@@ -188,6 +275,32 @@ struct KeyValueTableView: View {
         .id(id)
     }
 
+    @ViewBuilder
+    private func inlineEditor(for column: KeyValueColumn, width: Double) -> some View {
+        switch column {
+        case .key:
+            InlineTextEditor(
+                text: $session.draftKey,
+                identifier: "key-value.entry-key",
+                wantsFocus: session.focusColumn == .key,
+                onSubmit: { session.save() },
+                onCancel: { session.cancel() }
+            )
+            .padding(10)
+            .frame(width: width, alignment: .leading)
+        case .value:
+            InlineTextEditor(
+                text: $session.draftValue,
+                identifier: "key-value.entry-value",
+                wantsFocus: session.focusColumn == .value,
+                onSubmit: { session.save() },
+                onCancel: { session.cancel() }
+            )
+            .padding(10)
+            .frame(width: width, alignment: .leading)
+        }
+    }
+
     private func flashCopied(_ entryID: String, _ column: KeyValueEditSession.Column) {
         let cell = CopiedCell(entryID: entryID, column: column)
         copiedCell = cell
@@ -198,46 +311,73 @@ struct KeyValueTableView: View {
 }
 
 /// Lucide "copy" and "check" icons drawn on their native 24-unit grid.
+enum LucideGlyph {
+    case copy
+    case check
+}
+
 struct LucideIcon: View {
-    enum Kind { case copy, check }
-    let kind: Kind
+    let glyph: LucideGlyph
 
-    init(_ kind: Kind) { self.kind = kind }
-
-    var body: some View {
-        Canvas { context, size in
-            let scale = min(size.width, size.height) / 24
-            let transform = CGAffineTransform(scaleX: scale, y: scale)
-            let style = StrokeStyle(lineWidth: 2 * scale, lineCap: .round, lineJoin: .round)
-            for path in paths {
-                context.stroke(path.applying(transform), with: .foreground, style: style)
-            }
-        }
-        .accessibilityHidden(true)
+    init(_ glyph: LucideGlyph) {
+        self.glyph = glyph
     }
 
-    private var paths: [Path] {
-        switch kind {
-        case .copy:
-            var back = Path()
-            back.move(to: CGPoint(x: 4, y: 16))
-            back.addCurve(to: CGPoint(x: 2, y: 14), control1: CGPoint(x: 2.9, y: 16), control2: CGPoint(x: 2, y: 15.1))
-            back.addLine(to: CGPoint(x: 2, y: 4))
-            back.addCurve(to: CGPoint(x: 4, y: 2), control1: CGPoint(x: 2, y: 2.9), control2: CGPoint(x: 2.9, y: 2))
-            back.addLine(to: CGPoint(x: 14, y: 2))
-            back.addCurve(to: CGPoint(x: 16, y: 4), control1: CGPoint(x: 15.1, y: 2), control2: CGPoint(x: 16, y: 2.9))
-            return [Path(roundedRect: CGRect(x: 8, y: 8, width: 14, height: 14), cornerRadius: 2), back]
-        case .check:
-            var tick = Path()
-            tick.move(to: CGPoint(x: 20, y: 6))
-            tick.addLine(to: CGPoint(x: 9, y: 17))
-            tick.addLine(to: CGPoint(x: 4, y: 12))
-            return [tick]
+    var body: some View {
+        GeometryReader { geometry in
+            let scale = min(geometry.size.width, geometry.size.height) / 24.0
+            Path { path in
+                switch glyph {
+                case .copy:
+                    path.addRoundedRect(
+                        in: CGRect(x: 9, y: 9, width: 13, height: 13),
+                        cornerSize: CGSize(width: 2, height: 2)
+                    )
+                    path.move(to: CGPoint(x: 5, y: 15))
+                    path.addLine(to: CGPoint(x: 3, y: 15))
+                    path.addArc(
+                        center: CGPoint(x: 4, y: 14),
+                        radius: 2,
+                        startAngle: .degrees(90),
+                        endAngle: .degrees(180),
+                        clockwise: false
+                    )
+                    path.addLine(to: CGPoint(x: 2, y: 4))
+                    path.addArc(
+                        center: CGPoint(x: 4, y: 4),
+                        radius: 2,
+                        startAngle: .degrees(180),
+                        endAngle: .degrees(270),
+                        clockwise: false
+                    )
+                    path.addLine(to: CGPoint(x: 14, y: 2))
+                    path.addArc(
+                        center: CGPoint(x: 14, y: 4),
+                        radius: 2,
+                        startAngle: .degrees(270),
+                        endAngle: .degrees(0),
+                        clockwise: false
+                    )
+                    path.addLine(to: CGPoint(x: 15, y: 5))
+                case .check:
+                    path.move(to: CGPoint(x: 4, y: 12))
+                    path.addLine(to: CGPoint(x: 9, y: 17))
+                    path.addLine(to: CGPoint(x: 20, y: 6))
+                }
+            }
+            .applying(CGAffineTransform(scaleX: scale, y: scale))
+            .stroke(
+                style: StrokeStyle(
+                    lineWidth: 2 * scale,
+                    lineCap: .round,
+                    lineJoin: .round
+                )
+            )
         }
+        .aspectRatio(1, contentMode: .fit)
     }
 }
 
-/// Multi-line text field where Enter saves, Shift-Enter inserts a newline and Esc cancels.
 private struct InlineTextEditor: NSViewRepresentable {
     @Binding var text: String
     let identifier: String
