@@ -34,7 +34,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     && environment["DASHCUES_UI_TEST_CLIPBOARD_FAILURE"] == "1"
                     ? { _ in false }
                     : SystemClipboardWriter.write
-            let pinnedWindowManager = PinnedMapWindowManager()
+            let pinnedWindowManager = PinnedMapWindowManager(
+                store: store,
+                contentNavigation: contentNavigation,
+                clipboardWriter: clipboardWriter
+            )
             self.store = store
             self.pinnedWindowManager = pinnedWindowManager
             self.contentNavigation = contentNavigation

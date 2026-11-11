@@ -7,6 +7,21 @@ final class PinnedMapWindowManager: NSObject, ObservableObject, NSWindowDelegate
     private var windows: [String: NSPanel] = [:]
     @Published private(set) var pinnedApplicationIDs = Set<String>()
 
+    private let store: ShortcutStore?
+    private let contentNavigation: SharedContentNavigation?
+    private let clipboardWriter: (String) -> Bool
+
+    init(
+        store: ShortcutStore? = nil,
+        contentNavigation: SharedContentNavigation? = nil,
+        clipboardWriter: @escaping (String) -> Bool = SystemClipboardWriter.write
+    ) {
+        self.store = store
+        self.contentNavigation = contentNavigation
+        self.clipboardWriter = clipboardWriter
+        super.init()
+    }
+
     func isPinned(applicationID: String) -> Bool {
         pinnedApplicationIDs.contains(applicationID)
     }
@@ -22,11 +37,7 @@ final class PinnedMapWindowManager: NSObject, ObservableObject, NSWindowDelegate
     func show(application: ShortcutApplication) {
         if let existingWindow = windows[application.id] {
             existingWindow.contentViewController = NSHostingController(
-                rootView: ShortcutMapView(
-                    application: application,
-                    isPinned: true,
-                    onTogglePin: { [weak self] in self?.close(applicationID: application.id) }
-                )
+                rootView: makeContentView(for: application)
             )
             existingWindow.placeInVisibleFrame()
             existingWindow.makeKeyAndOrderFront(nil)
@@ -39,7 +50,7 @@ final class PinnedMapWindowManager: NSObject, ObservableObject, NSWindowDelegate
             backing: .buffered,
             defer: false
         )
-        panel.title = "\(application.name) 快捷鍵"
+        panel.title = "\(application.name) 參考內容"
         panel.level = .floating
         panel.hidesOnDeactivate = false
         panel.isMovableByWindowBackground = true
@@ -47,17 +58,32 @@ final class PinnedMapWindowManager: NSObject, ObservableObject, NSWindowDelegate
         panel.isReleasedWhenClosed = false
         panel.delegate = self
         panel.contentViewController = NSHostingController(
-            rootView: ShortcutMapView(
-                application: application,
-                isPinned: true,
-                onTogglePin: { [weak self] in self?.close(applicationID: application.id) }
-            )
+            rootView: makeContentView(for: application)
         )
         windows[application.id] = panel
         pinnedApplicationIDs.insert(application.id)
         panel.centerInVisibleFrame()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+    }
+
+    @ViewBuilder
+    private func makeContentView(for application: ShortcutApplication) -> some View {
+        if let store, let contentNavigation {
+            PinnedApplicationView(
+                store: store,
+                contentNavigation: contentNavigation,
+                applicationID: application.id,
+                onTogglePin: { [weak self] in self?.close(applicationID: application.id) },
+                clipboardWriter: clipboardWriter
+            )
+        } else {
+            ShortcutMapView(
+                application: application,
+                isPinned: true,
+                onTogglePin: { [weak self] in self?.close(applicationID: application.id) }
+            )
+        }
     }
 
     func close(applicationID: String) {
@@ -70,5 +96,179 @@ final class PinnedMapWindowManager: NSObject, ObservableObject, NSWindowDelegate
         guard let applicationID = windows.first(where: { $0.value === closedWindow })?.key else { return }
         windows.removeValue(forKey: applicationID)
         pinnedApplicationIDs.remove(applicationID)
+    }
+}
+
+/// Floating window view showing ordered type-icon sheet tabs and read-only cheatsheet content.
+struct PinnedApplicationView: View {
+    @ObservedObject var store: ShortcutStore
+    @ObservedObject var contentNavigation: SharedContentNavigation
+    let applicationID: String
+    let onTogglePin: () -> Void
+    var clipboardWriter: (String) -> Bool = SystemClipboardWriter.write
+
+    @State private var tableNav: TableKeyboardNavigation?
+    @State private var keyMonitor: Any?
+    @State private var errorMessage: String?
+    @State private var successMessage: String?
+
+    private var application: ShortcutApplication? {
+        store.application(id: applicationID)
+    }
+
+    private var currentSheet: AppSheet? {
+        guard let application else { return nil }
+        return contentNavigation.selectedSheet(for: application.id, in: application.sheets)
+    }
+
+    var body: some View {
+        Group {
+            if let application {
+                VStack(alignment: .leading, spacing: 12) {
+                    header(for: application)
+                    contentTabs(for: application)
+                    Divider()
+                    detailView(for: application)
+                }
+                .padding(14)
+            } else {
+                Text("找不到此 App。").foregroundStyle(.secondary)
+            }
+        }
+        .frame(minWidth: 360, minHeight: 460)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear {
+            setupNavigation()
+        }
+        .onDisappear {
+            teardownNavigation()
+        }
+        .overlay(alignment: .bottom) {
+            if let successMessage {
+                Text(successMessage)
+                    .accessibilityIdentifier("key-value.copy-feedback")
+                    .padding(8)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding()
+            }
+        }
+    }
+
+    private func header(for application: ShortcutApplication) -> some View {
+        HStack(spacing: 8) {
+            ApplicationIconView(application: application, size: 24)
+            Text(application.name)
+                .font(.headline)
+            Spacer()
+            Button(action: onTogglePin) {
+                Image(systemName: "pin.slash.fill")
+            }
+            .buttonStyle(.borderless)
+            .help("關閉固定的 App 視窗")
+            .accessibilityLabel("關閉固定的 App 視窗")
+            .accessibilityIdentifier("pinned.unpin-button")
+        }
+    }
+
+    private func contentTabs(for application: ShortcutApplication) -> some View {
+        let selectedID = currentSheet?.id
+        let overflow = TabOverflowLayout(sheets: application.sheets, maxVisible: 3, selectedID: selectedID)
+        return HStack(spacing: 6) {
+            ForEach(overflow.visibleSheets) { sheet in
+                Button {
+                    contentNavigation.selectSheet(sheet, for: application.id)
+                    tableNav?.selectSheet(id: sheet.id)
+                } label: {
+                    Label(sheet.name, systemImage: sheet.kind == .shortcuts ? "keyboard" : "list.bullet.rectangle")
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(sheet.id == selectedID ? Color.accentColor.opacity(0.18) : .clear, in: Capsule())
+                        .overlay {
+                            Capsule().stroke(sheet.id == selectedID ? Color.accentColor : Color(nsColor: .separatorColor))
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("pinned.sheet-tab.\(sheet.id)")
+                .accessibilityValue(sheet.id == selectedID ? "已選取" : "未選取")
+            }
+            if !overflow.overflowSheets.isEmpty {
+                Menu {
+                    ForEach(overflow.overflowSheets) { sheet in
+                        Button(sheet.name) {
+                            contentNavigation.selectSheet(sheet, for: application.id)
+                            tableNav?.selectSheet(id: sheet.id)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.caption)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
+                        .background(Color(nsColor: .controlBackgroundColor), in: Capsule())
+                        .overlay(Capsule().stroke(Color(nsColor: .separatorColor)))
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .accessibilityIdentifier("pinned.tab-overflow-menu")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func detailView(for application: ShortcutApplication) -> some View {
+        switch currentSheet?.kind ?? .shortcuts {
+        case .shortcuts:
+            ShortcutMapView(
+                application: application,
+                isPinned: true,
+                onTogglePin: onTogglePin,
+                sheetID: currentSheet?.id
+            )
+        case .keyValue:
+            KeyValueCheatsheetView(
+                store: store,
+                contentNavigation: contentNavigation,
+                applicationID: application.id,
+                sheetID: currentSheet?.id,
+                onError: { errorMessage = $0 },
+                onCopySuccess: { successMessage = $0 },
+                clipboardWriter: clipboardWriter,
+                isReadOnly: true,
+                navigation: tableNav
+            )
+        }
+    }
+
+    private func setupNavigation() {
+        let nav = TableKeyboardNavigation(
+            store: store,
+            applicationID: applicationID,
+            editSession: nil,
+            clipboardWriter: clipboardWriter
+        )
+        nav.isPinnedWindow = true
+        if let current = currentSheet {
+            nav.selectedSheetID = current.id
+        }
+        tableNav = nav
+        if keyMonitor == nil {
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                if let nav = tableNav, nav.consumes(keyDown: event) {
+                    if let sel = nav.currentSheet {
+                        contentNavigation.selectSheet(sel, for: applicationID)
+                    }
+                    return nil
+                }
+                return event
+            }
+        }
+    }
+
+    private func teardownNavigation() {
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
     }
 }
