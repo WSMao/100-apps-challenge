@@ -7,6 +7,9 @@ enum ApplicationIconProvider {
 
     /// The real icon of the installed app with this bundle ID, or nil if it isn't installed.
     static func icon(bundleIdentifier: String) -> NSImage? {
+        if ProcessInfo.processInfo.environment["DASHCUES_UI_TESTING"] == "1" {
+            return nil
+        }
         guard !bundleIdentifier.isEmpty else { return nil }
         if let cached = cache[bundleIdentifier] { return cached }
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else {
