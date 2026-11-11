@@ -46,6 +46,7 @@ final class TableKeyboardNavigation: ObservableObject {
     @Published var selectedColumn: KeyValueColumn = .key
     @Published var isTextEditing: Bool = false
     @Published var expandedRowIDs = Set<String>()
+    var isPinnedWindow = false
 
     private weak var store: ShortcutStore?
     let applicationID: String
@@ -153,7 +154,7 @@ final class TableKeyboardNavigation: ObservableObject {
                 expandedRowIDs.remove(entryID)
                 return true
             } else {
-                focusArea = .sidebar
+                focusArea = isPinnedWindow ? .tabs : .sidebar
                 return true
             }
         }
@@ -227,9 +228,17 @@ final class TableKeyboardNavigation: ObservableObject {
 
     // Enter
     func handleEnter() -> Bool {
-        guard !isTextEditing, focusArea == .table, selectedRowIndex < entries.count,
-              let sheet = currentKeyValueCheatsheet,
-              let editSession else { return false }
+        guard !isFieldEditorFocused, focusArea == .table, selectedRowIndex < entries.count else { return false }
+        if editSession == nil {
+            let entryID = entries[selectedRowIndex].id
+            if expandedRowIDs.contains(entryID) {
+                expandedRowIDs.remove(entryID)
+            } else {
+                expandedRowIDs.insert(entryID)
+            }
+            return true
+        }
+        guard let sheet = currentKeyValueCheatsheet, let editSession else { return false }
         let entry = entries[selectedRowIndex]
         let editCol: KeyValueEditSession.Column = selectedColumn == .key ? .key : .value
         editSession.begin(entry: entry, column: editCol, cheatsheetID: sheet.id, applicationID: applicationID)
@@ -238,7 +247,7 @@ final class TableKeyboardNavigation: ObservableObject {
 
     var isFieldEditorFocused: Bool {
         if isTextEditing { return true }
-        if let responder = NSApp.keyWindow?.firstResponder, responder is NSTextView {
+        if let responder = NSApplication.shared.keyWindow?.firstResponder, responder is NSTextView {
             return true
         }
         return false

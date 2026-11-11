@@ -22,21 +22,46 @@ final class SharedContentNavigation: ObservableObject {
     @Published private(set) var pendingJump: KeyValueJump?
 
     private let defaults: UserDefaults
+    private var notificationObserver: NSObjectProtocol?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         selectedContentType = defaults.string(forKey: Self.selectedContentKey)
             .flatMap(DashboardContentType.init(rawValue:)) ?? .shortcuts
         lastSelectedCheatsheetIDs = defaults.dictionary(forKey: Self.selectedCheatsheetsKey) as? [String: String] ?? [:]
+
+        notificationObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: defaults,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reloadFromDefaultsIfNeeded()
+            }
+        }
+    }
+
+    private func reloadFromDefaultsIfNeeded() {
+        if let newIDs = defaults.dictionary(forKey: Self.selectedCheatsheetsKey) as? [String: String],
+           newIDs != lastSelectedCheatsheetIDs {
+            lastSelectedCheatsheetIDs = newIDs
+        }
+        if let newTypeRaw = defaults.string(forKey: Self.selectedContentKey),
+           let newType = DashboardContentType(rawValue: newTypeRaw),
+           newType != selectedContentType {
+            selectedContentType = newType
+        }
     }
 
     func selectContentType(_ contentType: DashboardContentType) {
         guard selectedContentType != contentType else { return }
         selectedContentType = contentType
         defaults.set(contentType.rawValue, forKey: Self.selectedContentKey)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
     }
 
     func selectedCheatsheetID(for applicationID: String, availableIDs: [String]) -> String? {
+        reloadFromDefaultsIfNeeded()
         if let selectedID = lastSelectedCheatsheetIDs[applicationID], availableIDs.contains(selectedID) {
             return selectedID
         }
@@ -45,6 +70,7 @@ final class SharedContentNavigation: ObservableObject {
 
     /// The sheet shown in the dashboard: the stored selection, else the first sheet of the current content type, else the first sheet.
     func selectedSheet(for applicationID: String, in sheets: [AppSheet]) -> AppSheet? {
+        reloadFromDefaultsIfNeeded()
         if let id = lastSelectedCheatsheetIDs[applicationID], let sheet = sheets.first(where: { $0.id == id }) {
             return sheet
         }
@@ -65,6 +91,7 @@ final class SharedContentNavigation: ObservableObject {
             lastSelectedCheatsheetIDs.removeValue(forKey: applicationID)
         }
         defaults.set(lastSelectedCheatsheetIDs, forKey: Self.selectedCheatsheetsKey)
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
     }
 
     func requestJump(applicationID: String, result: KeyValueSearchResult) {

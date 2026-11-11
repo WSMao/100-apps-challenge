@@ -66,24 +66,30 @@ struct ShortcutPopoverView: View {
             Divider()
 
             VStack(spacing: 0) {
-                contentTabs
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                if let selectedApplication {
+                    contentTabs(for: selectedApplication)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                }
 
                 Group {
                     if let selectedApplication {
-                        if contentNavigation.selectedContentType == .shortcuts {
+                        let currentSheet = contentNavigation.selectedSheet(for: selectedApplication.id, in: selectedApplication.sheets)
+                        switch currentSheet?.kind ?? .shortcuts {
+                        case .shortcuts:
                             ShortcutMapView(
                                 application: selectedApplication,
                                 isPinned: pinnedWindowManager.isPinned(applicationID: selectedApplication.id),
                                 onTogglePin: { pinnedWindowManager.toggle(application: selectedApplication) },
+                                sheetID: currentSheet?.id,
                                 highlightedShortcutID: navigation.focusArea == .shortcuts ? navigation.selectedShortcutID : nil
                             )
-                        } else {
+                        case .keyValue:
                             KeyValueCheatsheetView(
                                 store: store,
                                 contentNavigation: contentNavigation,
                                 applicationID: selectedApplication.id,
+                                sheetID: currentSheet?.id,
                                 onError: {
                                     errorMessage = $0
                                     successMessage = nil
@@ -144,36 +150,69 @@ struct ShortcutPopoverView: View {
         }
     }
 
-    private var contentTabs: some View {
-        HStack(spacing: 8) {
-            contentTab(.shortcuts, title: "快捷鍵")
-            contentTab(.keyValue, title: "Key-Value")
+    private func contentTabs(for application: ShortcutApplication) -> some View {
+        let currentSheet = contentNavigation.selectedSheet(for: application.id, in: application.sheets)
+        let selectedID = currentSheet?.id
+        let overflow = TabOverflowLayout(sheets: application.sheets, maxVisible: 3, selectedID: selectedID)
+
+        return HStack(spacing: 6) {
+            ForEach(overflow.visibleSheets) { sheet in
+                Button {
+                    contentNavigation.selectSheet(sheet, for: application.id)
+                } label: {
+                    Label(sheet.name, systemImage: sheet.kind == .shortcuts ? "keyboard" : "list.bullet.rectangle")
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            sheet.id == selectedID ? Color.accentColor.opacity(0.18) : .clear,
+                            in: Capsule()
+                        )
+                        .overlay {
+                            Capsule().stroke(
+                                sheet.id == selectedID
+                                    ? Color.accentColor
+                                    : Color(nsColor: .separatorColor)
+                            )
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier(popoverTabIdentifier(for: sheet, in: application))
+                .accessibilityValue(sheet.id == selectedID ? "已選取" : "未選取")
+            }
+
+            if !overflow.overflowSheets.isEmpty {
+                Menu {
+                    ForEach(overflow.overflowSheets) { sheet in
+                        Button(sheet.name) {
+                            contentNavigation.selectSheet(sheet, for: application.id)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.caption)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
+                        .background(Color(nsColor: .controlBackgroundColor), in: Capsule())
+                        .overlay(Capsule().stroke(Color(nsColor: .separatorColor)))
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .accessibilityIdentifier("popover.tab-overflow-menu")
+            }
+
             Spacer()
         }
     }
 
-    private func contentTab(_ content: DashboardContentType, title: String) -> some View {
-        Button {
-            contentNavigation.selectContentType(content)
-        } label: {
-            Text(title)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    contentNavigation.selectedContentType == content ? Color.accentColor.opacity(0.18) : .clear,
-                    in: Capsule()
-                )
-                .overlay {
-                    Capsule().stroke(
-                        contentNavigation.selectedContentType == content
-                            ? Color.accentColor
-                            : Color(nsColor: .separatorColor)
-                    )
-                }
+    private func popoverTabIdentifier(for sheet: AppSheet, in application: ShortcutApplication) -> String {
+        if sheet.kind == .shortcuts && application.sheets.first(where: { $0.kind == .shortcuts })?.id == sheet.id {
+            return "popover.tab.shortcuts"
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(content == .shortcuts ? "popover.tab.shortcuts" : "popover.tab.key-value")
-        .accessibilityValue(contentNavigation.selectedContentType == content ? "已選取" : "未選取")
+        if sheet.kind == .keyValue && application.sheets.first(where: { $0.kind == .keyValue })?.id == sheet.id {
+            return "popover.tab.key-value"
+        }
+        return "popover.sheet-tab.\(sheet.id)"
     }
 
     private var searchField: some View {
