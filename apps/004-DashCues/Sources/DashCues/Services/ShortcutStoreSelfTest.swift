@@ -106,6 +106,7 @@ enum ShortcutStoreSelfTest {
         try CrossSheetSearchSelfTest.run(store: reopenedStore)
         try RecentSearchSelfTest.run(store: reopenedStore)
         try SynchronizedSheetsSelfTest.run(store: reopenedStore)
+        try IntegratedVerificationSelfTest.run(store: reopenedStore)
 
         print("DashCues self-test passed.")
     }
