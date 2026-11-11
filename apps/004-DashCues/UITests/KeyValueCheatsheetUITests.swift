@@ -49,33 +49,27 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         app.buttons["key-value.save-cheatsheet-name"].click()
 
         app.buttons["key-value.add-first-entry"].click()
-        enterText("Build", into: "key-value.entry-key")
-        enterText("First line\nSecond line", into: "key-value.entry-value")
-        app.buttons["key-value.save-entry"].click()
-        let preview = entryPreviews.firstMatch
-        XCTAssertTrue(preview.waitForExistence(timeout: 5))
-        preview.click()
-        XCTAssertTrue(app.staticTexts["key-value.entry-value-text"].waitForExistence(timeout: 5))
-        XCTAssertEqual(app.staticTexts["key-value.entry-value-text"].label, "First line\nSecond line")
+        typeMultiline("Build", into: "key-value.entry-key")
+        typeMultiline("First line\nSecond line", into: "key-value.entry-value")
+        app.typeKey(.return, modifierFlags: [])
+        let keyCell = keyCells.firstMatch
+        XCTAssertTrue(keyCell.waitForExistence(timeout: 5))
+        XCTAssertEqual(valueCells.firstMatch.label, "First line\nSecond line")
 
-        let editEntry = app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "key-value.edit-entry.")
-        ).firstMatch
-        XCTAssertTrue(editEntry.waitForExistence(timeout: 5))
-        editEntry.click()
+        valueCells.firstMatch.doubleClick()
         let valueEditor = element("key-value.entry-value")
-        valueEditor.click()
+        XCTAssertTrue(valueEditor.waitForExistence(timeout: 5))
         app.typeKey("a", modifierFlags: .command)
         valueEditor.typeText("Updated value")
-        app.buttons["key-value.save-entry"].click()
+        app.typeKey(.return, modifierFlags: [])
         XCTAssertTrue(app.staticTexts["Updated value"].waitForExistence(timeout: 5))
 
         app.buttons["key-value.add-entry"].click()
-        enterText(" build ", into: "key-value.entry-key")
-        enterText("Duplicate keys are allowed", into: "key-value.entry-value")
+        typeMultiline(" build ", into: "key-value.entry-key")
+        typeMultiline("Duplicate keys are allowed", into: "key-value.entry-value")
         XCTAssertTrue(app.staticTexts["key-value.duplicate-key-warning"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["key-value.save-entry"].isEnabled)
-        app.buttons["key-value.save-entry"].click()
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertEqual(keyCells.count, 2)
 
         app.buttons["key-value.rename-cheatsheet"].click()
         let renameField = app.textFields["key-value.cheatsheet-name"]
@@ -91,6 +85,9 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         ).firstMatch
         XCTAssertTrue(deleteEntry.waitForExistence(timeout: 5))
         deleteEntry.click()
+        app.buttons["刪除"].click()
+        XCTAssertTrue(keyCells.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertEqual(keyCells.count, 1)
 
         app.buttons["key-value.delete-cheatsheet"].click()
         app.buttons["刪除"].click()
@@ -103,19 +100,91 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         let value = "Long response\n" + String(repeating: "A", count: 180)
         addEntry(key: key, value: value)
 
-        let preview = entryPreviews.firstMatch
-        XCTAssertTrue(preview.waitForExistence(timeout: 5))
-        XCTAssertTrue(preview.label.hasPrefix("Build Target — Long response"))
-        XCTAssertTrue(preview.label.hasSuffix("…"))
-        XCTAssertFalse(preview.label.contains(String(repeating: "A", count: 180)))
+        XCTAssertTrue(app.staticTexts["Key"].exists && app.staticTexts["Value"].exists)
+        let keyCell = keyCells.firstMatch
+        let valueCell = valueCells.firstMatch
+        XCTAssertTrue(valueCell.waitForExistence(timeout: 5))
+        let collapsedHeight = valueCell.frame.height
 
-        preview.click()
-        let expandedKey = app.staticTexts["key-value.entry-key-text"]
-        let expandedValue = app.staticTexts["key-value.entry-value-text"]
-        XCTAssertTrue(expandedKey.waitForExistence(timeout: 5))
-        XCTAssertTrue(expandedValue.waitForExistence(timeout: 5))
-        XCTAssertEqual(expandedKey.label, key)
-        XCTAssertEqual(expandedValue.label, value)
+        valueCell.click()
+        XCTAssertGreaterThan(valueCell.frame.height, collapsedHeight)
+        XCTAssertEqual(keyCell.label, key)
+        XCTAssertEqual(valueCell.label, value)
+
+        valueCell.click()
+        XCTAssertEqual(valueCell.frame.height, collapsedHeight, accuracy: 1)
+    }
+
+    func testDoubleClickEditsClickedColumnWithoutTogglingAndEscRestores() throws {
+        createCheatsheet(named: "Commands")
+        addEntry(key: "Build", value: "swift build")
+
+        let keyCell = keyCells.firstMatch
+        let collapsedHeight = keyCell.frame.height
+        valueCells.firstMatch.doubleClick()
+        let valueEditor = element("key-value.entry-value")
+        XCTAssertTrue(valueEditor.waitForExistence(timeout: 5))
+        XCTAssertEqual(valueEditor.value as? String, "swift build")
+
+        valueEditor.typeText(" --verbose")
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertFalse(element("key-value.entry-value").exists)
+        XCTAssertEqual(valueCells.firstMatch.label, "swift build")
+        XCTAssertEqual(keyCells.firstMatch.frame.height, collapsedHeight, accuracy: 1)
+    }
+
+    func testShiftEnterInsertsNewlineAndBlankEntryIsRejected() throws {
+        createCheatsheet(named: "Commands")
+        addEntry(key: "Build", value: "one")
+
+        keyCells.firstMatch.doubleClick()
+        app.typeKey("a", modifierFlags: .command)
+        app.typeKey(.delete, modifierFlags: [])
+        element("key-value.entry-value").click()
+        app.typeKey("a", modifierFlags: .command)
+        app.typeKey(.delete, modifierFlags: [])
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(app.staticTexts["key-value.validation-message"].waitForExistence(timeout: 5))
+
+        typeMultiline("first\nsecond", into: "key-value.entry-value")
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertEqual(valueCells.firstMatch.label, "first\nsecond")
+    }
+
+    func testUnsavedEditPromptsBeforeSwitchingSheetAndCanBeDiscarded() throws {
+        createCheatsheet(named: "Commands")
+        addEntry(key: "Build", value: "swift build")
+        app.buttons["key-value.add-cheatsheet"].click()
+        enterText("Prompts", into: "key-value.cheatsheet-name")
+        app.buttons["key-value.save-cheatsheet-name"].click()
+        selectCheatsheet(named: "Commands")
+
+        valueCells.firstMatch.doubleClick()
+        element("key-value.entry-value").typeText(" changed")
+        shortcutSheetTab.click()
+        XCTAssertTrue(app.buttons["繼續編輯"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["儲存"].exists)
+        app.buttons["繼續編輯"].click()
+        XCTAssertTrue(element("key-value.entry-value").exists)
+
+        shortcutSheetTab.click()
+        app.buttons["捨棄"].click()
+        XCTAssertEqual(shortcutSheetTab.value as? String, "已選取")
+        keyValueTab.click()
+        XCTAssertEqual(valueCells.firstMatch.label, "swift build")
+    }
+
+    func testCopyShowsCheckFeedbackAndDoesNotExpandOrEdit() throws {
+        createCheatsheet(named: "Commands")
+        addEntry(key: "Build", value: "swift build")
+        let copy = copyButton(containing: "copy-value")
+        XCTAssertEqual(copy.label, "複製 Value")
+        let collapsedHeight = valueCells.firstMatch.frame.height
+        copy.click()
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "swift build")
+        XCTAssertEqual(copyButton(containing: "copy-value").label, "已複製 Value")
+        XCTAssertFalse(element("key-value.entry-value").exists)
+        XCTAssertEqual(valueCells.firstMatch.frame.height, collapsedHeight, accuracy: 1)
     }
 
     func testEntryOrderCanBeDraggedAndPersistsAfterRelaunch() throws {
@@ -123,18 +192,18 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         addEntry(key: "First", value: "One")
         addEntry(key: "Second", value: "Two")
 
-        let previews = entryPreviews
+        let previews = keyCells
         XCTAssertEqual(previews.count, 2)
         let first = previews.element(boundBy: 0)
         let second = previews.element(boundBy: 1)
         first.press(forDuration: 1, thenDragTo: second)
-        XCTAssertTrue(previews.element(boundBy: 0).label.hasPrefix("Second —"))
+        XCTAssertTrue(previews.element(boundBy: 0).label == "Second")
 
         relaunch()
         keyValueTab.click()
         XCTAssertTrue(previews.firstMatch.waitForExistence(timeout: 5))
-        XCTAssertTrue(previews.element(boundBy: 0).label.hasPrefix("Second —"))
-        XCTAssertTrue(previews.element(boundBy: 1).label.hasPrefix("First —"))
+        XCTAssertTrue(previews.element(boundBy: 0).label == "Second")
+        XCTAssertTrue(previews.element(boundBy: 1).label == "First")
     }
 
     func testNavigationPreferencesPersistAcrossRelaunchWithinTest() throws {
@@ -152,7 +221,6 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         let key = "Prompt\nTitle"
         let value = "First line\nSecond line\n"
         addEntry(key: key, value: value)
-        entryPreviews.firstMatch.click()
 
         copyButton(containing: "copy-key").click()
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), key)
@@ -167,13 +235,13 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         relaunch(clipboardFailure: true)
         createCheatsheet(named: "Commands")
         addEntry(key: "Build", value: "Compile the project")
-        entryPreviews.firstMatch.click()
         copyButton(containing: "copy-key").click()
 
         let error = app.alerts["無法完成操作"]
         XCTAssertTrue(error.waitForExistence(timeout: 5))
         XCTAssertTrue(error.staticTexts["無法複製 Key 到剪貼簿。"].exists)
         XCTAssertFalse(app.staticTexts["key-value.copy-feedback"].exists)
+        XCTAssertFalse(element("key-value.entry-key").exists)
     }
 
     func testSearchAcrossCheatsheetsExpandsResultAndJumpsToItsSheet() throws {
@@ -214,11 +282,11 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         ).firstMatch.click()
 
         let selectedCheatsheet = app.descendants(matching: .any)["key-value.cheatsheet-selector"]
-        let targetPreview = entryPreviews.firstMatch
-        XCTAssertTrue(targetPreview.waitForExistence(timeout: 5))
-        XCTAssertTrue(targetPreview.label.hasPrefix("Desired output —"))
+        let targetCell = keyCells.firstMatch
+        XCTAssertTrue(targetCell.waitForExistence(timeout: 5))
+        XCTAssertEqual(targetCell.label, "Desired output")
         XCTAssertEqual(selectedCheatsheet.value as? String, "Prompts")
-        XCTAssertEqual(app.staticTexts["key-value.entry-value-text"].label, "Write in a concise tone")
+        XCTAssertEqual(valueCells.firstMatch.label, "Write in a concise tone")
     }
 
     func testMenuBarBrowsesSearchesAndCopiesKeyValueWithSharedNavigation() throws {
@@ -366,14 +434,33 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         XCTAssertTrue(keyValueTab.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["com.apple.finder"].waitForExistence(timeout: 5))
         XCTAssertEqual(element("key-value.cheatsheet-selector").value as? String, "Prompts")
-        XCTAssertTrue(entryPreviews.firstMatch.label.hasPrefix("Desired output —"))
-        XCTAssertEqual(app.staticTexts["key-value.entry-value-text"].label, "Write in a concise tone")
+        XCTAssertEqual(keyCells.firstMatch.label, "Desired output")
+        XCTAssertEqual(valueCells.firstMatch.label, "Write in a concise tone")
     }
 
     private var entryPreviews: XCUIElementQuery {
         app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "key-value.entry-preview.")
         )
+    }
+
+    private var keyCells: XCUIElementQuery {
+        app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'key-value.key-cell.'"))
+    }
+
+    private var valueCells: XCUIElementQuery {
+        app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'key-value.value-cell.'"))
+    }
+
+    /// Types text where "\n" becomes Shift-Enter, because plain Enter saves the row.
+    private func typeMultiline(_ text: String, into identifier: String) {
+        let editor = element(identifier)
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+        editor.click()
+        for (index, line) in text.components(separatedBy: "\n").enumerated() {
+            if index > 0 { app.typeKey(.return, modifierFlags: .shift) }
+            if !line.isEmpty { editor.typeText(line) }
+        }
     }
 
     private func enterText(_ text: String, into identifier: String) {
@@ -395,10 +482,10 @@ final class KeyValueCheatsheetUITests: XCTestCase {
 
     private func addEntry(key: String, value: String) {
         app.buttons["key-value.add-entry"].click()
-        enterText(key, into: "key-value.entry-key")
-        enterText(value, into: "key-value.entry-value")
-        app.buttons["key-value.save-entry"].click()
-        XCTAssertTrue(entryPreviews.firstMatch.waitForExistence(timeout: 5))
+        typeMultiline(key, into: "key-value.entry-key")
+        typeMultiline(value, into: "key-value.entry-value")
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(keyCells.firstMatch.waitForExistence(timeout: 5))
     }
 
     private func selectCheatsheet(named name: String) {
@@ -452,10 +539,10 @@ final class KeyValueCheatsheetUITests: XCTestCase {
 
         shortcutSheetTab.click()
         XCTAssertEqual(shortcutSheetTab.value as? String, "已選取")
-        XCTAssertFalse(entryPreviews.firstMatch.exists)
+        XCTAssertFalse(keyCells.firstMatch.exists)
 
         keyValueTab.click()
-        XCTAssertTrue(entryPreviews.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(keyCells.firstMatch.waitForExistence(timeout: 5))
         XCTAssertEqual(keyValueTab.value as? String, "已選取")
     }
 

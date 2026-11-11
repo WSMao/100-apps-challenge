@@ -9,12 +9,13 @@ struct KeyValueCheatsheetView: View {
     let onCopySuccess: (String) -> Void
     let clipboardWriter: (String) -> Bool
     var isReadOnly = false
+    var editSession: KeyValueEditSession?
     var onSearchFocusChanged: (Bool) -> Void = { _ in }
     var onJumpToDashboard: ((KeyValueSearchResult) -> Void)?
 
     @FocusState private var searchFocused: Bool
     @State private var nameEditor: CheatsheetNameRequest?
-    @State private var entryEditor: KeyValueEntry?
+    @State private var entryPendingDelete: KeyValueEntry?
     @State private var cheatsheetPendingDelete: KeyValueCheatsheet?
     @State private var expandedEntryIDs = Set<String>()
     @State private var expandedSearchResultIDs = Set<String>()
@@ -75,6 +76,9 @@ struct KeyValueCheatsheetView: View {
         .onChange(of: contentNavigation.pendingJump) { _ in followPendingJump() }
         .onChange(of: searchFocused) { onSearchFocusChanged($0) }
         .onDisappear { onSearchFocusChanged(false) }
+        .onChange(of: selectedCheatsheetID) { _ in
+            if let editSession, editSession.isEditing { editSession.cancel() }
+        }
         .onChange(of: cheatsheets.map(\.id)) { ids in
             if !ids.contains(selectedCheatsheetID ?? "") { selectFirstCheatsheetIfNeeded() }
         }
@@ -83,21 +87,6 @@ struct KeyValueCheatsheetView: View {
                 title: request.title,
                 initialName: request.initialName,
                 onSave: { saveCheatsheetName($0, request: request) }
-            )
-        }
-        .sheet(item: $entryEditor) { entry in
-            KeyValueEntryEditor(
-                entry: entry,
-                hasDuplicateKey: { key in
-                    guard let selectedCheatsheet else { return false }
-                    return store.hasDuplicateKey(
-                        key,
-                        cheatsheetID: selectedCheatsheet.id,
-                        applicationID: applicationID,
-                        excludingEntryID: entry.id
-                    )
-                },
-                onSave: { saveEntry($0, cheatsheetID: selectedCheatsheetID) }
             )
         }
         .confirmationDialog(
@@ -110,17 +99,43 @@ struct KeyValueCheatsheetView: View {
         ) {
             Button("刪除", role: .destructive) {
                 guard let cheatsheetPendingDelete else { return }
-                performStoreAction {
-                    try store.deleteKeyValueCheatsheet(
-                        id: cheatsheetPendingDelete.id,
-                        applicationID: applicationID
-                    )
-                }
                 self.cheatsheetPendingDelete = nil
+                leaveEditing {
+                    performStoreAction {
+                        try store.deleteKeyValueCheatsheet(
+                            id: cheatsheetPendingDelete.id,
+                            applicationID: applicationID
+                        )
+                    }
+                }
             }
             Button("取消", role: .cancel) { cheatsheetPendingDelete = nil }
         } message: {
             Text("「\(cheatsheetPendingDelete?.name ?? "")」及其內容都會被刪除。")
+        }
+        .confirmationDialog(
+            "刪除這個項目？",
+            isPresented: Binding(
+                get: { entryPendingDelete != nil },
+                set: { if !$0 { entryPendingDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("刪除", role: .destructive) {
+                guard let entry = entryPendingDelete, let selectedCheatsheetID else { return }
+                entryPendingDelete = nil
+                if editSession?.editingEntryID == entry.id { editSession?.cancel() }
+                performStoreAction {
+                    try store.deleteKeyValueEntry(
+                        id: entry.id,
+                        cheatsheetID: selectedCheatsheetID,
+                        applicationID: applicationID
+                    )
+                }
+            }
+            Button("取消", role: .cancel) { entryPendingDelete = nil }
+        } message: {
+            Text("此項目會被永久刪除。")
         }
     }
 
@@ -128,7 +143,7 @@ struct KeyValueCheatsheetView: View {
         HStack(spacing: 8) {
             Picker("Key-Value 清單", selection: Binding(
                 get: { selectedCheatsheetID },
-                set: { contentNavigation.selectCheatsheet($0, for: applicationID) }
+                set: { newID in leaveEditing { contentNavigation.selectCheatsheet(newID, for: applicationID) } }
             )) {
                 ForEach(cheatsheets) { cheatsheet in
                     Text(cheatsheet.name).tag(Optional(cheatsheet.id))
@@ -164,9 +179,7 @@ struct KeyValueCheatsheetView: View {
             }
             Spacer()
             if !isReadOnly {
-                Button {
-                    entryEditor = KeyValueEntry(key: "", value: "")
-                } label: {
+                Button(action: addEntry) {
                     Label("新增項目", systemImage: "plus")
                 }
                 .disabled(selectedCheatsheet == nil)
@@ -205,7 +218,7 @@ struct KeyValueCheatsheetView: View {
                                         }
                                     }
                                 ),
-                                onCopy: copy,
+                                onCopy: { _ = copy($0, field: $1) },
                                 onJump: isReadOnly
                                     ? onJumpToDashboard.map { action in { action(result) } }
                                     : { jump(to: result) }
@@ -224,14 +237,29 @@ struct KeyValueCheatsheetView: View {
 
     private func entryList(_ cheatsheet: KeyValueCheatsheet) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            if cheatsheet.entries.isEmpty {
+            if let editSession, !isReadOnly, !cheatsheet.entries.isEmpty || editSession.isNewEntry {
+                ScrollViewReader { proxy in
+                    KeyValueTableView(
+                        cheatsheetID: cheatsheet.id,
+                        applicationID: applicationID,
+                        entries: cheatsheet.entries,
+                        session: editSession,
+                        expandedEntryIDs: $expandedEntryIDs,
+                        onCopy: copy,
+                        onDelete: { entryPendingDelete = $0 },
+                        onMove: { dragged, target in moveEntry(dragged, to: target, in: cheatsheet) }
+                    )
+                    .onAppear { scrollToPendingEntry(using: proxy) }
+                    .onChange(of: pendingScrollEntryID) { _ in scrollToPendingEntry(using: proxy) }
+                }
+            } else if cheatsheet.entries.isEmpty {
                 VStack(spacing: 10) {
                     Label("此清單尚無項目", systemImage: "text.alignleft")
                         .font(.headline)
                     Text(isReadOnly ? "此清單尚無參考項目。" : "新增 Key 與 Value 來建立第一個參考項目。")
                         .foregroundStyle(.secondary)
                     if !isReadOnly {
-                        Button("新增項目") { entryEditor = KeyValueEntry(key: "", value: "") }
+                        Button("新增項目", action: addEntry)
                             .accessibilityIdentifier("key-value.add-first-entry")
                     }
                 }
@@ -254,7 +282,7 @@ struct KeyValueCheatsheetView: View {
                                             }
                                         }
                                     ),
-                                    onEdit: { entryEditor = entry },
+                                    onEdit: {},
                                     onDelete: {
                                         performStoreAction {
                                             try store.deleteKeyValueEntry(
@@ -264,7 +292,7 @@ struct KeyValueCheatsheetView: View {
                                             )
                                         }
                                     },
-                                    onCopy: copy,
+                                    onCopy: { _ = copy($0, field: $1) },
                                     onMove: { draggedEntryID in
                                         moveEntry(draggedEntryID, to: entry.id, in: cheatsheet)
                                     }
@@ -317,12 +345,27 @@ struct KeyValueCheatsheetView: View {
         }
     }
 
-    private func copy(_ text: String, field: String) {
+    private func addEntry() {
+        guard let selectedCheatsheetID else { return }
+        editSession?.beginNew(cheatsheetID: selectedCheatsheetID, applicationID: applicationID)
+    }
+
+    private func leaveEditing(_ proceed: @escaping () -> Void) {
+        if let editSession {
+            editSession.requestLeave(proceed)
+        } else {
+            proceed()
+        }
+    }
+
+    @discardableResult
+    private func copy(_ text: String, field: String) -> Bool {
         guard clipboardWriter(text) else {
             onError("無法複製 \(field) 到剪貼簿。")
-            return
+            return false
         }
         onCopySuccess("\(field) 已複製。")
+        return true
     }
 
     private func moveEntry(_ draggedEntryID: String, to targetEntryID: String, in cheatsheet: KeyValueCheatsheet) {
@@ -367,17 +410,6 @@ struct KeyValueCheatsheetView: View {
                 )
                 contentNavigation.selectCheatsheet(id, for: applicationID)
             }
-            return true
-        } catch {
-            onError(error.localizedDescription)
-            return false
-        }
-    }
-
-    private func saveEntry(_ entry: KeyValueEntry, cheatsheetID: String?) -> Bool {
-        guard let cheatsheetID else { return false }
-        do {
-            try store.saveKeyValueEntry(entry, cheatsheetID: cheatsheetID, applicationID: applicationID)
             return true
         } catch {
             onError(error.localizedDescription)
@@ -634,72 +666,5 @@ private struct CheatsheetNameEditor: View {
         }
         .padding(20)
         .frame(width: 360)
-    }
-}
-
-private struct KeyValueEntryEditor: View {
-    let entry: KeyValueEntry
-    let hasDuplicateKey: (String) -> Bool
-    let onSave: (KeyValueEntry) -> Bool
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var key: String
-    @State private var value: String
-
-    init(
-        entry: KeyValueEntry,
-        hasDuplicateKey: @escaping (String) -> Bool,
-        onSave: @escaping (KeyValueEntry) -> Bool
-    ) {
-        self.entry = entry
-        self.hasDuplicateKey = hasDuplicateKey
-        self.onSave = onSave
-        _key = State(initialValue: entry.key)
-        _value = State(initialValue: entry.value)
-    }
-
-    private var workingEntry: KeyValueEntry {
-        KeyValueEntry(id: entry.id, key: key, value: value)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(entry.key.isEmpty && entry.value.isEmpty ? "新增項目" : "編輯項目")
-                .font(.headline)
-
-            Text("Key")
-                .font(.subheadline.weight(.semibold))
-            TextEditor(text: $key)
-                .accessibilityIdentifier("key-value.entry-key")
-                .frame(minHeight: 72)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(nsColor: .separatorColor)))
-
-            Text("Value")
-                .font(.subheadline.weight(.semibold))
-            TextEditor(text: $value)
-                .accessibilityIdentifier("key-value.entry-value")
-                .frame(minHeight: 120)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(nsColor: .separatorColor)))
-
-            if hasDuplicateKey(key) {
-                Text("此清單已有相同 Key；仍可儲存。")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .accessibilityIdentifier("key-value.duplicate-key-warning")
-            }
-
-            HStack {
-                Spacer()
-                Button("取消") { dismiss() }
-                Button("儲存") {
-                    if onSave(workingEntry) { dismiss() }
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(workingEntry.isBlank)
-                .accessibilityIdentifier("key-value.save-entry")
-            }
-        }
-        .padding(20)
-        .frame(width: 460)
     }
 }

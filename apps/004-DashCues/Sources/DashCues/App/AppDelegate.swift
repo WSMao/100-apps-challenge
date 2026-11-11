@@ -307,6 +307,7 @@ private final class PopoverPanel: NSPanel {
 
 private final class DashboardWindowController: NSWindowController, NSWindowDelegate {
     private let onClose: () -> Void
+    private let editSession: KeyValueEditSession
 
     init(
         store: ShortcutStore,
@@ -316,6 +317,8 @@ private final class DashboardWindowController: NSWindowController, NSWindowDeleg
         onClose: @escaping () -> Void
     ) {
         self.onClose = onClose
+        let editSession = KeyValueEditSession(store: store)
+        self.editSession = editSession
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 920, height: 680),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -330,6 +333,7 @@ private final class DashboardWindowController: NSWindowController, NSWindowDeleg
             rootView: DashboardView(
                 store: store,
                 contentNavigation: contentNavigation,
+                editSession: editSession,
                 onHotKeyChanged: onHotKeyChanged,
                 clipboardWriter: clipboardWriter
             )
@@ -347,6 +351,25 @@ private final class DashboardWindowController: NSWindowController, NSWindowDeleg
         window?.placeInVisibleFrame()
         super.showWindow(sender)
         window?.placeInVisibleFrame()
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard editSession.hasUnsavedChanges else { return true }
+        let alert = NSAlert()
+        alert.messageText = "有未儲存的變更"
+        alert.informativeText = "要儲存、捨棄，還是繼續編輯這個項目？"
+        alert.addButton(withTitle: "儲存")
+        alert.addButton(withTitle: "捨棄")
+        alert.addButton(withTitle: "繼續編輯")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            return editSession.save()
+        case .alertSecondButtonReturn:
+            editSession.cancel()
+            return true
+        default:
+            return false
+        }
     }
 
     func windowWillClose(_ notification: Notification) {
