@@ -87,7 +87,20 @@ final class ShortcutListModel: ObservableObject {
 
     private var savedShortcuts: [ShortcutItem] {
         guard let app = store.application(id: applicationID) else { return [] }
+        if isSearching {
+            return app.allShortcuts
+        }
         return sheetID.map(app.sheetShortcuts(id:)) ?? app.shortcuts
+    }
+
+    func sheetName(for itemID: String) -> String? {
+        guard let app = store.application(id: applicationID) else { return nil }
+        for case .shortcuts(let sheet) in app.sheets {
+            if sheet.shortcuts.contains(where: { $0.id == itemID }) {
+                return sheet.name
+            }
+        }
+        return nil
     }
 
     // MARK: - Actions

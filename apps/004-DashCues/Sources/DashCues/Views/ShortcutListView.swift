@@ -149,18 +149,26 @@ private struct ShortcutRowView: View {
 
     @ViewBuilder
     private var titleView: some View {
-        if !showsInputs {
-            Text(item.title)
-                .lineLimit(1)
-        } else if isEditing(.title) {
-            TextField("功能名稱", text: workingBinding(\.title))
-                .textFieldStyle(.plain)
-                .focused($focus, equals: .title)
-                .fieldBox(active: true)
-        } else {
-            placeholderText(item.title, placeholder: "功能名稱")
-                .fieldBox(active: false)
-                .onTapGesture { tap(.title) }
+        VStack(alignment: .leading, spacing: 2) {
+            if model.isSearching, let sheetName = model.sheetName(for: item.id) {
+                Text(sheetName)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("shortcut.source-sheet.\(item.id)")
+            }
+            if !showsInputs {
+                Text(item.title)
+                    .lineLimit(1)
+            } else if isEditing(.title) {
+                TextField("功能名稱", text: workingBinding(\.title))
+                    .textFieldStyle(.plain)
+                    .focused($focus, equals: .title)
+                    .fieldBox(active: true)
+            } else {
+                placeholderText(item.title, placeholder: "功能名稱")
+                    .fieldBox(active: false)
+                    .onTapGesture { tap(.title) }
+            }
         }
     }
 
