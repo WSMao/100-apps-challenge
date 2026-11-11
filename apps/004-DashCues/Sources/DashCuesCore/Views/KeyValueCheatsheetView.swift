@@ -74,7 +74,9 @@ struct KeyValueCheatsheetView: View {
                 }
             }
         }
-        .accessibilityIdentifier(isReadOnly ? "key-value.read-only" : "key-value.management")
+        .background {
+            Color.clear.accessibilityIdentifier(isReadOnly ? "key-value.read-only" : "key-value.management")
+        }
         .onAppear {
             historySession = SearchHistorySession(applicationID: applicationID, recentStore: activeRecentSearchStore)
             selectFirstCheatsheetIfNeeded()

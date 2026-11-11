@@ -1,3 +1,4 @@
+@testable import DashCuesCore
 import AppKit
 import Foundation
 

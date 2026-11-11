@@ -423,6 +423,7 @@ private struct InlineTextEditor: NSViewRepresentable {
         field.cell?.wraps = true
         field.cell?.isScrollable = false
         field.lineBreakMode = .byWordWrapping
+        field.isAutomaticTextCompletionEnabled = false
         field.setAccessibilityIdentifier(identifier)
         if wantsFocus {
             DispatchQueue.main.async { field.window?.makeFirstResponder(field) }
@@ -455,22 +456,27 @@ private struct InlineTextEditor: NSViewRepresentable {
             field.invalidateIntrinsicContentSize()
         }
 
+        func controlTextDidEndEditing(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            parent.text = field.stringValue
+        }
+
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-            switch selector {
-            case #selector(NSResponder.insertNewline(_:)):
-                if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
+            if selector == #selector(NSResponder.insertNewline(_:)) ||
+               selector == #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)) {
+                let isShift = NSEvent.modifierFlags.contains(.shift) || (NSApp.currentEvent?.modifierFlags.contains(.shift) == true)
+                if isShift {
                     textView.insertNewlineIgnoringFieldEditor(nil)
                 } else {
                     parent.text = textView.string
                     parent.onSubmit()
                 }
                 return true
-            case #selector(NSResponder.cancelOperation(_:)):
+            } else if selector == #selector(NSResponder.cancelOperation(_:)) {
                 parent.onCancel()
                 return true
-            default:
-                return false
             }
+            return false
         }
     }
 }

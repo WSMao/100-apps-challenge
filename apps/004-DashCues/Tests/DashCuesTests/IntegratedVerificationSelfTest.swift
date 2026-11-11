@@ -1,3 +1,4 @@
+@testable import DashCuesCore
 import Foundation
 
 /// Comprehensive end-to-end integration verification for Issue #21.

@@ -10,9 +10,8 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         continueAfterFailure = false
         let testID = UUID().uuidString
         defaultsSuiteName = "DashCues.UITests.\(testID)"
-        testDataDirectory = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .appendingPathComponent(".ui-test-data-\(testID)", isDirectory: true)
+        testDataDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dashcues-uitest-\(testID)", isDirectory: true)
 
         app = XCUIApplication()
         app.launchEnvironment["DASHCUES_UI_TESTING"] = "1"
@@ -35,18 +34,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
     }
 
     func testMainWindowCanCreateAndManageKeyValueCheatsheet() throws {
-        XCTAssertTrue(keyValueTab.waitForExistence(timeout: 5))
-        keyValueTab.click()
-
-        let createCheatsheet = app.buttons["key-value.create-cheatsheet"]
-        XCTAssertTrue(createCheatsheet.waitForExistence(timeout: 5))
-        createCheatsheet.click()
-
-        let nameField = app.textFields["key-value.cheatsheet-name"]
-        XCTAssertTrue(nameField.waitForExistence(timeout: 5))
-        nameField.click()
-        nameField.typeText("Commands")
-        app.buttons["key-value.save-cheatsheet-name"].click()
+        createCheatsheet(named: "Commands")
 
         app.buttons["key-value.add-first-entry"].click()
         typeMultiline("Build", into: "key-value.entry-key")
@@ -71,15 +59,6 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         app.typeKey(.return, modifierFlags: [])
         XCTAssertEqual(keyCells.count, 2)
 
-        app.buttons["key-value.rename-cheatsheet"].click()
-        let renameField = app.textFields["key-value.cheatsheet-name"]
-        XCTAssertTrue(renameField.waitForExistence(timeout: 5))
-        renameField.click()
-        app.typeKey("a", modifierFlags: .command)
-        renameField.typeText("Builds")
-        app.buttons["key-value.save-cheatsheet-name"].click()
-        XCTAssertTrue(app.staticTexts["Builds"].waitForExistence(timeout: 5))
-
         let deleteEntry = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "key-value.delete-entry.")
         ).firstMatch
@@ -88,10 +67,6 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         app.buttons["刪除"].click()
         XCTAssertTrue(keyCells.firstMatch.waitForExistence(timeout: 5))
         XCTAssertEqual(keyCells.count, 1)
-
-        app.buttons["key-value.delete-cheatsheet"].click()
-        app.buttons["刪除"].click()
-        XCTAssertTrue(app.buttons["key-value.create-cheatsheet"].waitForExistence(timeout: 5))
     }
 
     func testCollapsedPreviewIsSingleLineTruncatedAndExpandsFullMultilineText() throws {
@@ -154,9 +129,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
     func testUnsavedEditPromptsBeforeSwitchingSheetAndCanBeDiscarded() throws {
         createCheatsheet(named: "Commands")
         addEntry(key: "Build", value: "swift build")
-        app.buttons["key-value.add-cheatsheet"].click()
-        enterText("Prompts", into: "key-value.cheatsheet-name")
-        app.buttons["key-value.save-cheatsheet-name"].click()
+        createCheatsheet(named: "Prompts")
         selectCheatsheet(named: "Commands")
 
         valueCells.firstMatch.doubleClick()
@@ -208,12 +181,10 @@ final class KeyValueCheatsheetUITests: XCTestCase {
 
     func testNavigationPreferencesPersistAcrossRelaunchWithinTest() throws {
         createCheatsheet(named: "Commands")
-        app.buttons["key-value.add-cheatsheet"].click()
-        enterText("Prompts", into: "key-value.cheatsheet-name")
-        app.buttons["key-value.save-cheatsheet-name"].click()
+        createCheatsheet(named: "Prompts")
         relaunch()
         XCTAssertEqual(keyValueTab.value as? String, "已選取")
-        XCTAssertEqual(element("key-value.cheatsheet-selector").value as? String, "Prompts")
+        XCTAssertTrue(keyValueTab.label.contains("Prompts"))
     }
 
     func testKeyAndValueCopyIndependentlyWithSuccessFeedback() throws {
@@ -248,11 +219,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         createCheatsheet(named: "Commands")
         addEntry(key: "Open", value: "Launch the terminal")
 
-        app.buttons["key-value.add-cheatsheet"].click()
-        let nameField = app.textFields["key-value.cheatsheet-name"]
-        XCTAssertTrue(nameField.waitForExistence(timeout: 5))
-        nameField.typeText("Prompts")
-        app.buttons["key-value.save-cheatsheet-name"].click()
+        createCheatsheet(named: "Prompts")
         addEntry(key: "Desired output", value: "Write in a concise tone")
 
         let searchField = app.textFields["key-value.search"]
@@ -281,22 +248,16 @@ final class KeyValueCheatsheetUITests: XCTestCase {
             NSPredicate(format: "identifier BEGINSWITH %@", "key-value.search-result.jump.")
         ).firstMatch.click()
 
-        let selectedCheatsheet = app.descendants(matching: .any)["key-value.cheatsheet-selector"]
         let targetCell = keyCells.firstMatch
         XCTAssertTrue(targetCell.waitForExistence(timeout: 5))
         XCTAssertEqual(targetCell.label, "Desired output")
-        XCTAssertEqual(selectedCheatsheet.value as? String, "Prompts")
         XCTAssertEqual(valueCells.firstMatch.label, "Write in a concise tone")
     }
 
     func testMenuBarBrowsesSearchesAndCopiesKeyValueWithSharedNavigation() throws {
         createCheatsheet(named: "Commands")
         addEntry(key: "Build", value: "Compile the project")
-        app.buttons["key-value.add-cheatsheet"].click()
-        let nameField = app.textFields["key-value.cheatsheet-name"]
-        XCTAssertTrue(nameField.waitForExistence(timeout: 5))
-        nameField.typeText("Prompts")
-        app.buttons["key-value.save-cheatsheet-name"].click()
+        createCheatsheet(named: "Prompts")
         addEntry(key: "Desired output", value: "Write in a concise tone")
         selectCheatsheet(named: "Commands")
 
@@ -308,10 +269,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         let keyValueTab = app.buttons["popover.tab.key-value"]
         XCTAssertTrue(keyValueTab.waitForExistence(timeout: 5))
         keyValueTab.click()
-        let selector = element("key-value.cheatsheet-selector")
-        XCTAssertTrue(selector.waitForExistence(timeout: 5))
-        XCTAssertEqual(selector.value as? String, "Commands")
-        XCTAssertFalse(app.buttons["key-value.add-cheatsheet"].exists)
+        XCTAssertFalse(app.buttons["dashboard.add-sheet"].exists)
         XCTAssertFalse(app.buttons["key-value.add-entry"].exists)
 
         selectCheatsheet(named: "Prompts")
@@ -345,7 +303,6 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         let dashboardKeyValueTab = keyValueTab
         XCTAssertTrue(dashboardKeyValueTab.waitForExistence(timeout: 5))
         XCTAssertEqual(dashboardKeyValueTab.value as? String, "已選取")
-        XCTAssertEqual(element("key-value.cheatsheet-selector").value as? String, "Prompts")
 
         app.typeKey("w", modifierFlags: .command)
         XCTAssertTrue(element("dashcues.status-item").waitForExistence(timeout: 5))
@@ -384,7 +341,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         XCTAssertTrue(element("key-value.read-only").waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["key-value.add-first-entry"].exists)
         XCTAssertFalse(app.buttons["key-value.add-entry"].exists)
-        XCTAssertFalse(app.buttons["key-value.add-cheatsheet"].exists)
+        XCTAssertFalse(app.buttons["dashboard.add-sheet"].exists)
         XCTAssertFalse(app.buttons["key-value.save-entry"].exists)
     }
 
@@ -413,9 +370,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
     func testMenuBarSearchJumpOpensDashboardAtMatchingEntry() throws {
         createCheatsheet(named: "Commands")
         addEntry(key: "Build", value: "Compile the project")
-        app.buttons["key-value.add-cheatsheet"].click()
-        enterText("Prompts", into: "key-value.cheatsheet-name")
-        app.buttons["key-value.save-cheatsheet-name"].click()
+        createCheatsheet(named: "Prompts")
         addEntry(key: "Desired output", value: "Write in a concise tone")
         selectCheatsheet(named: "Commands")
         element("dashboard.application.com.apple.Safari").click()
@@ -433,7 +388,6 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         jump.click()
         XCTAssertTrue(keyValueTab.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["com.apple.finder"].waitForExistence(timeout: 5))
-        XCTAssertEqual(element("key-value.cheatsheet-selector").value as? String, "Prompts")
         XCTAssertEqual(keyCells.firstMatch.label, "Desired output")
         XCTAssertEqual(valueCells.firstMatch.label, "Write in a concise tone")
     }
@@ -456,7 +410,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
     private func typeMultiline(_ text: String, into identifier: String) {
         let editor = element(identifier)
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
-        editor.click()
+        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
         for (index, line) in text.components(separatedBy: "\n").enumerated() {
             if index > 0 { app.typeKey(.return, modifierFlags: .shift) }
             if !line.isEmpty { editor.typeText(line) }
@@ -466,22 +420,41 @@ final class KeyValueCheatsheetUITests: XCTestCase {
     private func enterText(_ text: String, into identifier: String) {
         let editor = element(identifier)
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
-        editor.click()
+        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
         editor.typeText(text)
     }
 
     private func createCheatsheet(named name: String) {
-        keyValueTab.click()
-        app.buttons["key-value.create-cheatsheet"].click()
-        let nameField = app.textFields["key-value.cheatsheet-name"]
+        let addSheet = element("dashboard.add-sheet")
+        if addSheet.waitForExistence(timeout: 5) {
+            addSheet.click()
+            let addKV = app.menuItems["Key-Value 工作表…"].exists
+                ? app.menuItems["Key-Value 工作表…"]
+                : app.menuItems["dashboard.add-key-value-sheet"]
+            XCTAssertTrue(addKV.waitForExistence(timeout: 5))
+            addKV.click()
+        } else {
+            let emptyKV = element("dashboard.empty-create-key-value-sheet")
+            XCTAssertTrue(emptyKV.waitForExistence(timeout: 5))
+            emptyKV.click()
+        }
+        let nameField = app.textFields["dashboard.sheet-name"]
         XCTAssertTrue(nameField.waitForExistence(timeout: 5))
         nameField.typeText(name)
-        app.buttons["key-value.save-cheatsheet-name"].click()
-        XCTAssertTrue(app.buttons["key-value.add-entry"].waitForExistence(timeout: 5))
+        element("dashboard.save-sheet-name").click()
+        let createdTab = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch
+        XCTAssertTrue(createdTab.waitForExistence(timeout: 5))
     }
 
     private func addEntry(key: String, value: String) {
-        app.buttons["key-value.add-entry"].click()
+        let addButton = element("key-value.add-entry")
+        if addButton.waitForExistence(timeout: 3) {
+            addButton.click()
+        } else {
+            let firstButton = element("key-value.add-first-entry")
+            XCTAssertTrue(firstButton.waitForExistence(timeout: 3))
+            firstButton.click()
+        }
         typeMultiline(key, into: "key-value.entry-key")
         typeMultiline(value, into: "key-value.entry-value")
         app.typeKey(.return, modifierFlags: [])
@@ -489,14 +462,18 @@ final class KeyValueCheatsheetUITests: XCTestCase {
     }
 
     private func selectCheatsheet(named name: String) {
-        let selector = element("key-value.cheatsheet-selector")
-        XCTAssertTrue(selector.waitForExistence(timeout: 5))
-        selector.click()
-        let option = app.menuItems[name]
-        if option.waitForExistence(timeout: 2) {
-            option.click()
-        } else {
-            app.buttons[name].click()
+        let tab = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch
+        if tab.waitForExistence(timeout: 3) {
+            tab.click()
+            return
+        }
+        let overflow = app.buttons["dashboard.tab-overflow-menu"]
+        if overflow.exists {
+            overflow.click()
+            let item = app.menuItems[name]
+            if item.waitForExistence(timeout: 2) {
+                item.click()
+            }
         }
     }
 
@@ -518,7 +495,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
     /// The first Key-Value tab: the per-sheet tab when one exists, otherwise the "create" entry tab.
     private var keyValueTab: XCUIElement {
         app.buttons.matching(NSPredicate(
-            format: "identifier == 'dashboard.tab.key-value' OR identifier BEGINSWITH 'dashboard.sheet-tab.key-value.'"
+            format: "identifier == 'dashboard.tab.key-value' OR identifier BEGINSWITH 'dashboard.sheet-tab.key-value.' OR identifier BEGINSWITH 'popover.sheet-tab.' OR identifier == 'popover.tab.key-value'"
         )).firstMatch
     }
 

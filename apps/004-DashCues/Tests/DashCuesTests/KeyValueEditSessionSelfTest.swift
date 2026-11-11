@@ -1,3 +1,4 @@
+@testable import DashCuesCore
 import Foundation
 
 /// Behavior checks for inline Key-Value table editing, exercised only through `KeyValueEditSession`'s public API.

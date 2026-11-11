@@ -58,7 +58,7 @@
 - **System Integration**: AppKit (`NSPopover`, `NSPanel`, 檔案面板) + Carbon (global hotkey)
 - **Build**: Swift Package Manager
 - **Storage**: Local JSON (`~/Library/Application Support/DashCues/shortcuts.json`)
-- **Validation**: Built-in SwiftPM self-test (`--self-test`)
+- **Validation**: Standard SwiftPM XCTest (`swift test`) + macOS XCUITest (`./Scripts/run-ui-tests.sh test`)
 
 ### 架構概要 (Architecture Overview)
 
@@ -84,20 +84,19 @@ Layer 1: Data Models & Catalog
 ```bash
 cd apps/004-DashCues
 
-# Optional: regenerate app icon from SVG
+# 1. 可選：從向量 SVG 重新生成 macOS 圖示 (.icns)
 ./Scripts/build-icon.sh
 
-# Build
+# 2. 開發建置
 swift build
 
-# Validation (store persistence, CRUD rules, backup/restore checks)
-swift run DashCues --self-test
+# 3. 單元與整合測試（驗證資料持久化、CRUD 規則、編輯會話、搜尋與備份還原）
+swift test
 
-# Main-window Key-Value user journey (requires Xcode and a Mac Development signing identity)
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-  xcodebuild test -project DashCues.xcodeproj -scheme DashCues -destination 'platform=macOS'
+# 4. 原生 UI 自動化測試（XCUITest，模擬真實滑鼠鍵盤操作）
+./Scripts/run-ui-tests.sh test
 
-# Package .app bundle and launch
+# 5. 打包 Release .app Bundle 並啟動
 ./Scripts/build-app.sh
 open build/DashCues.app
 ```
@@ -105,9 +104,18 @@ open build/DashCues.app
 快速重啟：
 
 ```bash
-./restart
-./restart --build
+./restart          # 快速關閉舊行程並重新打開
+./restart --build  # 重新打包 Release .app 後再啟動
 ```
+
+### 自動化與測試腳本說明 (Scripts Reference)
+
+| 腳本路徑 | 用途分類 | 說明與常見使用範例 |
+| :--- | :--- | :--- |
+| **`Scripts/run-ui-tests.sh`** | **UI 測試驅動** | 封裝 XCUITest 測試管線。自動導向完整的 `Xcode.app` 工具鏈（設定 `DEVELOPER_DIR`）以執行 `xcodebuild test`。支援直接傳遞參數：<br>• 全套測試：`./Scripts/run-ui-tests.sh test`<br>• 單一案例：`./Scripts/run-ui-tests.sh test -only-testing:DashCuesUITests/KeyValueCheatsheetUITests` |
+| **`Scripts/build-app.sh`** | **發布打包** | 編譯 Release 版本（`swift build -c release`），自動組裝標準 macOS Bundle 目錄結構（`build/DashCues.app`），注入 `Info.plist` 與 `AppIcon.icns`，並進行 Ad-hoc 本機代碼簽署（`codesign`）。 |
+| **`Scripts/build-icon.sh`** | **素材生成** | 從 SVG 向量圖稿（`Assets/Logos/logo.svg`）使用 `sips` 與 `iconutil` 自動輸出 16x16 至 1024x1024 各尺寸圖檔，並封裝成標準的 `Assets/AppIcon.icns`。 |
+| **`restart`** | **開發輔助** | 開發期間快速重啟 App。支援 `./restart`，或搭配 `./restart --build` 先執行 `build-app.sh` 重新編譯打包後再喚起最新版本。 |
 
 `.env.example` 僅作為專案標準占位，目前無需外部 API 金鑰或環境變數。
 

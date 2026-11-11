@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var store: ShortcutStore?
     private var statusBarController: StatusBarController?
     private var pinnedWindowManager: PinnedMapWindowManager?
@@ -11,7 +11,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var contentNavigation: SharedContentNavigation?
     private var clipboardWriter: ((String) -> Bool)?
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    public override init() {
+        super.init()
+    }
+
+    public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         do {
             let environment = ProcessInfo.processInfo.environment

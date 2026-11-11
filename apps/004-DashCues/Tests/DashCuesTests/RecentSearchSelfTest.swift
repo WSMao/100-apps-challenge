@@ -1,3 +1,4 @@
+@testable import DashCuesCore
 import Foundation
 
 /// TDD verification for recent content search history and keyboard preview.

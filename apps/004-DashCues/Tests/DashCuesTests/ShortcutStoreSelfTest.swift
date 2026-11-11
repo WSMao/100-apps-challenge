@@ -1,3 +1,4 @@
+@testable import DashCuesCore
 import Foundation
 
 enum ShortcutStoreSelfTest {
