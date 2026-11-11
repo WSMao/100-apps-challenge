@@ -72,9 +72,9 @@
 - 從開發者下達實作命令 `/implement` 或 `/implement-spec` 時，Agent 才開始自動做開發工作。
 
 ### 分支與 PR 規則
-- **分支命名**：一律為 `feat/<project>/#<issue>-<描述>`（參見 `/monorepo-gitflow` skill），`<issue>` 為 GitHub Issue 編號。issue 跟 ticket 是同一個概念，只是用詞不同，`/implement` 單張 ticket 就是對應到該 ticket 的 Issue 編號，`/implement-spec` 的整合分支用規格 Issue 的編號，該規格下開出來的 ticket 也是同樣用 Issue 編號為分支命名。
-- **`/implement`**：從專案主分支切出對應分支；每張 ticket 各發一個 PR。
-- **`/implement-spec`**：每張 ticket 各有自己的分支與 worktree，完成後合併進整合分支並清除，不單獨發 PR；只有整合分支發 PR 到專案主分支。
+- **分支命名**：一律為 `<type>/<project>/#<issue>-<description>`（參見 `/monorepo-gitflow` skill），`<issue>` 為 GitHub Issue 編號。這邊提到的 issue 跟 ticket 是同一個概念，所以 Issue ID 跟 Ticket ID 是一樣的。
+- **`/implement`**：實作單一 ticket，從專案主分支切出對應分支；完成後發一個 PR。
+- **`/implement-spec`**：實作 spec ticket，如包含多個 sub-issues 則 spec ticket 從專案主分支切出一個整合分支，而每張 sub-issue 則各自己切出自己的分支與 worktree，完成後合併進整合分支並清除，不單獨發 PR；只有整合分支發 PR 到專案主分支。
 - **發 PR 之後**：Agent 不得自行合併。若還有不被未合併 PR 擋住、可並行的 ticket，就繼續執行，讓開發者有空時能一次審核多個 PR。
 
 ---
