@@ -54,6 +54,7 @@ final class ShortcutListModel: ObservableObject {
 
     private let store: ShortcutStore
     private(set) var applicationID: String
+    private let sheetID: String?
     private var cursorID: String?
     private var anchorID: String?
     private var fieldOriginal: ShortcutItem?
@@ -61,9 +62,10 @@ final class ShortcutListModel: ObservableObject {
     private var scrollToken = 0
     private var monitors: [Any] = []
 
-    init(store: ShortcutStore, applicationID: String) {
+    init(store: ShortcutStore, applicationID: String, sheetID: String? = nil) {
         self.store = store
         self.applicationID = applicationID
+        self.sheetID = sheetID
     }
 
     /// Saved shortcuts, plus the unsaved new row, with the row being edited replaced by its working copy.
@@ -75,12 +77,17 @@ final class ShortcutListModel: ObservableObject {
     }
 
     private var allRows: [ShortcutItem] {
-        var items = store.application(id: applicationID)?.shortcuts ?? []
+        var items = savedShortcuts
         if let pendingItem { items.append(pendingItem) }
         if let editingID, let workingItem, let index = items.firstIndex(where: { $0.id == editingID }) {
             items[index] = workingItem
         }
         return items
+    }
+
+    private var savedShortcuts: [ShortcutItem] {
+        guard let app = store.application(id: applicationID) else { return [] }
+        return sheetID.map(app.sheetShortcuts(id:)) ?? app.shortcuts
     }
 
     // MARK: - Actions
@@ -145,7 +152,7 @@ final class ShortcutListModel: ObservableObject {
         let ids = rows.map(\.id)
         let firstIndex = ids.firstIndex { selection.contains($0) } ?? 0
         do {
-            try store.deleteShortcuts(ids: selection, applicationID: applicationID)
+            try store.deleteShortcuts(ids: selection, applicationID: applicationID, sheetID: sheetID)
         } catch {
             onError(error.localizedDescription)
         }
@@ -185,12 +192,12 @@ final class ShortcutListModel: ObservableObject {
         do {
             if item.isBlank {
                 if !wasPending {
-                    try store.deleteShortcut(id: id, applicationID: applicationID)
+                    try store.deleteShortcut(id: id, applicationID: applicationID, sheetID: sheetID)
                 }
                 selection.remove(id)
                 if cursorID == id { cursorID = nil }
-            } else if wasPending || store.application(id: applicationID)?.shortcuts.first(where: { $0.id == id }) != item {
-                try store.saveShortcut(item, applicationID: applicationID)
+            } else if wasPending || savedShortcuts.first(where: { $0.id == id }) != item {
+                try store.saveShortcut(item, applicationID: applicationID, sheetID: sheetID)
             }
         } catch {
             onError(error.localizedDescription)

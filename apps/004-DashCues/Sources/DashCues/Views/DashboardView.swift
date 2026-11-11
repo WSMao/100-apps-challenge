@@ -15,6 +15,8 @@ struct DashboardView: View {
     @State private var showingSettings = false
     @State private var applicationToEdit: ShortcutApplication?
     @State private var applicationPendingDelete: ShortcutApplication?
+    @State private var sheetCreateRequest: SheetCreateRequest?
+    @State private var sheetCreateApplicationID: String?
     @State private var errorMessage: String?
     @State private var successMessage: String?
 
@@ -131,17 +133,31 @@ struct DashboardView: View {
             }
         }
         .sheet(isPresented: $showingApplicationEditor) {
-            ApplicationEditorSheet(existingApplication: applicationToEdit) { name, bundleIdentifier, symbolName, iconData, tagEdits in
+            ApplicationEditorSheet(existingApplication: applicationToEdit) { name, bundleIdentifier, symbolName, iconData, tagEdits, sheetEdits in
                 performStoreAction {
                     if let applicationToEdit {
+                        let oldSheets = applicationToEdit.sheets
+                        let selectedID = contentNavigation.selectedSheet(for: applicationToEdit.id, in: oldSheets)?.id
                         try store.updateApplicationDetails(
                             id: applicationToEdit.id,
                             name: name,
                             bundleIdentifier: bundleIdentifier,
                             symbolName: symbolName,
                             customIconData: .some(iconData),
-                            tagEdits: tagEdits
+                            tagEdits: tagEdits,
+                            sheetEdits: sheetEdits
                         )
+                        if let sheetEdits {
+                            let remaining = store.application(id: applicationToEdit.id)?.sheets ?? []
+                            let newID = SheetSelection.afterDeleting(
+                                selected: selectedID,
+                                from: oldSheets.map(\.id),
+                                remaining: remaining.map(\.id)
+                            )
+                            if sheetEdits.count != oldSheets.count || newID != selectedID {
+                                contentNavigation.selectSheet(remaining.first { $0.id == newID }, for: applicationToEdit.id)
+                            }
+                        }
                     } else {
                         selectedApplicationID = try store.addApplication(
                             name: name,
@@ -150,6 +166,21 @@ struct DashboardView: View {
                             customIconData: iconData
                         )
                     }
+                }
+            }
+        }
+        .sheet(item: $sheetCreateRequest) { request in
+            SheetNameEditor(kind: request.kind) { name in
+                guard let applicationID = sheetCreateApplicationID else { return nil }
+                do {
+                    let id = try store.createSheet(kind: request.kind, name: name, applicationID: applicationID)
+                    contentNavigation.selectSheet(
+                        store.application(id: applicationID)?.sheets.first { $0.id == id },
+                        for: applicationID
+                    )
+                    return nil
+                } catch {
+                    return error.localizedDescription
                 }
             }
         }
@@ -219,7 +250,8 @@ struct DashboardView: View {
     }
 
     private func applicationDetail(_ application: ShortcutApplication) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+        let currentSheet = contentNavigation.selectedSheet(for: application.id, in: application.sheets)
+        return VStack(alignment: .leading, spacing: 16) {
             HStack {
                 ApplicationIconView(application: application, size: 44)
                 VStack(alignment: .leading) {
@@ -239,38 +271,49 @@ struct DashboardView: View {
                         systemImage: application.isPinned ? "pin.slash" : "pin"
                     )
                 }
-                if !application.isBuiltIn {
-                    Menu {
-                        Button("編輯 App…") {
-                            applicationToEdit = application
-                            showingApplicationEditor = true
-                        }
-                        Button("刪除 App", role: .destructive) {
-                            applicationPendingDelete = application
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
+                addSheetMenu(for: application)
+                Menu {
+                    Button("編輯 App…") {
+                        applicationToEdit = application
+                        showingApplicationEditor = true
                     }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
+                    Button("刪除 App", role: .destructive) {
+                        applicationPendingDelete = application
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
             }
 
-            if contentNavigation.selectedContentType == .shortcuts {
-                ShortcutListView(store: store, applicationID: application.id) { errorMessage = $0 }
+            if application.sheets.isEmpty {
+                emptySheetState(for: application)
             } else {
-                KeyValueCheatsheetView(
-                    store: store,
-                    contentNavigation: contentNavigation,
-                    applicationID: application.id,
-                    onError: {
-                        errorMessage = $0
-                        successMessage = nil
-                    },
-                    onCopySuccess: { successMessage = $0 },
-                    clipboardWriter: clipboardWriter,
-                    editSession: editSession
-                )
+                switch currentSheet?.kind ?? .shortcuts {
+                case .shortcuts:
+                    ShortcutListView(
+                        store: store,
+                        applicationID: application.id,
+                        sheetID: currentSheet?.id
+                    ) { errorMessage = $0 }
+                        .id(currentSheet?.id)
+                case .keyValue:
+                    KeyValueCheatsheetView(
+                        store: store,
+                        contentNavigation: contentNavigation,
+                        applicationID: application.id,
+                        sheetID: currentSheet?.id,
+                        onError: {
+                            errorMessage = $0
+                            successMessage = nil
+                        },
+                        onCopySuccess: { successMessage = $0 },
+                        clipboardWriter: clipboardWriter,
+                        editSession: editSession
+                    )
+                    .id(currentSheet?.id)
+                }
             }
         }
         .padding(24)
@@ -283,43 +326,58 @@ struct DashboardView: View {
         selectedApplicationID = jump.applicationID
     }
 
+    private func addSheetMenu(for application: ShortcutApplication) -> some View {
+        Menu {
+            Button("快捷鍵工作表…") { requestSheet(.shortcuts, in: application) }
+                .accessibilityIdentifier("dashboard.add-shortcuts-sheet")
+            Button("Key-Value 工作表…") { requestSheet(.keyValue, in: application) }
+                .accessibilityIdentifier("dashboard.add-key-value-sheet")
+        } label: {
+            Label("新增工作表", systemImage: "plus")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .accessibilityIdentifier("dashboard.add-sheet")
+    }
+
+    private func requestSheet(_ kind: SheetKind, in application: ShortcutApplication) {
+        editSession.requestLeave {
+            sheetCreateApplicationID = application.id
+            sheetCreateRequest = SheetCreateRequest(kind: kind)
+        }
+    }
+
+    private func emptySheetState(for application: ShortcutApplication) -> some View {
+        VStack(spacing: 10) {
+            Label("尚無工作表", systemImage: "square.stack")
+                .font(.headline)
+            Text("建立工作表來整理這個 App 的參考內容。")
+                .foregroundStyle(.secondary)
+            HStack {
+                Button("新增快捷鍵工作表") { requestSheet(.shortcuts, in: application) }
+                    .accessibilityIdentifier("dashboard.empty-create-shortcuts-sheet")
+                Button("新增 Key-Value 工作表") { requestSheet(.keyValue, in: application) }
+                    .accessibilityIdentifier("dashboard.empty-create-key-value-sheet")
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("dashboard.empty-sheets")
+    }
+
     private func contentTabs(for application: ShortcutApplication) -> some View {
-        let selectedShortcutSheetID = application.sheets.first { $0.kind == .shortcuts }?.id
-        let selectedKeyValueID = contentNavigation.selectedCheatsheetID(
-            for: application.id,
-            availableIDs: application.keyValueCheatsheets.map(\.id)
-        )
+        let selectedID = contentNavigation.selectedSheet(for: application.id, in: application.sheets)?.id
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(application.sheets) { sheet in
-                    let isSelected = sheet.kind == .shortcuts
-                        ? contentNavigation.selectedContentType == .shortcuts && sheet.id == selectedShortcutSheetID
-                        : contentNavigation.selectedContentType == .keyValue && sheet.id == selectedKeyValueID
                     sheetTab(
                         title: sheet.name,
                         systemImage: sheet.kind == .shortcuts ? "keyboard" : "list.bullet.rectangle",
-                        isSelected: isSelected,
+                        isSelected: sheet.id == selectedID,
                         identifier: "dashboard.sheet-tab.\(sheet.kind == .shortcuts ? "shortcuts" : "key-value").\(sheet.id)"
                     ) {
                         editSession.requestLeave {
-                            if sheet.kind == .shortcuts {
-                                contentNavigation.selectContentType(.shortcuts)
-                            } else {
-                                contentNavigation.selectCheatsheet(sheet.id, for: application.id)
-                                contentNavigation.selectContentType(.keyValue)
-                            }
+                            contentNavigation.selectSheet(sheet, for: application.id)
                         }
-                    }
-                }
-                if application.keyValueCheatsheets.isEmpty {
-                    // Entry point for creating the app's first Key-Value sheet.
-                    sheetTab(
-                        title: "Key-Value",
-                        systemImage: "list.bullet.rectangle",
-                        isSelected: contentNavigation.selectedContentType == .keyValue,
-                        identifier: "dashboard.tab.key-value"
-                    ) {
-                        contentNavigation.selectContentType(.keyValue)
                     }
                 }
             }

@@ -147,6 +147,49 @@ enum AppSheet: Codable, Identifiable, Equatable {
     }
 }
 
+extension AppSheet {
+    func renamed(_ name: String) -> AppSheet {
+        switch self {
+        case .shortcuts(var sheet):
+            sheet.name = name
+            return .shortcuts(sheet)
+        case .keyValue(var sheet):
+            sheet.name = name
+            return .keyValue(sheet)
+        }
+    }
+
+    static func nameKey(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    /// Names are unique per app across both sheet types, ignoring whitespace and case.
+    static func nameError(_ name: String, excludingID: String?, among sheets: [(id: String, name: String)]) -> ShortcutStoreError? {
+        let key = nameKey(name)
+        if key.isEmpty { return .invalidCheatsheetName }
+        if sheets.contains(where: { $0.id != excludingID && nameKey($0.name) == key }) { return .duplicateCheatsheetName }
+        return nil
+    }
+}
+
+/// One row of the app editor's sheet list: the sheet to keep, in its new order and name.
+struct SheetEdit: Equatable {
+    var id: String
+    var name: String
+}
+
+enum SheetSelection {
+    /// Keeps the selection if it survives; otherwise picks the next remaining sheet, else the previous, else none.
+    static func afterDeleting(selected: String?, from oldIDs: [String], remaining: [String]) -> String? {
+        guard let selected else { return nil }
+        if remaining.contains(selected) { return selected }
+        guard let index = oldIDs.firstIndex(of: selected) else { return remaining.first }
+        let next = oldIDs[(index + 1)...].first { remaining.contains($0) }
+        let previous = oldIDs[..<index].last { remaining.contains($0) }
+        return next ?? previous
+    }
+}
+
 struct KeyValueSearchResult: Identifiable, Equatable {
     let cheatsheetID: String
     let cheatsheetName: String
@@ -317,6 +360,11 @@ struct ShortcutApplication: Codable, Identifiable, Equatable {
         }
     }
 
+    func sheetShortcuts(id: String) -> [ShortcutItem] {
+        for case .shortcuts(let sheet) in sheets where sheet.id == id { return sheet.shortcuts }
+        return []
+    }
+
     var allShortcuts: [ShortcutItem] {
         sheets.flatMap { sheet in
             if case .shortcuts(let s) = sheet { return s.shortcuts }
@@ -371,18 +419,20 @@ struct ShortcutApplication: Codable, Identifiable, Equatable {
         sheets.append(.shortcuts(ShortcutSheet(shortcuts: [shortcut])))
     }
 
-    mutating func deleteShortcut(id: String) {
+    mutating func deleteShortcut(id: String, sheetID: String? = nil) {
         for index in sheets.indices {
             if case .shortcuts(var sheet) = sheets[index] {
+                if let sheetID, sheet.id != sheetID { continue }
                 sheet.shortcuts.removeAll { $0.id == id }
                 sheets[index] = .shortcuts(sheet)
             }
         }
     }
 
-    mutating func deleteShortcuts(ids: Set<String>) {
+    mutating func deleteShortcuts(ids: Set<String>, sheetID: String? = nil) {
         for index in sheets.indices {
             if case .shortcuts(var sheet) = sheets[index] {
+                if let sheetID, sheet.id != sheetID { continue }
                 sheet.shortcuts.removeAll { ids.contains($0.id) }
                 sheets[index] = .shortcuts(sheet)
             }
@@ -405,12 +455,11 @@ struct ShortcutApplication: Codable, Identifiable, Equatable {
         var mapping: [String: String] = [:]
         for edit in edits { mapping[TagList.key(edit.original)] = TagList.clean(edit.name) }
         for index in sheets.indices {
-            if case .shortcuts(var sheet) = sheets[index] {
-                for sIndex in sheet.shortcuts.indices {
-                    sheet.shortcuts[sIndex].tags = TagList.normalized(sheet.shortcuts[sIndex].tags.compactMap { mapping[TagList.key($0)] })
-                }
-                sheets[index] = .shortcuts(sheet)
+            guard case .shortcuts(var sheet) = sheets[index] else { continue }
+            for item in sheet.shortcuts.indices {
+                sheet.shortcuts[item].tags = TagList.normalized(sheet.shortcuts[item].tags.compactMap { mapping[TagList.key($0)] })
             }
+            sheets[index] = .shortcuts(sheet)
         }
         tags = TagList.normalized(edits.map(\.name))
         syncTags()
@@ -450,7 +499,6 @@ enum ShortcutStoreError: LocalizedError {
     case invalidApplication
     case invalidShortcut
     case applicationNotFound
-    case builtInApplicationCannotBeDeleted
     case duplicateApplication
     case invalidBackup
     case invalidTag
@@ -472,8 +520,6 @@ enum ShortcutStoreError: LocalizedError {
             "快捷鍵名稱與按鍵組合不可空白。"
         case .applicationNotFound:
             "找不到指定的 App。"
-        case .builtInApplicationCannotBeDeleted:
-            "內建 App 不可刪除，但可以編輯其快捷鍵。"
         case .duplicateApplication:
             "此 App 已存在。"
         case .invalidBackup:
@@ -483,11 +529,11 @@ enum ShortcutStoreError: LocalizedError {
         case .duplicateTag:
             "標籤名稱重複。"
         case .invalidCheatsheetName:
-            "清單名稱不可空白。"
+            "工作表名稱不可空白。"
         case .duplicateCheatsheetName:
-            "此 App 已有同名清單。"
+            "此 App 已有同名工作表。"
         case .cheatsheetNotFound:
-            "找不到指定的 Key-Value 清單。"
+            "找不到指定的工作表。"
         case .invalidKeyValueEntry:
             "Key 與 Value 不可同時空白。"
         }

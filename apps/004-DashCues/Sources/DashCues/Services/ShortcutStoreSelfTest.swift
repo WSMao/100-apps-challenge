@@ -70,9 +70,6 @@ enum ShortcutStoreSelfTest {
             "Unpinned app should return to the top of the unpinned section."
         )
 
-        try expectError(ShortcutStoreError.builtInApplicationCannotBeDeleted) {
-            try reopenedStore.deleteApplication(id: "com.apple.finder")
-        }
         try expectError(ShortcutStoreError.invalidShortcut) {
             try reopenedStore.saveShortcut(
                 ShortcutItem(title: " ", keys: []),
@@ -103,6 +100,7 @@ enum ShortcutStoreSelfTest {
 
         try runLegacySnapshotCheck(in: directory)
         try runSheetMigrationChecks(in: directory)
+        try runSheetManagementChecks(in: directory)
 
         print("DashCues self-test passed.")
     }
@@ -346,6 +344,133 @@ enum ShortcutStoreSelfTest {
         try expectError(ShortcutStoreError.duplicateCheatsheetName) {
             _ = try roundTrip.createKeyValueCheatsheet(name: "快捷鍵", applicationID: freshID)
         }
+    }
+
+    @MainActor
+    private static func runSheetManagementChecks(in directory: URL) throws {
+        let url = directory.appendingPathComponent("sheet-management.json")
+        let store = try ShortcutStore(storageURL: url)
+        let appID = try store.addApplication(name: "Sheets", bundleIdentifier: "", symbolName: "app")
+        let otherID = try store.addApplication(name: "Other", bundleIdentifier: "", symbolName: "app")
+        let baseID = try unwrap(store.application(id: appID)?.sheets.first?.id)
+
+        // Create: appended, typed, trimmed; names unique across both types per app.
+        let extraID = try store.createSheet(kind: .shortcuts, name: "  Extra ", applicationID: appID)
+        let kvID = try store.createSheet(kind: .keyValue, name: "Notes", applicationID: appID)
+        try check(
+            store.application(id: appID)?.sheets.map(\.id) == [baseID, extraID, kvID]
+                && store.application(id: appID)?.sheets.map(\.name) == ["快捷鍵", "Extra", "Notes"]
+                && store.application(id: appID)?.sheets[1].kind == .shortcuts
+                && store.application(id: appID)?.sheets[2].kind == .keyValue,
+            "Created sheets were not appended with their type."
+        )
+        try expectError(ShortcutStoreError.invalidCheatsheetName) {
+            _ = try store.createSheet(kind: .keyValue, name: "  ", applicationID: appID)
+        }
+        try expectError(ShortcutStoreError.duplicateCheatsheetName) {
+            _ = try store.createSheet(kind: .shortcuts, name: " NOTES", applicationID: appID)
+        }
+        try expectError(ShortcutStoreError.duplicateCheatsheetName) {
+            _ = try store.createSheet(kind: .keyValue, name: "extra", applicationID: appID)
+        }
+        _ = try store.createSheet(kind: .keyValue, name: "Notes", applicationID: otherID)
+
+        // Shortcuts are saved to the chosen shortcut sheet.
+        try store.saveShortcut(ShortcutItem(title: "Extra item", keys: ["⌘", "E"]), applicationID: appID, sheetID: extraID)
+        try check(
+            store.application(id: appID)?.shortcuts.isEmpty == true
+                && store.application(id: appID)?.sheetShortcuts(id: extraID).map(\.title) == ["Extra item"],
+            "Shortcut was not saved to the requested sheet."
+        )
+        try store.saveKeyValueEntry(KeyValueEntry(key: "k", value: "v"), cheatsheetID: kvID, applicationID: appID)
+
+        // Atomic edit: rename + reorder + delete commit together with the app details.
+        try store.updateApplicationDetails(
+            id: appID, name: "Sheets", bundleIdentifier: "", symbolName: "app",
+            sheetEdits: [SheetEdit(id: kvID, name: "Renamed"), SheetEdit(id: baseID, name: "快捷鍵")]
+        )
+        try check(
+            store.application(id: appID)?.sheets.map(\.id) == [kvID, baseID]
+                && store.application(id: appID)?.sheets.map(\.name) == ["Renamed", "快捷鍵"]
+                && store.application(id: appID)?.keyValueCheatsheets.first?.entries.count == 1,
+            "Sheet edits were not applied together."
+        )
+
+        // Invalid edits change nothing, including other app details.
+        let before = store.application(id: appID)
+        try expectError(ShortcutStoreError.duplicateCheatsheetName) {
+            try store.updateApplicationDetails(
+                id: appID, name: "Changed", bundleIdentifier: "", symbolName: "app",
+                sheetEdits: [SheetEdit(id: kvID, name: "A"), SheetEdit(id: baseID, name: " a ")]
+            )
+        }
+        try expectError(ShortcutStoreError.invalidCheatsheetName) {
+            try store.updateApplicationDetails(
+                id: appID, name: "Changed", bundleIdentifier: "", symbolName: "app",
+                sheetEdits: [SheetEdit(id: kvID, name: " "), SheetEdit(id: baseID, name: "快捷鍵")]
+            )
+        }
+        try expectError(ShortcutStoreError.cheatsheetNotFound) {
+            try store.updateApplicationDetails(
+                id: appID, name: "Changed", bundleIdentifier: "", symbolName: "app",
+                sheetEdits: [SheetEdit(id: "missing", name: "X")]
+            )
+        }
+        try check(store.application(id: appID) == before, "Invalid sheet edits partially applied.")
+
+        // Delete everything, including the last sheet; persists across relaunch.
+        try store.updateApplicationDetails(
+            id: appID, name: "Sheets", bundleIdentifier: "", symbolName: "app", sheetEdits: []
+        )
+        try check(store.application(id: appID)?.sheets.isEmpty == true, "The last sheet could not be deleted.")
+        let reopened = try ShortcutStore(storageURL: url)
+        try check(reopened.application(id: appID)?.sheets.isEmpty == true, "Empty sheet list did not persist.")
+        let recreated = try reopened.createSheet(kind: .keyValue, name: "Again", applicationID: appID)
+        try check(reopened.application(id: appID)?.sheets.map(\.id) == [recreated], "Empty app could not create a sheet.")
+
+        // Selection after deletion: next, else previous, else none.
+        try check(SheetSelection.afterDeleting(selected: "b", from: ["a", "b", "c"], remaining: ["a", "c"]) == "c", "Next sheet not selected.")
+        try check(SheetSelection.afterDeleting(selected: "c", from: ["a", "b", "c"], remaining: ["a", "b"]) == "b", "Previous sheet not selected.")
+        try check(SheetSelection.afterDeleting(selected: "a", from: ["a", "b", "c"], remaining: ["c"]) == "c", "Nearest remaining sheet not selected.")
+        try check(SheetSelection.afterDeleting(selected: "a", from: ["a"], remaining: []) == nil, "Selection should clear with no sheets.")
+        try check(SheetSelection.afterDeleting(selected: "b", from: ["a", "b"], remaining: ["b", "a"]) == "b", "Surviving selection changed.")
+        try check(SheetSelection.afterDeleting(selected: nil, from: ["a", "b"], remaining: ["b"]) == nil, "Unselected state changed.")
+
+        // Dashboard sheet selection follows the stored sheet, falling back to the first sheet.
+        let suiteName = "DashCues.SelfTest.Sheets.\(UUID().uuidString)"
+        guard let suite = UserDefaults(suiteName: suiteName) else { throw ShortcutStoreSelfTestError.failed("No defaults.") }
+        defer { suite.removePersistentDomain(forName: suiteName) }
+        let navigation = SharedContentNavigation(defaults: suite)
+        let sheets: [AppSheet] = [.shortcuts(ShortcutSheet(id: "s1", name: "S")), .keyValue(KeyValueCheatsheet(id: "k1", name: "K"))]
+        try check(navigation.selectedSheet(for: "app", in: sheets)?.id == "s1", "Default selection should be the first sheet.")
+        navigation.selectSheet(sheets[1], for: "app")
+        try check(
+            navigation.selectedSheet(for: "app", in: sheets)?.id == "k1" && navigation.selectedContentType == .keyValue,
+            "Selecting a sheet did not select it."
+        )
+        try check(navigation.selectedSheet(for: "app", in: [sheets[0]])?.id == "s1", "Missing selection should fall back.")
+        try check(navigation.selectedSheet(for: "app", in: []) == nil, "No sheets should mean no selection.")
+
+        // Built-in apps are fully editable and deletable; deletion survives relaunch.
+        let finderID = "com.apple.finder"
+        try store.updateApplicationDetails(id: finderID, name: "Finder Renamed", bundleIdentifier: "com.apple.finder", symbolName: "folder")
+        let finderSheetID = try unwrap(store.application(id: finderID)?.sheets.first?.id)
+        try store.updateApplicationDetails(
+            id: finderID, name: "Finder Renamed", bundleIdentifier: "com.apple.finder", symbolName: "folder",
+            sheetEdits: [SheetEdit(id: finderSheetID, name: "Main")]
+        )
+        _ = try store.createSheet(kind: .keyValue, name: "Cheats", applicationID: finderID)
+        try check(
+            store.application(id: finderID)?.sheets.map(\.name) == ["Main", "Cheats"],
+            "Built-in app sheets could not be managed."
+        )
+        try store.deleteApplication(id: finderID)
+        try check(try ShortcutStore(storageURL: url).application(id: finderID) == nil, "Built-in deletion did not persist.")
+    }
+
+    private static func unwrap<T>(_ value: T?, _ message: String = "Unexpected nil") throws -> T {
+        guard let value else { throw ShortcutStoreSelfTestError.failed(message) }
+        return value
     }
 
     @MainActor
