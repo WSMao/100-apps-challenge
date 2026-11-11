@@ -11,6 +11,7 @@ struct KeyValueCheatsheetView: View {
     let clipboardWriter: (String) -> Bool
     var isReadOnly = false
     var editSession: KeyValueEditSession?
+    var navigation: TableKeyboardNavigation? = nil
     var onSearchFocusChanged: (Bool) -> Void = { _ in }
     var onJumpToDashboard: ((KeyValueSearchResult) -> Void)?
 
@@ -238,7 +239,8 @@ struct KeyValueCheatsheetView: View {
                         onMove: { dragged, target in moveEntry(dragged, to: target, in: cheatsheet) },
                         onUpdateLayout: { newOrder, keyWidth, valueWidth in
                             updateLayout(newOrder: newOrder, keyWidth: keyWidth, valueWidth: valueWidth, in: cheatsheet)
-                        }
+                        },
+                        navigation: navigation
                     )
                     .onAppear { scrollToPendingEntry(using: proxy) }
                     .onChange(of: pendingScrollEntryID) { _ in scrollToPendingEntry(using: proxy) }

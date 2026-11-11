@@ -13,6 +13,7 @@ struct KeyValueTableView: View {
     let onDelete: (KeyValueEntry) -> Void
     let onMove: (String, String) -> Void
     var onUpdateLayout: ([KeyValueColumn]?, Double?, Double?) -> Void = { _, _, _ in }
+    var navigation: TableKeyboardNavigation? = nil
 
     @State private var copiedCell: CopiedCell?
     @State private var dragKeyWidth: Double?
@@ -48,8 +49,8 @@ struct KeyValueTableView: View {
                     header(widths: widths)
                     Divider()
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(entries) { entry in
-                            row(entry, widths: widths)
+                        ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                            row(entry, widths: widths, index: index)
                             Divider()
                         }
                         if showsNewRow, let id = session.editingEntryID {
@@ -61,6 +62,9 @@ struct KeyValueTableView: View {
                 .frame(width: max(totalTableWidth, geometry.size.width), alignment: .leading)
             }
             .accessibilityIdentifier("key-value.entries")
+            .onChange(of: navigation?.expandedRowIDs) { expanded in
+                if let expanded { expandedEntryIDs = expanded }
+            }
         }
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor)))
@@ -157,7 +161,8 @@ struct KeyValueTableView: View {
     }
 
     @ViewBuilder
-    private func row(_ entry: KeyValueEntry, widths: (key: Double, value: Double)) -> some View {
+    private func row(_ entry: KeyValueEntry, widths: (key: Double, value: Double), index: Int) -> some View {
+        let isRowFocused = navigation?.focusArea == .table && navigation?.selectedRowIndex == index
         if session.editingEntryID == entry.id {
             editingRow(id: entry.id, widths: widths)
         } else {
@@ -168,9 +173,9 @@ struct KeyValueTableView: View {
             let secondWidth = secondCol == .key ? widths.key : widths.value
 
             HStack(alignment: .top, spacing: 0) {
-                cell(entry, column: firstCol == .key ? .key : .value, isExpanded: isExpanded, width: firstWidth)
+                cell(entry, column: firstCol == .key ? .key : .value, isExpanded: isExpanded, width: firstWidth, index: index, isRowFocused: isRowFocused)
                 Divider()
-                cell(entry, column: secondCol == .key ? .key : .value, isExpanded: isExpanded, width: secondWidth)
+                cell(entry, column: secondCol == .key ? .key : .value, isExpanded: isExpanded, width: secondWidth, index: index, isRowFocused: isRowFocused)
                 Divider()
                 Button(role: .destructive) { onDelete(entry) } label: {
                     Image(systemName: "trash")
@@ -182,6 +187,8 @@ struct KeyValueTableView: View {
                 .frame(width: 44)
                 .padding(.top, 10)
             }
+            .background(isRowFocused ? Color.accentColor.opacity(0.08) : Color.clear)
+            .accessibilityValue(isRowFocused ? "已選取" : "")
             .draggable(entry.id)
             .dropDestination(for: String.self) { draggedIDs, _ in
                 guard let dragged = draggedIDs.first else { return false }
@@ -192,11 +199,19 @@ struct KeyValueTableView: View {
         }
     }
 
-    private func cell(_ entry: KeyValueEntry, column: KeyValueEditSession.Column, isExpanded: Bool, width: Double) -> some View {
+    private func cell(
+        _ entry: KeyValueEntry,
+        column: KeyValueEditSession.Column,
+        isExpanded: Bool,
+        width: Double,
+        index: Int,
+        isRowFocused: Bool
+    ) -> some View {
         let text = column == .key ? entry.key : entry.value
         let name = column == .key ? "Key" : "Value"
         let idName = column == .key ? "key" : "value"
         let isCopied = copiedCell == CopiedCell(entryID: entry.id, column: column)
+        let isFieldFocused = isRowFocused && navigation?.selectedColumn == (column == .key ? .key : .value)
         return HStack(alignment: .top, spacing: 6) {
             Group {
                 if text.isEmpty {
@@ -228,11 +243,22 @@ struct KeyValueTableView: View {
         }
         .padding(10)
         .frame(width: width, alignment: .topLeading)
+        .overlay {
+            if isFieldFocused {
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(Color.accentColor, lineWidth: 2)
+                    .padding(2)
+                    .accessibilityIdentifier("key-value.cell-focused")
+            }
+        }
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             session.begin(entry: entry, column: column, cheatsheetID: cheatsheetID, applicationID: applicationID)
         }
         .onTapGesture {
+            navigation?.focusArea = .table
+            navigation?.selectedRowIndex = index
+            navigation?.selectedColumn = (column == .key ? .key : .value)
             if isExpanded { expandedEntryIDs.remove(entry.id) } else { expandedEntryIDs.insert(entry.id) }
         }
     }

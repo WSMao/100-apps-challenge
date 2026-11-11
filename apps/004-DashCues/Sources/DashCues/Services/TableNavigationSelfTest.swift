@@ -1,0 +1,161 @@
+import AppKit
+import Foundation
+
+/// TDD verification for sheet tab overflow and keyboard navigation through tabs and Key-Value table.
+enum TableNavigationSelfTest {
+    @MainActor
+    static func run(store: ShortcutStore) throws {
+        let appID = try store.addApplication(name: "Nav App", bundleIdentifier: "com.example.nav", symbolName: "app")
+        // Create 10 sheets to test 1–9 selection and overflow
+        var sheetIDs: [String] = []
+        for i in 1...10 {
+            let id = try store.createSheet(kind: .keyValue, name: "Sheet \(i)", applicationID: appID)
+            sheetIDs.append(id)
+        }
+        guard let app = store.application(id: appID) else {
+            throw TableNavigationSelfTestError.failed("App not found")
+        }
+
+        // Test 1: Overflow calculation
+        let overflow = TabOverflowLayout(sheets: app.sheets, maxVisible: 4, selectedID: sheetIDs[0])
+        try check(overflow.visibleSheets.count == 4, "Visible sheets count must be 4.")
+        try check(overflow.overflowSheets.count == 7, "Overflow sheets count must be 7 (1 default + 10 created = 11 total sheets - 4 visible).")
+        try check(overflow.visibleSheets.contains { $0.id == sheetIDs[0] }, "Selected sheet must be in visible sheets.")
+
+        // Select a hidden sheet (e.g. sheet 8): it must become visible without altering full sheet order
+        let overflowWithHidden = TabOverflowLayout(sheets: app.sheets, maxVisible: 4, selectedID: sheetIDs[7])
+        try check(overflowWithHidden.visibleSheets.contains { $0.id == sheetIDs[7] }, "Hidden selected sheet must become visible.")
+        try check(
+            overflowWithHidden.overflowSheets.map(\.id) == app.sheets.filter { s in !overflowWithHidden.visibleSheets.contains { $0.id == s.id } }.map(\.id),
+            "Overflow sheets must retain their original order."
+        )
+        try check(
+            overflowWithHidden.visibleSheets.count + overflowWithHidden.overflowSheets.count == app.sheets.count,
+            "Total sheet count must be preserved."
+        )
+
+        // Setup TableKeyboardNavigation controller
+        let e1 = KeyValueEntry(id: "e1", key: "Short", value: "A very long text that can be truncated")
+        let e2 = KeyValueEntry(id: "e2", key: "Key2", value: "Val2")
+        try store.saveKeyValueEntry(e1, cheatsheetID: sheetIDs[0], applicationID: appID)
+        try store.saveKeyValueEntry(e2, cheatsheetID: sheetIDs[0], applicationID: appID)
+
+        let session = KeyValueEditSession(store: store)
+        var copiedText: String?
+        let clipboard: (String) -> Bool = { text in
+            copiedText = text
+            return true
+        }
+
+        let nav = TableKeyboardNavigation(
+            store: store,
+            applicationID: appID,
+            editSession: session,
+            clipboardWriter: clipboard
+        )
+
+        // Initial focus: sidebar
+        try check(nav.focusArea == .sidebar, "Initial focus must be sidebar.")
+
+        // 1–9 digit selection in navigation mode
+        try check(nav.handleNumberKey(1), "Number 1 should be handled in navigation mode.")
+        try check(nav.selectedSheetID == app.sheets[0].id, "Number 1 did not select sheet 0.")
+        try check(nav.handleNumberKey(5), "Number 5 should be handled in navigation mode.")
+        try check(nav.selectedSheetID == app.sheets[4].id, "Number 5 did not select sheet 4.")
+
+        // Digits ignored in text editing
+        nav.isTextEditing = true
+        try check(!nav.handleNumberKey(2), "Digits must NOT be intercepted when text editing.")
+        nav.isTextEditing = false
+
+        // Arrow navigation: Sidebar -> Tabs -> Table
+        nav.focusArea = .sidebar
+        try check(nav.handleRightArrow(), "Right arrow from sidebar should move focus to tabs.")
+        try check(nav.focusArea == .tabs, "Focus did not move to tabs.")
+
+        // Left / Right in tabs
+        let tabIndex = nav.selectedTabIndex
+        try check(nav.handleRightArrow(), "Right arrow in tabs should advance tab.")
+        try check(nav.selectedTabIndex == tabIndex + 1, "Tab index did not advance.")
+        try check(nav.handleLeftArrow(), "Left arrow in tabs should go to previous tab.")
+        try check(nav.selectedTabIndex == tabIndex, "Tab index did not go back.")
+
+        // Down arrow from tab enters table
+        nav.selectSheet(id: sheetIDs[0])
+        try check(nav.handleDownArrow(), "Down arrow from tab should enter table.")
+        try check(nav.focusArea == .table, "Focus did not move to table.")
+        try check(nav.selectedRowIndex == 0, "First row should be selected.")
+        try check(nav.selectedColumn == .key, "First column should be selected.")
+
+        // Down on empty sheet retains tab focus
+        let emptySheetID = sheetIDs[9]
+        nav.selectSheet(id: emptySheetID)
+        nav.focusArea = .tabs
+        try check(!nav.handleDownArrow(), "Down arrow on empty sheet should not enter table.")
+        try check(nav.focusArea == .tabs, "Tab focus should be retained when sheet is empty.")
+
+        // Table row navigation & column retention
+        nav.selectSheet(id: sheetIDs[0])
+        nav.focusArea = .table
+        nav.selectedRowIndex = 0
+        nav.selectedColumn = .value
+        try check(nav.handleDownArrow(), "Down arrow should move to next row.")
+        try check(nav.selectedRowIndex == 1 && nav.selectedColumn == .value, "Down arrow did not retain column.")
+        try check(nav.handleUpArrow(), "Up arrow should move to previous row.")
+        try check(nav.selectedRowIndex == 0 && nav.selectedColumn == .value, "Up arrow did not move up.")
+
+        // Up arrow from row 0 returns to tabs
+        try check(nav.handleUpArrow(), "Up arrow from row 0 should return to tabs.")
+        try check(nav.focusArea == .tabs, "Focus did not return to tabs.")
+
+        // Column cycling with Tab / Shift-Tab
+        nav.focusArea = .table
+        nav.selectedColumn = .key
+        try check(nav.handleTab(shift: false, control: false), "Tab should cycle column.")
+        try check(nav.selectedColumn == .value, "Tab did not cycle to value.")
+        try check(nav.handleTab(shift: true, control: false), "Shift-Tab should cycle column back.")
+        try check(nav.selectedColumn == .key, "Shift-Tab did not cycle to key.")
+
+        // Ctrl-Tab leaves table
+        try check(nav.handleTab(shift: false, control: true), "Ctrl-Tab should leave table.")
+        try check(nav.focusArea == .tabs, "Ctrl-Tab did not leave table.")
+
+        // Navigation mode Cmd-C copies selected field
+        nav.focusArea = .table
+        nav.selectedRowIndex = 0
+        nav.selectedColumn = .key
+        try check(nav.handleCopy(), "Cmd-C should copy selected field in table navigation.")
+        try check(copiedText == "Short", "Cmd-C did not copy key.")
+
+        nav.selectedColumn = .value
+        try check(nav.handleCopy(), "Cmd-C should copy value.")
+        try check(copiedText == "A very long text that can be truncated", "Cmd-C did not copy value.")
+
+        // Enter begins editing
+        try check(nav.handleEnter(), "Enter should begin editing selected cell.")
+        try check(session.isEditing && session.editingEntryID == "e1" && session.focusColumn == .value, "Enter did not begin edit session.")
+        session.cancel()
+
+        // Truncation expansion with Right Arrow, collapse with Left Arrow, return to sidebar when collapsed
+        nav.expandedRowIDs.removeAll()
+        try check(nav.handleRightArrow(), "Right arrow on table row should expand.")
+        try check(nav.expandedRowIDs.contains("e1"), "Row was not expanded.")
+        try check(nav.handleLeftArrow(), "Left arrow should collapse.")
+        try check(!nav.expandedRowIDs.contains("e1"), "Row was not collapsed.")
+        try check(nav.handleLeftArrow(), "Left arrow on collapsed row should return to sidebar.")
+        try check(nav.focusArea == .sidebar, "Focus did not return to sidebar.")
+    }
+
+    private static func check(_ condition: Bool, _ message: String) throws {
+        guard condition else { throw TableNavigationSelfTestError.failed(message) }
+    }
+}
+
+private enum TableNavigationSelfTestError: LocalizedError {
+    case failed(String)
+    var errorDescription: String? {
+        switch self {
+        case .failed(let message): message
+        }
+    }
+}
