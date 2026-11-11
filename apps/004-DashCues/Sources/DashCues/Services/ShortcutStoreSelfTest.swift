@@ -101,6 +101,7 @@ enum ShortcutStoreSelfTest {
         try runLegacySnapshotCheck(in: directory)
         try runSheetMigrationChecks(in: directory)
         try runSheetManagementChecks(in: directory)
+        try runTableArrangementChecks(in: directory)
 
         print("DashCues self-test passed.")
     }
@@ -466,6 +467,95 @@ enum ShortcutStoreSelfTest {
         )
         try store.deleteApplication(id: finderID)
         try check(try ShortcutStore(storageURL: url).application(id: finderID) == nil, "Built-in deletion did not persist.")
+    }
+
+    @MainActor
+    private static func runTableArrangementChecks(in directory: URL) throws {
+        let url = directory.appendingPathComponent("table-arrangement.json")
+        let store = try ShortcutStore(storageURL: url)
+        let appID = try store.addApplication(name: "Arranger", bundleIdentifier: "", symbolName: "app")
+        let sheet1ID = try store.createSheet(kind: .keyValue, name: "Sheet 1", applicationID: appID)
+        let sheet2ID = try store.createSheet(kind: .keyValue, name: "Sheet 2", applicationID: appID)
+
+        let e1 = KeyValueEntry(key: "K1", value: "V1")
+        let e2 = KeyValueEntry(key: "K2", value: "V2")
+        let e3 = KeyValueEntry(key: "K3", value: "V3")
+        try store.saveKeyValueEntry(e1, cheatsheetID: sheet1ID, applicationID: appID)
+        try store.saveKeyValueEntry(e2, cheatsheetID: sheet1ID, applicationID: appID)
+        try store.saveKeyValueEntry(e3, cheatsheetID: sheet1ID, applicationID: appID)
+
+        // 1. Reorder rows: move first row (K1) to end (after K3).
+        try store.moveKeyValueEntries(
+            fromOffsets: IndexSet(integer: 0),
+            toOffset: 3,
+            cheatsheetID: sheet1ID,
+            applicationID: appID
+        )
+        let reorderedSheet1 = try unwrap(store.application(id: appID)?.keyValueCheatsheets.first { $0.id == sheet1ID })
+        try check(
+            reorderedSheet1.entries.map(\.key) == ["K2", "K3", "K1"]
+                && reorderedSheet1.entries.map(\.value) == ["V2", "V3", "V1"],
+            "Row reordering failed or decoupled Key from Value."
+        )
+
+        // 2. Column order: swap to [.value, .key]
+        try check(reorderedSheet1.columnOrder == [.key, .value], "Default column order must be [.key, .value].")
+        try store.updateKeyValueLayout(
+            cheatsheetID: sheet1ID,
+            applicationID: appID,
+            columnOrder: [.value, .key],
+            keyWidth: 220,
+            valueWidth: 340
+        )
+        let updatedSheet1 = try unwrap(store.application(id: appID)?.keyValueCheatsheets.first { $0.id == sheet1ID })
+        try check(updatedSheet1.columnOrder == [.value, .key], "Column order update failed.")
+        try check(updatedSheet1.keyWidth == 220 && updatedSheet1.valueWidth == 340, "Column width update failed.")
+        // Ensure no Key or Value data was exchanged
+        try check(
+            updatedSheet1.entries.first?.key == "K2" && updatedSheet1.entries.first?.value == "V2",
+            "Column reordering must not exchange underlying key and value data."
+        )
+
+        // 3. Per-sheet layout isolation: Sheet 2 must keep its own layout
+        let sheet2 = try unwrap(store.application(id: appID)?.keyValueCheatsheets.first { $0.id == sheet2ID })
+        try check(sheet2.columnOrder == [.key, .value] && sheet2.keyWidth == nil, "Layout should be isolated per sheet.")
+
+        // 4. Persistence across store reload
+        let reloadedStore = try ShortcutStore(storageURL: url)
+        let reloadedSheet1 = try unwrap(reloadedStore.application(id: appID)?.keyValueCheatsheets.first { $0.id == sheet1ID })
+        try check(reloadedSheet1.entries.map(\.key) == ["K2", "K3", "K1"], "Row order did not persist after reload.")
+        try check(reloadedSheet1.columnOrder == [.value, .key], "Column order did not persist after reload.")
+        try check(reloadedSheet1.keyWidth == 220 && reloadedSheet1.valueWidth == 340, "Column widths did not persist after reload.")
+
+        // 5. Backup export and restore round-trip
+        let backupURL = directory.appendingPathComponent("layout-backup.json")
+        try reloadedStore.exportBackup(to: backupURL)
+        let restoredStore = try ShortcutStore(storageURL: directory.appendingPathComponent("layout-restored.json"))
+        try restoredStore.restoreBackup(from: backupURL)
+        let restoredSheet1 = try unwrap(restoredStore.application(id: appID)?.keyValueCheatsheets.first { $0.id == sheet1ID })
+        try check(restoredSheet1.columnOrder == [.value, .key], "Backup did not restore column order.")
+        try check(restoredSheet1.keyWidth == 220 && restoredSheet1.valueWidth == 340, "Backup did not restore column widths.")
+
+        // 6. Table layout calculations (min widths, clamped resizing, normalization)
+        let minKey = KeyValueTableLayout.minColumnWidth
+        let minValue = KeyValueTableLayout.minColumnWidth
+        let layout = KeyValueTableLayout(columnOrder: [.value, .key], keyWidth: 50, valueWidth: nil)
+        let clamped = layout.resolvedWidths(containerWidth: 600)
+        try check(clamped.key >= minKey, "Key column width was not clamped to minimum width.")
+        try check(clamped.value >= minValue, "Value column width was not clamped to minimum width.")
+
+        // Normalization checks
+        try check(KeyValueTableLayout.normalized([]) == [.key, .value], "Empty column order should normalize to default.")
+        try check(KeyValueTableLayout.normalized([.value]) == [.value, .key], "Missing key should append.")
+        try check(KeyValueTableLayout.normalized([.value, .value]) == [.value, .key], "Duplicate column should normalize.")
+
+        // Narrow container width clamps to min widths
+        let narrow = KeyValueTableLayout().resolvedWidths(containerWidth: 100)
+        try check(narrow.key >= minKey && narrow.value >= minValue, "Narrow container must clamp both columns to min width.")
+
+        // Asymmetric resolution
+        let asym = KeyValueTableLayout(columnOrder: [.key, .value], keyWidth: 200, valueWidth: nil).resolvedWidths(containerWidth: 500)
+        try check(asym.key == 200 && asym.value == 300, "Unset column width should take remaining container width.")
     }
 
     private static func unwrap<T>(_ value: T?, _ message: String = "Unexpected nil") throws -> T {
