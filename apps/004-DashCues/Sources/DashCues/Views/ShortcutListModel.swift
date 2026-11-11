@@ -45,7 +45,13 @@ final class ShortcutListModel: ObservableObject {
     @Published private(set) var isRecordingSearchKeys = false
     @Published private(set) var searchSuggestionIndex: Int?
     @Published private(set) var searchFocusToken = 0
-    @Published var searchFocused = false
+    @Published var searchFocused = false {
+        didSet {
+            if !searchFocused && oldValue {
+                recentSearchStore.record(query: searchText, for: applicationID)
+            }
+        }
+    }
 
     var onError: (String) -> Void = { _ in }
     weak var listView: NSView?
@@ -55,6 +61,8 @@ final class ShortcutListModel: ObservableObject {
     private let store: ShortcutStore
     private(set) var applicationID: String
     private let sheetID: String?
+    let recentSearchStore: RecentSearchStore
+    private(set) lazy var historySession = SearchHistorySession(applicationID: applicationID, recentStore: recentSearchStore)
     private var cursorID: String?
     private var anchorID: String?
     private var fieldOriginal: ShortcutItem?
@@ -62,10 +70,16 @@ final class ShortcutListModel: ObservableObject {
     private var scrollToken = 0
     private var monitors: [Any] = []
 
-    init(store: ShortcutStore, applicationID: String, sheetID: String? = nil) {
+    init(
+        store: ShortcutStore,
+        applicationID: String,
+        sheetID: String? = nil,
+        recentSearchStore: RecentSearchStore? = nil
+    ) {
         self.store = store
         self.applicationID = applicationID
         self.sheetID = sheetID
+        self.recentSearchStore = recentSearchStore ?? .shared
     }
 
     /// Saved shortcuts, plus the unsaved new row, with the row being edited replaced by its working copy.
@@ -107,9 +121,11 @@ final class ShortcutListModel: ObservableObject {
 
     func setApplication(_ id: String) {
         guard id != applicationID else { return }
+        recentSearchStore.record(query: searchText, for: applicationID)
         finishEditing()
         clearSearch()
         applicationID = id
+        historySession = SearchHistorySession(applicationID: id, recentStore: recentSearchStore)
         selection = []
         cursorID = nil
         anchorID = nil
@@ -331,12 +347,16 @@ final class ShortcutListModel: ObservableObject {
         }
     }
 
-    /// Keys typed into the search field: suggestion navigation, Esc and Backspace-to-remove-chip.
+    /// Keys typed into the search field: suggestion navigation, history preview, Esc and Backspace-to-remove-chip.
     func handleSearchKey(keyCode: UInt16, flags: NSEvent.ModifierFlags) -> Bool {
         let flags = flags.intersection([.command, .control, .option, .shift])
         guard flags.isEmpty else { return false }
         switch keyCode {
         case 53:
+            if let restored = historySession.handleEsc() {
+                searchText = restored
+                return true
+            }
             if searchSuggestionIndex != nil {
                 searchSuggestionIndex = nil
             } else {
@@ -345,20 +365,42 @@ final class ShortcutListModel: ObservableObject {
             }
             return true
         case 36, 76:
-            let items = searchSuggestions
-            guard let index = searchSuggestionIndex, items.indices.contains(index) else { return false }
-            addSearchTag(items[index])
-            return true
-        case 125, 126:
-            let count = searchSuggestions.count
-            guard count > 0 else { return false }
-            let delta = keyCode == 125 ? 1 : -1
-            if let current = searchSuggestionIndex {
-                searchSuggestionIndex = (current + delta + count) % count
-            } else {
-                searchSuggestionIndex = delta > 0 ? 0 : count - 1
+            if let applied = historySession.handleEnter() {
+                searchText = applied
+                return true
             }
-            return true
+            let items = searchSuggestions
+            if let index = searchSuggestionIndex, items.indices.contains(index) {
+                addSearchTag(items[index])
+                return true
+            }
+            recentSearchStore.record(query: searchText, for: applicationID)
+            return false
+        case 125, 126:
+            if searchSuggestions.isEmpty {
+                if keyCode == 126 {
+                    if let preview = historySession.handleUp(currentText: searchText) {
+                        searchText = preview
+                        return true
+                    }
+                } else {
+                    if let preview = historySession.handleDown() {
+                        searchText = preview
+                        return true
+                    }
+                }
+                return false
+            } else {
+                let count = searchSuggestions.count
+                guard count > 0 else { return false }
+                let delta = keyCode == 125 ? 1 : -1
+                if let current = searchSuggestionIndex {
+                    searchSuggestionIndex = (current + delta + count) % count
+                } else {
+                    searchSuggestionIndex = delta > 0 ? 0 : count - 1
+                }
+                return true
+            }
         case 51:
             guard searchText.isEmpty else { return false }
             if !searchKeys.isEmpty {

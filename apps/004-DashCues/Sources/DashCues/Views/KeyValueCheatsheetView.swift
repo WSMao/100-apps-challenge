@@ -12,11 +12,18 @@ struct KeyValueCheatsheetView: View {
     var isReadOnly = false
     var editSession: KeyValueEditSession?
     var navigation: TableKeyboardNavigation? = nil
+    var recentSearchStore: RecentSearchStore? = nil
     var onSearchFocusChanged: (Bool) -> Void = { _ in }
     var onJumpToDashboard: ((KeyValueSearchResult) -> Void)?
 
     @FocusState private var searchFocused: Bool
+    @State private var historySession: SearchHistorySession?
+    @State private var searchKeyMonitor: Any?
     @State private var nameEditor: CheatsheetNameRequest?
+
+    private var activeRecentSearchStore: RecentSearchStore {
+        recentSearchStore ?? .shared
+    }
     @State private var entryPendingDelete: KeyValueEntry?
     @State private var cheatsheetPendingDelete: KeyValueCheatsheet?
     @State private var expandedEntryIDs = Set<String>()
@@ -69,16 +76,56 @@ struct KeyValueCheatsheetView: View {
         }
         .accessibilityIdentifier(isReadOnly ? "key-value.read-only" : "key-value.management")
         .onAppear {
+            historySession = SearchHistorySession(applicationID: applicationID, recentStore: activeRecentSearchStore)
             selectFirstCheatsheetIfNeeded()
             followPendingJump()
+            if searchKeyMonitor == nil {
+                searchKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                    guard searchFocused, let session = historySession else { return event }
+                    if event.keyCode == 126 { // Up
+                        if let preview = session.handleUp(currentText: searchText) {
+                            searchText = preview
+                            return nil
+                        }
+                    } else if event.keyCode == 125 { // Down
+                        if let preview = session.handleDown() {
+                            searchText = preview
+                            return nil
+                        }
+                    } else if event.keyCode == 53 { // Esc
+                        if let restored = session.handleEsc() {
+                            searchText = restored
+                            return nil
+                        }
+                    } else if event.keyCode == 36 || event.keyCode == 76 { // Enter
+                        if let chosen = session.handleEnter() {
+                            searchText = chosen
+                            return nil
+                        }
+                    }
+                    return event
+                }
+            }
         }
-        .onChange(of: applicationID) { _ in
+        .onChange(of: applicationID) { newAppID in
+            historySession = SearchHistorySession(applicationID: newAppID, recentStore: activeRecentSearchStore)
             selectFirstCheatsheetIfNeeded()
             followPendingJump()
         }
         .onChange(of: contentNavigation.pendingJump) { _ in followPendingJump() }
-        .onChange(of: searchFocused) { onSearchFocusChanged($0) }
-        .onDisappear { onSearchFocusChanged(false) }
+        .onChange(of: searchFocused) { focused in
+            if !focused {
+                activeRecentSearchStore.record(query: searchText, for: applicationID)
+            }
+            onSearchFocusChanged(focused)
+        }
+        .onDisappear {
+            if let searchKeyMonitor {
+                NSEvent.removeMonitor(searchKeyMonitor)
+                self.searchKeyMonitor = nil
+            }
+            onSearchFocusChanged(false)
+        }
         .onChange(of: selectedCheatsheetID) { _ in
             searchText = ""
             if let editSession, editSession.isEditing { editSession.cancel() }
@@ -163,6 +210,13 @@ struct KeyValueCheatsheetView: View {
             TextField("搜尋 Key 或 Value", text: $searchText)
                 .textFieldStyle(.roundedBorder)
                 .focused($searchFocused)
+                .onSubmit {
+                    if let session = historySession, let applied = session.handleEnter() {
+                        searchText = applied
+                    } else {
+                        activeRecentSearchStore.record(query: searchText, for: applicationID)
+                    }
+                }
                 .accessibilityIdentifier("key-value.search")
                 .frame(maxWidth: isReadOnly ? 180 : 240)
 
@@ -308,6 +362,7 @@ struct KeyValueCheatsheetView: View {
     }
 
     private func jump(to result: KeyValueSearchResult) {
+        activeRecentSearchStore.record(query: searchText, for: applicationID)
         contentNavigation.selectCheatsheet(result.cheatsheetID, for: applicationID)
         pendingScrollEntryID = result.entry.id
         searchText = ""
@@ -319,6 +374,7 @@ struct KeyValueCheatsheetView: View {
               cheatsheets.contains(where: { sheet in
                   sheet.id == jump.cheatsheetID && sheet.entries.contains { $0.id == jump.entryID }
               }) else { return }
+        activeRecentSearchStore.record(query: searchText, for: applicationID)
         contentNavigation.selectCheatsheet(jump.cheatsheetID, for: applicationID)
         pendingScrollEntryID = jump.entryID
         searchText = ""
