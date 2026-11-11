@@ -43,6 +43,20 @@ final class SharedContentNavigation: ObservableObject {
         return availableIDs.first
     }
 
+    /// The sheet shown in the dashboard: the stored selection, else the first sheet of the current content type, else the first sheet.
+    func selectedSheet(for applicationID: String, in sheets: [AppSheet]) -> AppSheet? {
+        if let id = lastSelectedCheatsheetIDs[applicationID], let sheet = sheets.first(where: { $0.id == id }) {
+            return sheet
+        }
+        let type = selectedContentType
+        return sheets.first { $0.kind == (type == .shortcuts ? .shortcuts : .keyValue) } ?? sheets.first
+    }
+
+    func selectSheet(_ sheet: AppSheet?, for applicationID: String) {
+        selectCheatsheet(sheet?.id, for: applicationID)
+        if let sheet { selectContentType(sheet.kind == .shortcuts ? .shortcuts : .keyValue) }
+    }
+
     func selectCheatsheet(_ cheatsheetID: String?, for applicationID: String) {
         guard lastSelectedCheatsheetIDs[applicationID] != cheatsheetID else { return }
         if let cheatsheetID {

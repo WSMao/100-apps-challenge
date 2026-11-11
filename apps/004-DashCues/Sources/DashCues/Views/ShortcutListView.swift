@@ -8,11 +8,11 @@ struct ShortcutListView: View {
 
     @StateObject private var model: ShortcutListModel
 
-    init(store: ShortcutStore, applicationID: String, onError: @escaping (String) -> Void) {
+    init(store: ShortcutStore, applicationID: String, sheetID: String? = nil, onError: @escaping (String) -> Void) {
         self.store = store
         self.applicationID = applicationID
         self.onError = onError
-        _model = StateObject(wrappedValue: ShortcutListModel(store: store, applicationID: applicationID))
+        _model = StateObject(wrappedValue: ShortcutListModel(store: store, applicationID: applicationID, sheetID: sheetID))
     }
 
     var body: some View {

@@ -126,7 +126,8 @@ final class ShortcutStore: ObservableObject {
         bundleIdentifier: String,
         symbolName: String,
         customIconData: Data?? = .none,
-        tagEdits: [TagEdit]? = nil
+        tagEdits: [TagEdit]? = nil,
+        sheetEdits: [SheetEdit]? = nil
     ) throws {
         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ShortcutStoreError.invalidApplication
@@ -141,7 +142,10 @@ final class ShortcutStore: ObservableObject {
         }) {
             throw ShortcutStoreError.duplicateApplication
         }
+        guard let existing = application(id: id) else { throw ShortcutStoreError.applicationNotFound }
+        let editedSheets = try sheetEdits.map { try Self.applying($0, to: existing.sheets) }
         try updateApplication(id) {
+            if let editedSheets { $0.sheets = editedSheets }
             $0.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
             $0.bundleIdentifier = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
             $0.symbolName = symbolName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "app" : symbolName
@@ -152,13 +156,43 @@ final class ShortcutStore: ObservableObject {
     }
 
     func deleteApplication(id: String) throws {
-        guard let app = application(id: id) else {
+        guard application(id: id) != nil else {
             throw ShortcutStoreError.applicationNotFound
         }
-        guard !app.isBuiltIn else {
-            throw ShortcutStoreError.builtInApplicationCannotBeDeleted
-        }
         try commit(applications: applications.filter { $0.id != id }, hotKey: hotKey)
+    }
+
+    @discardableResult
+    func createSheet(kind: SheetKind, name: String, applicationID: String) throws -> String {
+        let cleanedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let app = application(id: applicationID) else { throw ShortcutStoreError.applicationNotFound }
+        if let error = AppSheet.nameError(cleanedName, excludingID: nil, among: app.sheets.map { ($0.id, $0.name) }) {
+            throw error
+        }
+        let sheet: AppSheet = switch kind {
+        case .shortcuts: .shortcuts(ShortcutSheet(name: cleanedName))
+        case .keyValue: .keyValue(KeyValueCheatsheet(name: cleanedName))
+        }
+        try updateApplication(applicationID) { $0.sheets.append(sheet) }
+        return sheet.id
+    }
+
+    /// Sheets missing from `edits` are deleted; the rest take the edits' order and names. Types never change.
+    private static func applying(_ edits: [SheetEdit], to sheets: [AppSheet]) throws -> [AppSheet] {
+        let byID = Dictionary(uniqueKeysWithValues: sheets.map { ($0.id, $0) })
+        var seen = Set<String>()
+        var result: [AppSheet] = []
+        for edit in edits {
+            guard let sheet = byID[edit.id], seen.insert(edit.id).inserted else {
+                throw ShortcutStoreError.cheatsheetNotFound
+            }
+            let name = edit.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let error = AppSheet.nameError(name, excludingID: edit.id, among: edits.map { ($0.id, $0.name) }) {
+                throw error
+            }
+            result.append(sheet.renamed(name))
+        }
+        return result
     }
 
     func saveShortcut(_ shortcut: ShortcutItem, applicationID: String, sheetID: String? = nil) throws {
@@ -174,15 +208,15 @@ final class ShortcutStore: ObservableObject {
         }
     }
 
-    func deleteShortcut(id: String, applicationID: String) throws {
+    func deleteShortcut(id: String, applicationID: String, sheetID: String? = nil) throws {
         try updateApplication(applicationID) { app in
-            app.deleteShortcut(id: id)
+            app.deleteShortcut(id: id, sheetID: sheetID)
         }
     }
 
-    func deleteShortcuts(ids: Set<String>, applicationID: String) throws {
+    func deleteShortcuts(ids: Set<String>, applicationID: String, sheetID: String? = nil) throws {
         try updateApplication(applicationID) { app in
-            app.deleteShortcuts(ids: ids)
+            app.deleteShortcuts(ids: ids, sheetID: sheetID)
         }
     }
 

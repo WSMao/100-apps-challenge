@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 struct ApplicationEditorSheet: View {
     let existingApplication: ShortcutApplication?
-    let onSave: (String, String, String, Data?, [TagEdit]?) -> Void
+    let onSave: (String, String, String, Data?, [TagEdit]?, [SheetEdit]?) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
@@ -12,6 +12,18 @@ struct ApplicationEditorSheet: View {
     private let symbolName: String
     @State private var customIconData: Data?
     @State private var tagRows: [TagRow]
+    @State private var sheetRows: [SheetRow]
+    @State private var editingSheetID: String?
+    @State private var draftSheetName = ""
+    @State private var sheetNameError: String?
+    @State private var sheetPendingDelete: SheetRow?
+    @FocusState private var focusedSheetID: String?
+
+    private struct SheetRow: Identifiable, Equatable {
+        let id: String
+        let kind: SheetKind
+        var name: String
+    }
 
     private struct TagRow: Identifiable {
         let id = UUID()
@@ -21,7 +33,7 @@ struct ApplicationEditorSheet: View {
 
     init(
         existingApplication: ShortcutApplication?,
-        onSave: @escaping (String, String, String, Data?, [TagEdit]?) -> Void
+        onSave: @escaping (String, String, String, Data?, [TagEdit]?, [SheetEdit]?) -> Void
     ) {
         self.existingApplication = existingApplication
         self.onSave = onSave
@@ -30,6 +42,7 @@ struct ApplicationEditorSheet: View {
         symbolName = existingApplication?.symbolName ?? "app"
         _customIconData = State(initialValue: existingApplication?.customIconData)
         _tagRows = State(initialValue: (existingApplication?.tags ?? []).map { TagRow(original: $0, name: $0) })
+        _sheetRows = State(initialValue: (existingApplication?.sheets ?? []).map { SheetRow(id: $0.id, kind: $0.kind, name: $0.name) })
     }
 
     var body: some View {
@@ -61,22 +74,139 @@ struct ApplicationEditorSheet: View {
 
             TextField("App 名稱", text: $name)
 
-            if existingApplication != nil { tagSection }
+            if existingApplication != nil {
+                sheetSection
+                tagSection
+            }
         }
         .padding()
-        .frame(width: 380)
+        .frame(width: 440)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("取消") { dismiss() }
+                    .accessibilityIdentifier("app-editor.cancel")
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("儲存") {
-                    onSave(name, bundleIdentifier, symbolName, customIconData, existingApplication == nil ? nil : tagRows.map { TagEdit(original: $0.original, name: $0.name) })
+                    guard commitSheetRename() else { return }
+                    let isEditing = existingApplication != nil
+                    onSave(
+                        name, bundleIdentifier, symbolName, customIconData,
+                        isEditing ? tagRows.map { TagEdit(original: $0.original, name: $0.name) } : nil,
+                        isEditing ? sheetRows.map { SheetEdit(id: $0.id, name: $0.name) } : nil
+                    )
                     dismiss()
                 }
+                .accessibilityIdentifier("app-editor.save")
                 .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !tagsAreValid)
             }
         }
+    }
+
+    private var sheetSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("工作表").font(.headline)
+            if sheetRows.isEmpty {
+                Text("此 App 沒有工作表。").font(.caption).foregroundStyle(.secondary)
+            } else {
+                List {
+                    ForEach(sheetRows) { row in
+                        sheetRowView(row)
+                    }
+                    .onMove { sheetRows.move(fromOffsets: $0, toOffset: $1) }
+                }
+                .frame(height: min(CGFloat(sheetRows.count) * 30 + 12, 180))
+                .accessibilityIdentifier("app-editor.sheet-list")
+            }
+            if let sheetNameError {
+                Text(sheetNameError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("app-editor.sheet-error")
+            }
+            Text("雙擊名稱可重新命名，拖曳可調整順序；變更會在按下「儲存」後套用。")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .confirmationDialog(
+            "刪除工作表？",
+            isPresented: Binding(
+                get: { sheetPendingDelete != nil },
+                set: { if !$0 { sheetPendingDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("刪除", role: .destructive) {
+                if let sheetPendingDelete { sheetRows.removeAll { $0.id == sheetPendingDelete.id } }
+                sheetPendingDelete = nil
+            }
+            .accessibilityIdentifier("app-editor.confirm-delete-sheet")
+            Button("取消", role: .cancel) { sheetPendingDelete = nil }
+        } message: {
+            Text("「\(sheetPendingDelete?.name ?? "")」的所有內容會在儲存後永久刪除。")
+        }
+    }
+
+    private func sheetRowView(_ row: SheetRow) -> some View {
+        HStack {
+            Image(systemName: row.kind == .shortcuts ? "keyboard" : "list.bullet.rectangle")
+                .foregroundStyle(.secondary)
+            if editingSheetID == row.id {
+                TextField("工作表名稱", text: $draftSheetName)
+                    .focused($focusedSheetID, equals: row.id)
+                    .onSubmit { _ = commitSheetRename() }
+                    .onExitCommand { cancelSheetRename() }
+                    .onChange(of: focusedSheetID) { focused in
+                        if focused != row.id, editingSheetID == row.id, !commitSheetRename() {
+                            focusedSheetID = row.id
+                        }
+                    }
+                    .accessibilityIdentifier("app-editor.sheet-name")
+            } else {
+                Text(row.name)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) { beginSheetRename(row) }
+                    .accessibilityIdentifier("app-editor.sheet.\(row.id)")
+            }
+            Spacer(minLength: 0)
+            Button {
+                if commitSheetRename() { sheetPendingDelete = row }
+            } label: {
+                Image(systemName: "trash").foregroundStyle(.red)
+            }
+            .buttonStyle(.borderless)
+            .help("刪除工作表")
+            .accessibilityIdentifier("app-editor.delete-sheet.\(row.id)")
+        }
+    }
+
+    private func beginSheetRename(_ row: SheetRow) {
+        guard commitSheetRename() else { return }
+        draftSheetName = row.name
+        sheetNameError = nil
+        editingSheetID = row.id
+        focusedSheetID = row.id
+    }
+
+    private func cancelSheetRename() {
+        editingSheetID = nil
+        sheetNameError = nil
+    }
+
+    /// Applies the in-progress rename; returns false (staying in edit mode) when the name is invalid.
+    private func commitSheetRename() -> Bool {
+        guard let id = editingSheetID else { return true }
+        if let error = AppSheet.nameError(draftSheetName, excludingID: id, among: sheetRows.map { ($0.id, $0.name) }) {
+            sheetNameError = error.localizedDescription
+            return false
+        }
+        if let index = sheetRows.firstIndex(where: { $0.id == id }) {
+            sheetRows[index].name = draftSheetName.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        editingSheetID = nil
+        sheetNameError = nil
+        return true
     }
 
     private var tagsAreValid: Bool {

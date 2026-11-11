@@ -5,6 +5,7 @@ struct KeyValueCheatsheetView: View {
     @ObservedObject var store: ShortcutStore
     @ObservedObject var contentNavigation: SharedContentNavigation
     let applicationID: String
+    var sheetID: String? = nil
     let onError: (String) -> Void
     let onCopySuccess: (String) -> Void
     let clipboardWriter: (String) -> Bool
@@ -31,7 +32,8 @@ struct KeyValueCheatsheetView: View {
     }
 
     private var selectedCheatsheetID: String? {
-        contentNavigation.selectedCheatsheetID(
+        if let sheetID { return sheetID }
+        return contentNavigation.selectedCheatsheetID(
             for: applicationID,
             availableIDs: cheatsheets.map(\.id)
         )
@@ -141,18 +143,20 @@ struct KeyValueCheatsheetView: View {
 
     private var cheatsheetToolbar: some View {
         HStack(spacing: 8) {
-            Picker("Key-Value 清單", selection: Binding(
-                get: { selectedCheatsheetID },
-                set: { newID in leaveEditing { contentNavigation.selectCheatsheet(newID, for: applicationID) } }
-            )) {
-                ForEach(cheatsheets) { cheatsheet in
-                    Text(cheatsheet.name).tag(Optional(cheatsheet.id))
+            if isReadOnly {
+                Picker("Key-Value 清單", selection: Binding(
+                    get: { selectedCheatsheetID },
+                    set: { newID in leaveEditing { contentNavigation.selectCheatsheet(newID, for: applicationID) } }
+                )) {
+                    ForEach(cheatsheets) { cheatsheet in
+                        Text(cheatsheet.name).tag(Optional(cheatsheet.id))
+                    }
                 }
+                .labelsHidden()
+                .accessibilityIdentifier("key-value.cheatsheet-selector")
+                .accessibilityValue(selectedCheatsheet?.name ?? "")
+                .frame(maxWidth: 150)
             }
-            .labelsHidden()
-            .accessibilityIdentifier("key-value.cheatsheet-selector")
-            .accessibilityValue(selectedCheatsheet?.name ?? "")
-            .frame(maxWidth: isReadOnly ? 150 : 240)
 
             TextField("搜尋 Key 或 Value", text: $searchText)
                 .textFieldStyle(.roundedBorder)
@@ -160,23 +164,6 @@ struct KeyValueCheatsheetView: View {
                 .accessibilityIdentifier("key-value.search")
                 .frame(maxWidth: isReadOnly ? 180 : 240)
 
-            if !isReadOnly {
-                Button("新增清單", action: createCheatsheet)
-                    .accessibilityIdentifier("key-value.add-cheatsheet")
-                Button("重新命名") {
-                    guard let selectedCheatsheet else { return }
-                    nameEditor = CheatsheetNameRequest(
-                        title: "重新命名清單",
-                        initialName: selectedCheatsheet.name,
-                        cheatsheetID: selectedCheatsheet.id
-                    )
-                }
-                .accessibilityIdentifier("key-value.rename-cheatsheet")
-                Button("刪除清單", role: .destructive) {
-                    cheatsheetPendingDelete = selectedCheatsheet
-                }
-                .accessibilityIdentifier("key-value.delete-cheatsheet")
-            }
             Spacer()
             if !isReadOnly {
                 Button(action: addEntry) {
