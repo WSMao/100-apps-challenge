@@ -19,6 +19,8 @@ struct DashboardView: View {
     @State private var sheetCreateApplicationID: String?
     @State private var errorMessage: String?
     @State private var successMessage: String?
+    @State private var tableNav: TableKeyboardNavigation?
+    @State private var keyMonitor: Any?
 
     private var selectedApplication: ShortcutApplication? {
         guard let selectedApplicationID else { return nil }
@@ -230,7 +232,32 @@ struct DashboardView: View {
         }
         .onAppear {
             selectedApplicationID = selectedApplicationID ?? store.applications.first?.id
+            if let id = selectedApplicationID {
+                updateTableNav(for: id)
+            }
             followPendingJump()
+            if keyMonitor == nil {
+                keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                    if let tableNav, tableNav.consumes(keyDown: event) {
+                        if let selectedSheet = tableNav.currentSheet, let appID = selectedApplicationID {
+                            contentNavigation.selectSheet(selectedSheet, for: appID)
+                        }
+                        return nil
+                    }
+                    return event
+                }
+            }
+        }
+        .onDisappear {
+            if let keyMonitor {
+                NSEvent.removeMonitor(keyMonitor)
+                self.keyMonitor = nil
+            }
+        }
+        .onChange(of: selectedApplicationID) { newID in
+            if let newID {
+                updateTableNav(for: newID)
+            }
         }
         .onChange(of: contentNavigation.pendingJump) { _ in followPendingJump() }
         .confirmationDialog(
@@ -310,7 +337,8 @@ struct DashboardView: View {
                         },
                         onCopySuccess: { successMessage = $0 },
                         clipboardWriter: clipboardWriter,
-                        editSession: editSession
+                        editSession: editSession,
+                        navigation: tableNav
                     )
                     .id(currentSheet?.id)
                 }
@@ -366,22 +394,57 @@ struct DashboardView: View {
 
     private func contentTabs(for application: ShortcutApplication) -> some View {
         let selectedID = contentNavigation.selectedSheet(for: application.id, in: application.sheets)?.id
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(application.sheets) { sheet in
-                    sheetTab(
-                        title: sheet.name,
-                        systemImage: sheet.kind == .shortcuts ? "keyboard" : "list.bullet.rectangle",
-                        isSelected: sheet.id == selectedID,
-                        identifier: "dashboard.sheet-tab.\(sheet.kind == .shortcuts ? "shortcuts" : "key-value").\(sheet.id)"
-                    ) {
-                        editSession.requestLeave {
-                            contentNavigation.selectSheet(sheet, for: application.id)
-                        }
+        let overflow = TabOverflowLayout(sheets: application.sheets, maxVisible: 4, selectedID: selectedID)
+        return HStack(spacing: 8) {
+            ForEach(overflow.visibleSheets) { sheet in
+                sheetTab(
+                    title: sheet.name,
+                    systemImage: sheet.kind == .shortcuts ? "keyboard" : "list.bullet.rectangle",
+                    isSelected: sheet.id == selectedID,
+                    identifier: "dashboard.sheet-tab.\(sheet.kind == .shortcuts ? "shortcuts" : "key-value").\(sheet.id)"
+                ) {
+                    editSession.requestLeave {
+                        contentNavigation.selectSheet(sheet, for: application.id)
+                        tableNav?.selectSheet(id: sheet.id)
                     }
                 }
             }
+            if !overflow.overflowSheets.isEmpty {
+                Menu {
+                    ForEach(overflow.overflowSheets) { sheet in
+                        Button(sheet.name) {
+                            editSession.requestLeave {
+                                contentNavigation.selectSheet(sheet, for: application.id)
+                                tableNav?.selectSheet(id: sheet.id)
+                            }
+                        }
+                        .accessibilityIdentifier("dashboard.overflow-sheet.\(sheet.id)")
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(Color(nsColor: .controlBackgroundColor), in: Capsule())
+                        .overlay(Capsule().stroke(Color(nsColor: .separatorColor)))
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .accessibilityIdentifier("dashboard.tab-overflow-menu")
+            }
         }
+    }
+
+    private func updateTableNav(for appID: String) {
+        let nav = TableKeyboardNavigation(
+            store: store,
+            applicationID: appID,
+            editSession: editSession,
+            clipboardWriter: clipboardWriter
+        )
+        if let current = contentNavigation.selectedSheet(for: appID, in: store.application(id: appID)?.sheets ?? []) {
+            nav.selectedSheetID = current.id
+        }
+        tableNav = nav
     }
 
     private func sheetTab(
