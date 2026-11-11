@@ -101,6 +101,7 @@ enum ShortcutStoreSelfTest {
         )
 
         try runLegacySnapshotCheck(in: directory)
+        try runSheetMigrationChecks(in: directory)
 
         print("DashCues self-test passed.")
     }
@@ -255,6 +256,95 @@ enum ShortcutStoreSelfTest {
             store.application(id: "legacy-app")?.keyValueCheatsheets.isEmpty == true,
             "Legacy app did not initialize with an empty Key-Value collection."
         )
+    }
+
+    @MainActor
+    private static func runSheetMigrationChecks(in directory: URL) throws {
+        func legacyJSON(keyValueSheetNames: [String]) -> Data {
+            let sheets = keyValueSheetNames.enumerated().map { index, name in
+                """
+                {"id": "kv-\(index)", "name": "\(name)",
+                 "entries": [{"id": "e-\(index)", "key": "K\(index)", "value": "V\(index)"}]}
+                """
+            }.joined(separator: ",")
+            return Data(
+                """
+                {
+                  "schemaVersion": 1,
+                  "applications": [{
+                    "id": "old-app", "name": "Old App", "bundleIdentifier": "", "symbolName": "app",
+                    "isBuiltIn": false, "isPinned": false, "tags": ["Nav"],
+                    "shortcuts": [{"id": "s1", "title": "Open", "keys": ["⌘", "O"], "tags": ["Nav"], "notes": "n"}],
+                    "keyValueCheatsheets": [\(sheets)]
+                  }],
+                  "hotKey": {"keyCode": 40, "modifiers": 6400}
+                }
+                """.utf8
+            )
+        }
+
+        let url = directory.appendingPathComponent("migrate.json")
+        try legacyJSON(keyValueSheetNames: ["Commands", "Prompts"]).write(to: url)
+        let store = try ShortcutStore(storageURL: url)
+        guard let app = store.application(id: "old-app") else {
+            throw ShortcutStoreSelfTestError.failed("Migrated app is missing.")
+        }
+        try check(
+            app.sheets.map(\.name) == ["快捷鍵", "Commands", "Prompts"]
+                && app.sheets.map(\.kind) == [.shortcuts, .keyValue, .keyValue],
+            "Migration did not put the shortcut sheet first and keep Key-Value sheet order."
+        )
+        try check(
+            app.sheets.dropFirst().map(\.id) == ["kv-0", "kv-1"]
+                && app.keyValueCheatsheets.first?.entries.first?.value == "V0",
+            "Migration changed Key-Value sheet identities or contents."
+        )
+        try check(
+            app.shortcuts.map(\.id) == ["s1"] && app.tags == ["Nav"],
+            "Migration lost shortcuts or app tags."
+        )
+
+        let reopened = try ShortcutStore(storageURL: url)
+        try check(
+            reopened.application(id: "old-app")?.sheets == app.sheets,
+            "Migrated sheets did not persist or reopen identically."
+        )
+
+        try legacyJSON(keyValueSheetNames: ["快捷鍵", "快捷鍵 2"]).write(to: url)
+        let collided = try ShortcutStore(storageURL: url).application(id: "old-app")
+        try check(
+            collided?.sheets.map(\.name) == ["快捷鍵 3", "快捷鍵", "快捷鍵 2"],
+            "Shortcut sheet name collisions were not resolved by incrementing."
+        )
+
+        let oldBackup = directory.appendingPathComponent("old-backup.json")
+        try legacyJSON(keyValueSheetNames: ["Commands"]).write(to: oldBackup)
+        let target = try ShortcutStore(storageURL: directory.appendingPathComponent("restore-target.json"))
+        try target.restoreBackup(from: oldBackup)
+        try check(
+            target.application(id: "old-app")?.sheets.map(\.name) == ["快捷鍵", "Commands"],
+            "Older backup did not restore into sheets."
+        )
+
+        let newBackup = directory.appendingPathComponent("new-backup.json")
+        try target.exportBackup(to: newBackup)
+        let roundTrip = try ShortcutStore(storageURL: directory.appendingPathComponent("round-trip.json"))
+        try roundTrip.restoreBackup(from: newBackup)
+        try check(
+            roundTrip.application(id: "old-app")?.sheets == target.application(id: "old-app")?.sheets,
+            "New backup did not round trip sheets."
+        )
+
+        let freshID = try roundTrip.addApplication(name: "Fresh", bundleIdentifier: "", symbolName: "app")
+        let fresh = roundTrip.application(id: freshID)
+        try check(
+            fresh?.sheets.map(\.name) == ["快捷鍵"] && fresh?.sheets.first?.kind == .shortcuts
+                && fresh?.shortcuts.isEmpty == true,
+            "New apps should start with one empty 快捷鍵 sheet."
+        )
+        try expectError(ShortcutStoreError.duplicateCheatsheetName) {
+            _ = try roundTrip.createKeyValueCheatsheet(name: "快捷鍵", applicationID: freshID)
+        }
     }
 
     @MainActor
