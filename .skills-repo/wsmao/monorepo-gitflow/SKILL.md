@@ -24,7 +24,7 @@ description: >-
 
 3. **專案分支**：
   - 專案主分支(`<project-name>`)：各專案的主要分支，僅用於整合「專案開發分支」完成的功能與修復，保持穩定狀態，只能由開發者進行 merge 操作。任何新專案的起點，需以 `base` 分支為基礎建立對應的專案主分支。
-  - 專案開發分支：每個專案可依需求建立開發分支，格式 `<type>/<project-name>/#<ticket-id>-<description>`，例如 `feat/my-app/#001-addlogin`。完成後發送 Pull Request，經審核後 merge 回專案主分支，禁止直接合併回 `main` 分支。當 `base` 分支有更新時，開發分支需及時執行 `git merge base` 同步最新規範。
+  - 專案開發分支：每個專案可依需求建立開發分支，格式 `<type>/<project-name>/#<issue>-<description>`，例如 `feat/my-app/#7-addlogin`。完成後發送 Pull Request，經審核後 merge 回專案主分支，禁止直接合併回 `main` 分支。當 `base` 分支有更新時，開發分支需及時執行 `git merge base` 同步最新規範。
 
 ## 2. 統一採用 Conventional Commit message 格式，標準結構如：
 ```text
