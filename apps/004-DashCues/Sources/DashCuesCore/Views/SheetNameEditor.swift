@@ -14,12 +14,21 @@ struct SheetNameEditor: View {
     @State private var name = ""
     @State private var errorMessage: String?
 
+    private func submit() {
+        if let error = onSave(name) {
+            errorMessage = error
+        } else {
+            dismiss()
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(kind == .shortcuts ? "新增快捷鍵工作表" : "新增 Key-Value 工作表").font(.headline)
             TextField("工作表名稱", text: $name)
                 .accessibilityIdentifier("dashboard.sheet-name")
                 .onChange(of: name) { _ in errorMessage = nil }
+                .onSubmit { submit() }
             if let errorMessage {
                 Text(errorMessage)
                     .font(.caption)
@@ -30,11 +39,7 @@ struct SheetNameEditor: View {
                 Spacer()
                 Button("取消") { dismiss() }
                 Button("建立") {
-                    if let error = onSave(name) {
-                        errorMessage = error
-                    } else {
-                        dismiss()
-                    }
+                    submit()
                 }
                 .keyboardShortcut(.defaultAction)
                 .accessibilityIdentifier("dashboard.save-sheet-name")

@@ -8,6 +8,8 @@ if [[ -d "/Applications/Xcode.app/Contents/Developer" ]]; then
   export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
 fi
 
+pkill -x DashCues 2>/dev/null || true
+
 xcodebuild -project DashCues.xcodeproj \
   -scheme DashCues \
   -destination 'platform=macOS' \

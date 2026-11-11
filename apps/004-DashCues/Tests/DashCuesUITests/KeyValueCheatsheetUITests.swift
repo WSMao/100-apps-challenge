@@ -440,8 +440,13 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         }
         let nameField = app.textFields["dashboard.sheet-name"]
         XCTAssertTrue(nameField.waitForExistence(timeout: 5))
+        nameField.click()
         nameField.typeText(name)
-        element("dashboard.save-sheet-name").click()
+        nameField.typeKey(.return, modifierFlags: [])
+        let saveButton = element("dashboard.save-sheet-name")
+        if saveButton.exists {
+            saveButton.click()
+        }
         let createdTab = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch
         XCTAssertTrue(createdTab.waitForExistence(timeout: 5))
     }
@@ -457,7 +462,13 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         }
         typeMultiline(key, into: "key-value.entry-key")
         typeMultiline(value, into: "key-value.entry-value")
-        app.typeKey(.return, modifierFlags: [])
+        let valueEditor = element("key-value.entry-value")
+        if valueEditor.exists {
+            valueEditor.typeKey(.return, modifierFlags: [])
+        }
+        if valueEditor.exists {
+            valueEditor.typeKey(.return, modifierFlags: [])
+        }
         XCTAssertTrue(keyCells.firstMatch.waitForExistence(timeout: 5))
     }
 

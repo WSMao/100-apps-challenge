@@ -61,13 +61,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 try manager.register(store.hotKey)
             } catch {
-                showError(error, title: "全域快捷鍵無法使用")
+                if environment["DASHCUES_UI_TESTING"] != "1" {
+                    showError(error, title: "全域快捷鍵無法使用")
+                }
             }
             if environment["DASHCUES_UI_TESTING"] == "1" {
-                DispatchQueue.main.async { self.openDashboard() }
+                openDashboard()
             }
         } catch {
-            showError(error, title: "DashCues 啟動失敗")
+            if ProcessInfo.processInfo.environment["DASHCUES_UI_TESTING"] != "1" {
+                showError(error, title: "DashCues 啟動失敗")
+            }
             NSApp.terminate(nil)
         }
     }
@@ -91,7 +95,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
         dashboardWindowController?.showWindow(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        dashboardWindowController?.window?.makeKeyAndOrderFront(nil)
+        NSRunningApplication.current.activate(options: .activateIgnoringOtherApps)
     }
 
     private func updateHotKey(_ configuration: HotKeyConfiguration) throws {
