@@ -10,11 +10,20 @@ final class KeyValueEditSession: ObservableObject {
 
     @Published private(set) var editingEntryID: String?
     @Published private(set) var focusColumn: Column = .key
+    @Published private(set) var focusRequestToken = 0
     @Published private(set) var isNewEntry = false
     @Published private(set) var validationMessage: String?
     @Published private(set) var isPromptingToLeave = false
-    @Published var draftKey = "" { didSet { validationMessage = nil } }
-    @Published var draftValue = "" { didSet { validationMessage = nil } }
+    @Published var draftKey = "" {
+        didSet {
+            if validationMessage != nil { validationMessage = nil }
+        }
+    }
+    @Published var draftValue = "" {
+        didSet {
+            if validationMessage != nil { validationMessage = nil }
+        }
+    }
 
     private let store: ShortcutStore
     private var original = KeyValueEntry(id: "", key: "", value: "")
@@ -42,9 +51,20 @@ final class KeyValueEditSession: ObservableObject {
         )
     }
 
+    func focus(_ column: Column) {
+        focusColumn = column
+        focusRequestToken &+= 1
+    }
+
+    func syncFocusColumnFromUserInteraction(_ column: Column) {
+        if focusColumn != column {
+            focusColumn = column
+        }
+    }
+
     func begin(entry: KeyValueEntry, column: Column, cheatsheetID: String, applicationID: String) {
         if editingEntryID == entry.id {
-            focusColumn = column
+            focus(column)
             return
         }
         guard !hasUnsavedChanges else {
@@ -114,9 +134,13 @@ final class KeyValueEditSession: ObservableObject {
         pendingLeave = nil
         switch resolution {
         case .continueEditing:
+            focusRequestToken &+= 1
             return
         case .save:
-            guard save() else { return }
+            guard save() else {
+                focusRequestToken &+= 1
+                return
+            }
         case .discard:
             finish()
         }
@@ -137,6 +161,7 @@ final class KeyValueEditSession: ObservableObject {
         draftKey = entry.key
         draftValue = entry.value
         focusColumn = column
+        focusRequestToken &+= 1
         editingEntryID = entry.id
         validationMessage = nil
     }

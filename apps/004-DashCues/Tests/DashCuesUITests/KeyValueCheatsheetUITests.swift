@@ -4,18 +4,16 @@ import XCTest
 final class KeyValueCheatsheetUITests: XCTestCase {
     private var app: XCUIApplication!
     private var testDataDirectory: URL!
-    private var defaultsSuiteName: String!
 
     override func setUpWithError() throws {
         continueAfterFailure = false
         let testID = UUID().uuidString
-        defaultsSuiteName = "DashCues.UITests.\(testID)"
         testDataDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("dashcues-uitest-\(testID)", isDirectory: true)
 
         app = XCUIApplication()
         app.launchEnvironment["DASHCUES_UI_TESTING"] = "1"
-        app.launchEnvironment["DASHCUES_UI_TEST_DEFAULTS_SUITE"] = defaultsSuiteName
+        app.launchEnvironment["DASHCUES_UI_TEST_RESET_DEFAULTS"] = "1"
         app.launchEnvironment["DASHCUES_UI_TEST_STORAGE_PATH"] = testDataDirectory
             .appendingPathComponent("shortcuts.json")
             .path
@@ -25,9 +23,6 @@ final class KeyValueCheatsheetUITests: XCTestCase {
 
     override func tearDownWithError() throws {
         app?.terminate()
-        if let defaultsSuiteName {
-            UserDefaults(suiteName: defaultsSuiteName)?.removePersistentDomain(forName: defaultsSuiteName)
-        }
         if let testDataDirectory, FileManager.default.fileExists(atPath: testDataDirectory.path) {
             try FileManager.default.removeItem(at: testDataDirectory)
         }
@@ -406,6 +401,11 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'key-value.value-cell.'"))
     }
 
+    private func clickDirectly(_ element: XCUIElement) {
+        XCTAssertTrue(element.waitForExistence(timeout: 5))
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+    }
+
     /// Types text where "\n" becomes Shift-Enter, because plain Enter saves the row.
     private func typeMultiline(_ text: String, into identifier: String) {
         let editor = element(identifier)
@@ -442,10 +442,11 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         XCTAssertTrue(nameField.waitForExistence(timeout: 5))
         nameField.click()
         nameField.typeText(name)
-        nameField.typeKey(.return, modifierFlags: [])
         let saveButton = element("dashboard.save-sheet-name")
         if saveButton.exists {
             saveButton.click()
+        } else {
+            nameField.typeKey(.return, modifierFlags: [])
         }
         let createdTab = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch
         XCTAssertTrue(createdTab.waitForExistence(timeout: 5))
@@ -462,13 +463,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         }
         typeMultiline(key, into: "key-value.entry-key")
         typeMultiline(value, into: "key-value.entry-value")
-        let valueEditor = element("key-value.entry-value")
-        if valueEditor.exists {
-            valueEditor.typeKey(.return, modifierFlags: [])
-        }
-        if valueEditor.exists {
-            valueEditor.typeKey(.return, modifierFlags: [])
-        }
+        app.typeKey(.return, modifierFlags: [])
         XCTAssertTrue(keyCells.firstMatch.waitForExistence(timeout: 5))
     }
 
@@ -498,6 +493,7 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         if app.state == .runningForeground {
             app.terminate()
         }
+        app.launchEnvironment["DASHCUES_UI_TEST_RESET_DEFAULTS"] = nil
         app.launchEnvironment["DASHCUES_UI_TEST_CLIPBOARD_FAILURE"] = clipboardFailure ? "1" : nil
         app.launch()
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10))
@@ -532,6 +528,112 @@ final class KeyValueCheatsheetUITests: XCTestCase {
         keyValueTab.click()
         XCTAssertTrue(keyCells.firstMatch.waitForExistence(timeout: 5))
         XCTAssertEqual(keyValueTab.value as? String, "已選取")
+    }
+
+    func testMainWindowKeyboardNavigationAndTabOverflowJourney() throws {
+        createCheatsheet(named: "SheetTwo")
+        createCheatsheet(named: "SheetThree")
+        createCheatsheet(named: "SheetFour")
+        createCheatsheet(named: "SheetFive")
+
+        addEntry(key: "TruncKey", value: "Line 1\nLine 2 expanded")
+        addEntry(key: "ShortKey", value: "8080")
+
+        let overflowMenu = element("dashboard.tab-overflow-menu")
+        XCTAssertTrue(overflowMenu.waitForExistence(timeout: 5))
+
+        // Select first sheet ("快捷鍵") so "SheetFive" (5th sheet) moves into the overflow menu
+        shortcutSheetTab.click()
+        XCTAssertEqual(shortcutSheetTab.value as? String, "已選取")
+        let sheetFiveTab = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "SheetFive")).firstMatch
+        XCTAssertFalse(sheetFiveTab.exists)
+
+        // Selecting a hidden sheet from the overflow menu makes its tab visible on the tab bar
+        overflowMenu.click()
+        let overflowSheetFive = app.menuItems["SheetFive"]
+        XCTAssertTrue(overflowSheetFive.waitForExistence(timeout: 5))
+        overflowSheetFive.click()
+        XCTAssertTrue(sheetFiveTab.waitForExistence(timeout: 5))
+        XCTAssertEqual(sheetFiveTab.value as? String, "已選取")
+
+        // Unmodified digits 1–9 in navigation mode select sheets by full order, including hidden sheets
+        app.typeKey("1", modifierFlags: [])
+        XCTAssertEqual(shortcutSheetTab.value as? String, "已選取")
+        XCTAssertFalse(sheetFiveTab.exists)
+
+        app.typeKey("5", modifierFlags: [])
+        XCTAssertTrue(sheetFiveTab.waitForExistence(timeout: 5))
+        XCTAssertEqual(sheetFiveTab.value as? String, "已選取")
+
+        // Digits must NOT be intercepted while focused in search
+        let searchField = app.textFields["key-value.search"]
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5))
+        searchField.click()
+        searchField.typeText("12")
+        XCTAssertEqual(searchField.value as? String, "12")
+        XCTAssertEqual(sheetFiveTab.value as? String, "已選取")
+        app.typeKey("a", modifierFlags: .command)
+        app.typeKey(.delete, modifierFlags: [])
+
+        // Focus sidebar app list, then Right arrow focuses selected tab; Left/Right navigate tabs
+        element("dashboard.application.com.apple.finder").click()
+        app.typeKey(.rightArrow, modifierFlags: [])
+        let tabFocused = element("dashboard.tab-focused")
+        XCTAssertTrue(tabFocused.waitForExistence(timeout: 5))
+
+        app.typeKey(.leftArrow, modifierFlags: [])
+        let sheetFourTab = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "SheetFour")).firstMatch
+        XCTAssertTrue(sheetFourTab.waitForExistence(timeout: 5))
+        XCTAssertEqual(sheetFourTab.value as? String, "已選取")
+
+        app.typeKey(.rightArrow, modifierFlags: [])
+        XCTAssertTrue(sheetFiveTab.waitForExistence(timeout: 5))
+        XCTAssertEqual(sheetFiveTab.value as? String, "已選取")
+
+        // Down arrow from tab enters first row, first visible column (Key)
+        let firstValueCell = valueCells.element(boundBy: 0)
+        XCTAssertTrue(firstValueCell.waitForExistence(timeout: 5))
+        let collapsedHeight = firstValueCell.frame.height
+
+        app.typeKey(.downArrow, modifierFlags: [])
+        let cellFocused = element("key-value.cell-focused")
+        XCTAssertTrue(cellFocused.waitForExistence(timeout: 5))
+        XCTAssertEqual(cellFocused.value as? String, "TruncKey")
+
+        // Navigation-mode Cmd-C copies full selected field
+        app.typeKey("c", modifierFlags: .command)
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "TruncKey")
+
+        // Tab cycles to Value column; Cmd-C copies full multiline Value
+        app.typeKey(.tab, modifierFlags: [])
+        XCTAssertEqual(cellFocused.value as? String, "Line 1\nLine 2 expanded")
+        app.typeKey("c", modifierFlags: .command)
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Line 1\nLine 2 expanded")
+
+        // Right arrow expands truncated row; Left arrow collapses it while remaining in table
+        app.typeKey(.rightArrow, modifierFlags: [])
+        XCTAssertGreaterThan(firstValueCell.frame.height, collapsedHeight)
+        app.typeKey(.leftArrow, modifierFlags: [])
+        XCTAssertEqual(firstValueCell.frame.height, collapsedHeight, accuracy: 2)
+        XCTAssertTrue(cellFocused.exists)
+
+        // Down arrow moves to row 1 ("ShortKey" / "8080") while retaining Value column
+        app.typeKey(.downArrow, modifierFlags: [])
+        XCTAssertEqual(cellFocused.value as? String, "8080")
+
+        // Enter edits selected field; digits while editing are typed into field, not intercepted
+        app.typeKey(.return, modifierFlags: [])
+        let valueEditor = element("key-value.entry-value")
+        XCTAssertTrue(valueEditor.waitForExistence(timeout: 5))
+        valueEditor.typeText("1")
+        XCTAssertEqual(sheetFiveTab.value as? String, "已選取")
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertFalse(valueEditor.exists)
+
+        // Left arrow from non-truncated row returns directly to app list
+        app.typeKey(.leftArrow, modifierFlags: [])
+        XCTAssertFalse(cellFocused.exists)
+        XCTAssertFalse(tabFocused.exists)
     }
 
     private func element(_ identifier: String) -> XCUIElement {

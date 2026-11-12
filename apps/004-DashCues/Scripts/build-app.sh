@@ -8,7 +8,7 @@ if [[ -d "/Applications/Xcode.app/Contents/Developer" ]]; then
   export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
 fi
 
-swift build -c release
+swift build -c release --disable-sandbox
 
 APP_BUNDLE="$APP_ROOT/build/DashCues.app"
 CONTENTS="$APP_BUNDLE/Contents"
@@ -18,4 +18,5 @@ cp .build/release/DashCues "$CONTENTS/MacOS/DashCues"
 cp Info.plist "$CONTENTS/Info.plist"
 cp Assets/AppIcon.icns "$CONTENTS/Resources/AppIcon.icns"
 codesign --force --deep --sign - "$APP_BUNDLE"
+touch "$APP_BUNDLE"
 printf 'Built %s\n' "$APP_BUNDLE"

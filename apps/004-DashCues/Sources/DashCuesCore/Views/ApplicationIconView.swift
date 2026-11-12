@@ -15,6 +15,19 @@ enum ApplicationIconProvider {
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else {
             return nil
         }
+        if let bundle = Bundle(url: url) {
+            let iconName = (bundle.object(forInfoDictionaryKey: "CFBundleIconFile") as? String)
+                ?? (bundle.object(forInfoDictionaryKey: "CFBundleIconName") as? String)
+            if let iconName {
+                let baseName = (iconName as NSString).deletingPathExtension
+                if let iconURL = bundle.url(forResource: baseName, withExtension: "icns")
+                    ?? bundle.url(forResource: iconName, withExtension: nil),
+                   let image = NSImage(contentsOf: iconURL) {
+                    cache[bundleIdentifier] = image
+                    return image
+                }
+            }
+        }
         let image = NSWorkspace.shared.icon(forFile: url.path)
         cache[bundleIdentifier] = image
         return image

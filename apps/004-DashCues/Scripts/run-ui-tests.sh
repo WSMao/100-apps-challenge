@@ -8,7 +8,9 @@ if [[ -d "/Applications/Xcode.app/Contents/Developer" ]]; then
   export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
 fi
 
-pkill -x DashCues 2>/dev/null || true
+pkill -9 -x DashCues 2>/dev/null || true
+pkill -9 -x DashCuesUITests-Runner 2>/dev/null || true
+sleep 1
 
 xcodebuild -project DashCues.xcodeproj \
   -scheme DashCues \

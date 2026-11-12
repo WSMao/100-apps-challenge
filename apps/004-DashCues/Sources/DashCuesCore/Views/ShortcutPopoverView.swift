@@ -153,56 +153,63 @@ struct ShortcutPopoverView: View {
     private func contentTabs(for application: ShortcutApplication) -> some View {
         let currentSheet = contentNavigation.selectedSheet(for: application.id, in: application.sheets)
         let selectedID = currentSheet?.id
-        let overflow = TabOverflowLayout(sheets: application.sheets, maxVisible: 3, selectedID: selectedID)
 
-        return HStack(spacing: 6) {
-            ForEach(overflow.visibleSheets) { sheet in
-                Button {
-                    contentNavigation.selectSheet(sheet, for: application.id)
-                } label: {
-                    Label(sheet.name, systemImage: sheet.kind == .shortcuts ? "keyboard" : "list.bullet.rectangle")
-                        .font(.caption)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            sheet.id == selectedID ? Color.accentColor.opacity(0.18) : .clear,
-                            in: Capsule()
-                        )
-                        .overlay {
-                            Capsule().stroke(
-                                sheet.id == selectedID
-                                    ? Color.accentColor
-                                    : Color(nsColor: .separatorColor)
+        return GeometryReader { geometry in
+            let overflow = TabOverflowLayout(
+                sheets: application.sheets,
+                availableWidth: geometry.size.width > 0 ? geometry.size.width : nil,
+                maxVisible: 3,
+                selectedID: selectedID,
+                isCompact: true
+            )
+            HStack(spacing: 6) {
+                ForEach(overflow.visibleSheets) { sheet in
+                    Button {
+                        contentNavigation.selectSheet(sheet, for: application.id)
+                    } label: {
+                        Label(sheet.name, systemImage: sheet.kind == .shortcuts ? "keyboard" : "list.bullet.rectangle")
+                            .font(.caption)
+                            .lineLimit(1)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                sheet.id == selectedID ? Color.accentColor.opacity(0.18) : .clear,
+                                in: Capsule()
                             )
-                        }
+                            .overlay {
+                                Capsule().stroke(
+                                    sheet.id == selectedID
+                                        ? Color.accentColor
+                                        : Color(nsColor: .separatorColor)
+                                )
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .accessibilityIdentifier(popoverTabIdentifier(for: sheet, in: application))
+                    .accessibilityValue(sheet.id == selectedID ? "已選取" : "未選取")
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier(popoverTabIdentifier(for: sheet, in: application))
-                .accessibilityValue(sheet.id == selectedID ? "已選取" : "未選取")
-            }
 
-            if !overflow.overflowSheets.isEmpty {
-                Menu {
-                    ForEach(overflow.overflowSheets) { sheet in
-                        Button(sheet.name) {
-                            contentNavigation.selectSheet(sheet, for: application.id)
+                if !overflow.overflowSheets.isEmpty {
+                    Menu("") {
+                        ForEach(overflow.overflowSheets) { sheet in
+                            Button {
+                                contentNavigation.selectSheet(sheet, for: application.id)
+                            } label: {
+                                Label(sheet.name, systemImage: sheet.kind == .shortcuts ? "keyboard" : "list.bullet.rectangle")
+                            }
                         }
                     }
-                } label: {
-                    Image(systemName: "chevron.down")
-                        .font(.caption)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 4)
-                        .background(Color(nsColor: .controlBackgroundColor), in: Capsule())
-                        .overlay(Capsule().stroke(Color(nsColor: .separatorColor)))
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .accessibilityIdentifier("popover.tab-overflow-menu")
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .accessibilityIdentifier("popover.tab-overflow-menu")
-            }
 
-            Spacer()
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
+        .frame(height: 28)
     }
 
     private func popoverTabIdentifier(for sheet: AppSheet, in application: ShortcutApplication) -> String {

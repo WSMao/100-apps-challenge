@@ -11,6 +11,7 @@ struct SheetNameEditor: View {
     let onSave: (String) -> String?
 
     @Environment(\.dismiss) private var dismiss
+    @FocusState private var isNameFocused: Bool
     @State private var name = ""
     @State private var errorMessage: String?
 
@@ -26,6 +27,7 @@ struct SheetNameEditor: View {
         VStack(alignment: .leading, spacing: 16) {
             Text(kind == .shortcuts ? "新增快捷鍵工作表" : "新增 Key-Value 工作表").font(.headline)
             TextField("工作表名稱", text: $name)
+                .focused($isNameFocused)
                 .accessibilityIdentifier("dashboard.sheet-name")
                 .onChange(of: name) { _ in errorMessage = nil }
                 .onSubmit { submit() }
@@ -47,5 +49,8 @@ struct SheetNameEditor: View {
         }
         .padding(20)
         .frame(width: 360)
+        .onAppear {
+            isNameFocused = true
+        }
     }
 }

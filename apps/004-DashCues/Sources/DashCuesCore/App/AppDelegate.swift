@@ -16,6 +16,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
+        setupMainMenu()
         NSApp.setActivationPolicy(.accessory)
         do {
             let environment = ProcessInfo.processInfo.environment
@@ -23,12 +24,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             let store = try ShortcutStore(storageURL: storageURL)
             let defaults: UserDefaults
             if environment["DASHCUES_UI_TESTING"] == "1" {
-                guard let suiteName = environment["DASHCUES_UI_TEST_DEFAULTS_SUITE"],
-                      !suiteName.isEmpty,
-                      let testDefaults = UserDefaults(suiteName: suiteName) else {
-                    throw AppDelegateError.missingTestDefaults
+                if let suiteName = environment["DASHCUES_UI_TEST_DEFAULTS_SUITE"],
+                   !suiteName.isEmpty,
+                   let testDefaults = UserDefaults(suiteName: suiteName) {
+                    defaults = testDefaults
+                } else {
+                    if environment["DASHCUES_UI_TEST_RESET_DEFAULTS"] == "1" {
+                        UserDefaults.standard.removeObject(forKey: "DashCues.selectedContentType")
+                        UserDefaults.standard.removeObject(forKey: "DashCues.selectedCheatsheetIDs")
+                        UserDefaults.standard.removeObject(forKey: "DashCues.recentContentSearches")
+                    }
+                    defaults = .standard
                 }
-                defaults = testDefaults
             } else {
                 defaults = .standard
             }
@@ -54,14 +61,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 clipboardWriter: clipboardWriter,
                 onOpenDashboard: { [weak self] in self?.openDashboard() }
             )
-            let manager = try GlobalHotKeyManager { [weak self] in
-                self?.statusBarController?.showPopover()
-            }
-            hotKeyManager = manager
-            do {
-                try manager.register(store.hotKey)
-            } catch {
-                if environment["DASHCUES_UI_TESTING"] != "1" {
+            if environment["DASHCUES_UI_TESTING"] != "1" {
+                let manager = try GlobalHotKeyManager { [weak self] in
+                    self?.statusBarController?.showPopover()
+                }
+                hotKeyManager = manager
+                do {
+                    try manager.register(store.hotKey)
+                } catch {
                     showError(error, title: "全域快捷鍵無法使用")
                 }
             }
@@ -114,6 +121,29 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert(error: error)
         alert.messageText = title
         alert.runModal()
+    }
+
+    private func setupMainMenu() {
+        let mainMenu = NSMenu()
+        let appMenuItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "結束 DashCues", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
+
+        let editMenuItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenuItem.submenu = editMenu
+        mainMenu.addItem(editMenuItem)
+
+        NSApp.mainMenu = mainMenu
     }
 }
 

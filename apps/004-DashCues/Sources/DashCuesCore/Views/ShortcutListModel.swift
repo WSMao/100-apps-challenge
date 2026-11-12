@@ -20,7 +20,9 @@ struct ScrollRequest: Equatable {
 final class ShortcutListModel: ObservableObject {
     @Published private(set) var selection: Set<String> = []
     @Published private(set) var editingID: String?
-    @Published private(set) var editingField: ShortcutField?
+    @Published private(set) var editingField: ShortcutField? {
+        didSet { onKeyboardCaptureChanged(isCapturingKeyboard) }
+    }
     @Published var workingItem: ShortcutItem?
     @Published private(set) var pendingItem: ShortcutItem?
     @Published private(set) var recordingPreview: String?
@@ -42,7 +44,9 @@ final class ShortcutListModel: ObservableObject {
     }
     @Published private(set) var searchTags: [String] = [] { didSet { searchChanged() } }
     @Published private(set) var searchKeys: [String] = [] { didSet { searchChanged() } }
-    @Published private(set) var isRecordingSearchKeys = false
+    @Published private(set) var isRecordingSearchKeys = false {
+        didSet { onKeyboardCaptureChanged(isCapturingKeyboard) }
+    }
     @Published private(set) var searchSuggestionIndex: Int?
     @Published private(set) var searchFocusToken = 0
     @Published var searchFocused = false {
@@ -54,7 +58,12 @@ final class ShortcutListModel: ObservableObject {
     }
 
     var onError: (String) -> Void = { _ in }
+    var onKeyboardCaptureChanged: (Bool) -> Void = { _ in }
     weak var listView: NSView?
+
+    var isCapturingKeyboard: Bool {
+        isRecordingSearchKeys || editingField != nil || isListActive
+    }
     weak var editingRowView: NSView?
     weak var searchBarView: NSView?
 
@@ -66,7 +75,9 @@ final class ShortcutListModel: ObservableObject {
     private var cursorID: String?
     private var anchorID: String?
     private var fieldOriginal: ShortcutItem?
-    private var isListActive = false
+    private var isListActive = false {
+        didSet { onKeyboardCaptureChanged(isCapturingKeyboard) }
+    }
     private var scrollToken = 0
     private var monitors: [Any] = []
 
@@ -544,9 +555,6 @@ final class ShortcutListModel: ObservableObject {
         }
         let plain = event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
         if plain, editingField == nil {
-            if event.keyCode == 124, !isListActive, window.firstResponder is NSTableView {
-                return enterList()
-            }
             if event.keyCode == 123, isListActive {
                 leaveList()
                 return true

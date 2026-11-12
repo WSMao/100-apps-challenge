@@ -4,13 +4,21 @@ import SwiftUI
 struct ShortcutListView: View {
     @ObservedObject var store: ShortcutStore
     let applicationID: String
+    var onKeyboardCaptureChanged: (Bool) -> Void = { _ in }
     let onError: (String) -> Void
 
     @StateObject private var model: ShortcutListModel
 
-    init(store: ShortcutStore, applicationID: String, sheetID: String? = nil, onError: @escaping (String) -> Void) {
+    init(
+        store: ShortcutStore,
+        applicationID: String,
+        sheetID: String? = nil,
+        onKeyboardCaptureChanged: @escaping (Bool) -> Void = { _ in },
+        onError: @escaping (String) -> Void
+    ) {
         self.store = store
         self.applicationID = applicationID
+        self.onKeyboardCaptureChanged = onKeyboardCaptureChanged
         self.onError = onError
         _model = StateObject(wrappedValue: ShortcutListModel(store: store, applicationID: applicationID, sheetID: sheetID))
     }
@@ -74,11 +82,19 @@ struct ShortcutListView: View {
         }
         .onAppear {
             model.onError = onError
+            model.onKeyboardCaptureChanged = onKeyboardCaptureChanged
+            onKeyboardCaptureChanged(model.isCapturingKeyboard)
             model.startMonitoring()
         }
         .onDisappear {
             model.finishEditing()
             model.stopMonitoring()
+            onKeyboardCaptureChanged(false)
+        }
+        .onReceive(model.objectWillChange) { _ in
+            DispatchQueue.main.async {
+                onKeyboardCaptureChanged(model.isCapturingKeyboard)
+            }
         }
         .onChange(of: applicationID) { model.setApplication($0) }
         .alert(

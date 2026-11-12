@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -21,10 +22,24 @@ struct DashboardView: View {
     @State private var successMessage: String?
     @State private var tableNav: TableKeyboardNavigation?
     @State private var keyMonitor: Any?
+    @State private var navigationChangeToken = 0
+    @State private var shortcutListCapturingKeys = false
+
+    private var navigationPublisher: AnyPublisher<Void, Never> {
+        if let tableNav {
+            return tableNav.objectWillChange.map { _ in () }.eraseToAnyPublisher()
+        }
+        return Empty<Void, Never>().eraseToAnyPublisher()
+    }
 
     private var selectedApplication: ShortcutApplication? {
         guard let selectedApplicationID else { return nil }
         return store.application(id: selectedApplicationID)
+    }
+
+    private var currentSheetID: String? {
+        guard let app = selectedApplication else { return nil }
+        return contentNavigation.selectedSheet(for: app.id, in: app.sheets)?.id
     }
 
     private var filteredApplications: [ShortcutApplication] {
@@ -74,7 +89,12 @@ struct DashboardView: View {
             get: { selectedApplicationID },
             set: { newID in
                 guard newID != selectedApplicationID else { return }
-                editSession.requestLeave { selectedApplicationID = newID }
+                editSession.requestLeave {
+                    if NSApp.keyWindow?.firstResponder is NSTextView {
+                        NSApp.keyWindow?.makeFirstResponder(nil)
+                    }
+                    selectedApplicationID = newID
+                }
             }
         )) {
                 ForEach(filteredApplications) { application in
@@ -101,12 +121,13 @@ struct DashboardView: View {
     }
 
     var body: some View {
+        let _ = navigationChangeToken
         NavigationSplitView {
             VStack(spacing: 0) {
                 sidebarHeader
                 applicationList
             }
-            .navigationSplitViewColumnWidth(min: 200, ideal: 240)
+            .navigationSplitViewColumnWidth(min: 180, ideal: 210)
         } detail: {
             if let selectedApplication {
                 applicationDetail(selectedApplication)
@@ -120,7 +141,10 @@ struct DashboardView: View {
                 }
             }
         }
-        .frame(minWidth: 850, minHeight: 580)
+        .frame(minWidth: 620, minHeight: 480)
+        .onReceive(navigationPublisher) { _ in
+            navigationChangeToken &+= 1
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -157,7 +181,11 @@ struct DashboardView: View {
                                 remaining: remaining.map(\.id)
                             )
                             if sheetEdits.count != oldSheets.count || newID != selectedID {
-                                contentNavigation.selectSheet(remaining.first { $0.id == newID }, for: applicationToEdit.id)
+                                let targetSheet = remaining.first { $0.id == newID }
+                                contentNavigation.selectSheet(targetSheet, for: applicationToEdit.id)
+                                if let id = targetSheet?.id {
+                                    tableNav?.selectSheet(id: id)
+                                }
                             }
                         }
                     } else {
@@ -180,6 +208,7 @@ struct DashboardView: View {
                         store.application(id: applicationID)?.sheets.first { $0.id == id },
                         for: applicationID
                     )
+                    tableNav?.selectSheet(id: id)
                     return nil
                 } catch {
                     return error.localizedDescription
@@ -238,8 +267,67 @@ struct DashboardView: View {
             followPendingJump()
             if keyMonitor == nil {
                 keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                    if let tableNav, tableNav.consumes(keyDown: event) {
-                        if let selectedSheet = tableNav.currentSheet, let appID = selectedApplicationID {
+                    guard let window = event.window,
+                          !(window is NSPanel),
+                          window.attachedSheet == nil,
+                          window.sheetParent == nil,
+                          !showingApplicationEditor,
+                          !showingSettings,
+                          sheetCreateRequest == nil,
+                          applicationPendingDelete == nil,
+                          errorMessage == nil,
+                          !editSession.isPromptingToLeave else {
+                        return event
+                    }
+                    if editSession.isEditing {
+                        if !(window.firstResponder is NSTextView) {
+                            let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+                            if flags.isEmpty {
+                                if event.keyCode == 53 {
+                                    editSession.cancel()
+                                    return nil
+                                } else if event.keyCode == 36 || event.keyCode == 76 {
+                                    _ = editSession.save()
+                                    return nil
+                                }
+                            }
+                        }
+                        return event
+                    }
+                    guard let tableNav else { return event }
+                    if let app = selectedApplication,
+                       let current = contentNavigation.selectedSheet(for: app.id, in: app.sheets),
+                       tableNav.selectedSheetID != current.id {
+                        tableNav.selectedSheetID = current.id
+                    }
+                    if tableNav.currentSheet?.kind == .shortcuts,
+                       shortcutListCapturingKeys,
+                       tableNav.focusArea != .tabs {
+                        return event
+                    }
+                    if tableNav.focusArea == .sidebar,
+                       !tableNav.isFieldEditorFocused,
+                       !(window.firstResponder is NSTextView),
+                       event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
+                       (event.keyCode == 125 || event.keyCode == 126) {
+                        let apps = filteredApplications
+                        if let currentID = selectedApplicationID,
+                           let idx = apps.firstIndex(where: { $0.id == currentID }) {
+                            let targetIdx = event.keyCode == 125
+                                ? min(idx + 1, apps.count - 1)
+                                : max(idx - 1, 0)
+                            if targetIdx != idx {
+                                let nextID = apps[targetIdx].id
+                                editSession.requestLeave { selectedApplicationID = nextID }
+                            }
+                            return nil
+                        }
+                    }
+                    let previousSheetID = tableNav.selectedSheetID
+                    if tableNav.consumes(keyDown: event) {
+                        if tableNav.selectedSheetID != previousSheetID,
+                           let selectedSheet = tableNav.currentSheet,
+                           let appID = selectedApplicationID {
                             contentNavigation.selectSheet(selectedSheet, for: appID)
                         }
                         return nil
@@ -257,6 +345,11 @@ struct DashboardView: View {
         .onChange(of: selectedApplicationID) { newID in
             if let newID {
                 updateTableNav(for: newID)
+            }
+        }
+        .onChange(of: currentSheetID) { newSheetID in
+            if let newSheetID, tableNav?.selectedSheetID != newSheetID {
+                tableNav?.selectSheet(id: newSheetID)
             }
         }
         .onChange(of: contentNavigation.pendingJump) { _ in followPendingJump() }
@@ -279,38 +372,48 @@ struct DashboardView: View {
     private func applicationDetail(_ application: ShortcutApplication) -> some View {
         let currentSheet = contentNavigation.selectedSheet(for: application.id, in: application.sheets)
         return VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                ApplicationIconView(application: application, size: 44)
-                VStack(alignment: .leading) {
+            HStack(spacing: 10) {
+                ApplicationIconView(application: application, size: 40)
+                VStack(alignment: .leading, spacing: 2) {
                     Text(application.name)
-                        .font(.largeTitle.weight(.semibold))
+                        .font(.title.weight(.semibold))
+                        .lineLimit(1)
                     Text(application.bundleIdentifier.isEmpty ? "自訂 App" : application.bundleIdentifier)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
+                .frame(minWidth: 70, maxWidth: 140, alignment: .leading)
+
                 contentTabs(for: application)
-                    .padding(.leading, 12)
-                Spacer(minLength: 8)
-                Button {
-                    performStoreAction { try store.setPinned(!application.isPinned, applicationID: application.id) }
-                } label: {
-                    Label(
-                        application.isPinned ? "取消釘選" : "釘選",
-                        systemImage: application.isPinned ? "pin.slash" : "pin"
-                    )
-                }
-                addSheetMenu(for: application)
-                Menu {
-                    Button("編輯 App…") {
-                        applicationToEdit = application
-                        showingApplicationEditor = true
+                    .padding(.leading, 4)
+                    .frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(1)
+
+                HStack(spacing: 8) {
+                    Button {
+                        performStoreAction { try store.setPinned(!application.isPinned, applicationID: application.id) }
+                    } label: {
+                        Label(
+                            application.isPinned ? "取消釘選" : "釘選",
+                            systemImage: application.isPinned ? "pin.slash" : "pin"
+                        )
                     }
-                    Button("刪除 App", role: .destructive) {
-                        applicationPendingDelete = application
+                    addSheetMenu(for: application)
+                    Menu {
+                        Button("編輯 App…") {
+                            applicationToEdit = application
+                            showingApplicationEditor = true
+                        }
+                        Button("刪除 App", role: .destructive) {
+                            applicationPendingDelete = application
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
                     }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
                 }
-                .menuStyle(.borderlessButton)
                 .fixedSize()
             }
 
@@ -322,7 +425,8 @@ struct DashboardView: View {
                     ShortcutListView(
                         store: store,
                         applicationID: application.id,
-                        sheetID: currentSheet?.id
+                        sheetID: currentSheet?.id,
+                        onKeyboardCaptureChanged: { shortcutListCapturingKeys = $0 }
                     ) { errorMessage = $0 }
                         .id(currentSheet?.id)
                 case .keyValue:
@@ -340,7 +444,6 @@ struct DashboardView: View {
                         editSession: editSession,
                         navigation: tableNav
                     )
-                    .id(currentSheet?.id)
                 }
             }
         }
@@ -394,44 +497,64 @@ struct DashboardView: View {
 
     private func contentTabs(for application: ShortcutApplication) -> some View {
         let selectedID = contentNavigation.selectedSheet(for: application.id, in: application.sheets)?.id
-        let overflow = TabOverflowLayout(sheets: application.sheets, maxVisible: 4, selectedID: selectedID)
-        return HStack(spacing: 8) {
-            ForEach(overflow.visibleSheets) { sheet in
-                sheetTab(
-                    title: sheet.name,
-                    systemImage: sheet.kind == .shortcuts ? "keyboard" : "list.bullet.rectangle",
-                    isSelected: sheet.id == selectedID,
-                    identifier: "dashboard.sheet-tab.\(sheet.kind == .shortcuts ? "shortcuts" : "key-value").\(sheet.id)"
-                ) {
-                    editSession.requestLeave {
-                        contentNavigation.selectSheet(sheet, for: application.id)
-                        tableNav?.selectSheet(id: sheet.id)
-                    }
-                }
-            }
-            if !overflow.overflowSheets.isEmpty {
-                Menu {
-                    ForEach(overflow.overflowSheets) { sheet in
-                        Button(sheet.name) {
-                            editSession.requestLeave {
-                                contentNavigation.selectSheet(sheet, for: application.id)
-                                tableNav?.selectSheet(id: sheet.id)
-                            }
+        let isTabBarFocused = tableNav?.focusArea == .tabs
+        return GeometryReader { geometry in
+            let overflow = TabOverflowLayout(
+                sheets: application.sheets,
+                availableWidth: geometry.size.width > 0 ? geometry.size.width : nil,
+                maxVisible: 4,
+                selectedID: selectedID
+            )
+            HStack(spacing: 6) {
+                ForEach(overflow.visibleSheets) { sheet in
+                    sheetTab(
+                        title: sheet.name,
+                        systemImage: sheet.kind == .shortcuts ? "keyboard" : "list.bullet.rectangle",
+                        isSelected: sheet.id == selectedID,
+                        isKeyboardFocused: isTabBarFocused && sheet.id == selectedID,
+                        identifier: "dashboard.sheet-tab.\(sheet.kind == .shortcuts ? "shortcuts" : "key-value").\(sheet.id)"
+                    ) {
+                        editSession.requestLeave {
+                            NSApp.keyWindow?.makeFirstResponder(nil)
+                            tableNav?.focusArea = .tabs
+                            contentNavigation.selectSheet(sheet, for: application.id)
+                            tableNav?.selectSheet(id: sheet.id)
                         }
-                        .accessibilityIdentifier("dashboard.overflow-sheet.\(sheet.id)")
                     }
-                } label: {
-                    Image(systemName: "chevron.down")
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(Color(nsColor: .controlBackgroundColor), in: Capsule())
-                        .overlay(Capsule().stroke(Color(nsColor: .separatorColor)))
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .accessibilityIdentifier("dashboard.tab-overflow-menu")
+                if !overflow.overflowSheets.isEmpty {
+                    Menu("") {
+                        ForEach(overflow.overflowSheets) { sheet in
+                            Button {
+                                editSession.requestLeave {
+                                    NSApp.keyWindow?.makeFirstResponder(nil)
+                                    contentNavigation.selectSheet(sheet, for: application.id)
+                                    tableNav?.selectSheet(id: sheet.id)
+                                }
+                            } label: {
+                                Label(
+                                    sheet.name,
+                                    systemImage: sheet.kind == .shortcuts ? "keyboard" : "list.bullet.rectangle"
+                                )
+                            }
+                            .accessibilityIdentifier("dashboard.overflow-sheet.\(sheet.id)")
+                        }
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .accessibilityIdentifier("dashboard.tab-overflow-menu")
+                    .background(
+                        ViewAnchor {
+                            $0.setAccessibilityElement(false)
+                            $0.setAccessibilityIdentifier("dashboard.tab-overflow-menu")
+                        }
+                        .accessibilityHidden(true)
+                    )
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
+        .frame(height: 36)
     }
 
     private func updateTableNav(for appID: String) {
@@ -441,6 +564,14 @@ struct DashboardView: View {
             editSession: editSession,
             clipboardWriter: clipboardWriter
         )
+        nav.onCopyResult = { success, fieldName in
+            if success {
+                successMessage = "\(fieldName) 已複製。"
+            } else {
+                errorMessage = "無法複製 \(fieldName) 到剪貼簿。"
+                successMessage = nil
+            }
+        }
         if let current = contentNavigation.selectedSheet(for: appID, in: store.application(id: appID)?.sheets ?? []) {
             nav.selectedSheetID = current.id
         }
@@ -451,21 +582,52 @@ struct DashboardView: View {
         title: String,
         systemImage: String,
         isSelected: Bool,
+        isKeyboardFocused: Bool = false,
         identifier: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
-                .padding(.horizontal, 12)
+                .lineLimit(1)
+                .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(isSelected ? Color.accentColor.opacity(0.18) : Color.clear, in: Capsule())
                 .overlay {
-                    Capsule().stroke(isSelected ? Color.accentColor : Color(nsColor: .separatorColor))
+                    Capsule().stroke(
+                        isSelected ? Color.accentColor : Color(nsColor: .separatorColor),
+                        lineWidth: isKeyboardFocused ? 2 : 1
+                    )
+                }
+                .overlay {
+                    if isKeyboardFocused {
+                        Capsule()
+                            .stroke(Color.accentColor, lineWidth: 2)
+                            .shadow(color: Color.accentColor.opacity(0.4), radius: 3, x: 0, y: 0)
+                            .padding(-2)
+                            .accessibilityElement()
+                            .accessibilityLabel(title)
+                            .accessibilityIdentifier("dashboard.tab-focused")
+                            .background(
+                                ViewAnchor {
+                                    $0.setAccessibilityElement(false)
+                                    $0.setAccessibilityIdentifier("dashboard.tab-focused")
+                                }
+                                .accessibilityHidden(true)
+                            )
+                    }
                 }
         }
         .buttonStyle(.plain)
+        .fixedSize(horizontal: true, vertical: false)
         .accessibilityIdentifier(identifier)
         .accessibilityValue(isSelected ? "已選取" : "未選取")
+        .background(
+            ViewAnchor {
+                $0.setAccessibilityElement(false)
+                $0.setAccessibilityIdentifier(identifier)
+            }
+            .accessibilityHidden(true)
+        )
     }
 
     private var settingsSection: some View {

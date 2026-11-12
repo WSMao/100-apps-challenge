@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// Two-column Key-Value table with single-click expansion, per-cell copy, column reordering, resizing, and inline editing.
@@ -19,6 +20,7 @@ struct KeyValueTableView: View {
     @State private var dragKeyWidth: Double?
     @State private var dragValueWidth: Double?
     @State private var initialDragWidths: (key: Double, value: Double)?
+    @State private var navigationChangeToken = 0
 
     private struct CopiedCell: Equatable {
         let entryID: String
@@ -33,22 +35,33 @@ struct KeyValueTableView: View {
         layout.columnOrder
     }
 
+    private var navigationPublisher: AnyPublisher<Void, Never> {
+        if let navigation {
+            return navigation.objectWillChange.map { _ in () }.eraseToAnyPublisher()
+        }
+        return Empty<Void, Never>().eraseToAnyPublisher()
+    }
+
     var body: some View {
+        let _ = navigationChangeToken
         GeometryReader { geometry in
-            let availableWidth = max(geometry.size.width - 44, KeyValueTableLayout.minColumnWidth * 2)
+            let availableWidth = max(geometry.size.width - 46, KeyValueTableLayout.minColumnWidth * 2)
             let activeLayout = KeyValueTableLayout(
                 columnOrder: layout.columnOrder,
                 keyWidth: dragKeyWidth ?? layout.keyWidth,
                 valueWidth: dragValueWidth ?? layout.valueWidth
             )
             let widths = activeLayout.resolvedWidths(containerWidth: availableWidth)
-            let totalTableWidth = widths.key + widths.value + 44
+            let truncatableIDs = computeTruncatableEntryIDs(widths: widths)
+            let _ = syncTruncatableIDs(truncatableIDs)
+            let totalTableWidth = widths.key + widths.value + 46
+            let scrollAxes: Axis.Set = totalTableWidth > geometry.size.width + 1 ? [.horizontal, .vertical] : .vertical
 
-            ScrollView([.horizontal, .vertical]) {
+            ScrollView(scrollAxes) {
                 VStack(alignment: .leading, spacing: 0) {
                     header(widths: widths)
                     Divider()
-                    LazyVStack(alignment: .leading, spacing: 0) {
+                    VStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                             row(entry, widths: widths, index: index)
                             Divider()
@@ -60,10 +73,19 @@ struct KeyValueTableView: View {
                     }
                 }
                 .frame(width: max(totalTableWidth, geometry.size.width), alignment: .leading)
+                .coordinateSpace(name: "key-value-table")
             }
             .accessibilityIdentifier("key-value.entries")
+            .onReceive(navigationPublisher) { _ in
+                navigationChangeToken &+= 1
+                if let expanded = navigation?.expandedRowIDs, expanded != expandedEntryIDs {
+                    expandedEntryIDs = expanded
+                }
+            }
             .onChange(of: navigation?.expandedRowIDs) { expanded in
-                if let expanded { expandedEntryIDs = expanded }
+                if let expanded, expanded != expandedEntryIDs {
+                    expandedEntryIDs = expanded
+                }
             }
         }
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
@@ -106,28 +128,30 @@ struct KeyValueTableView: View {
     }
 
     private func separatorView(widths: (key: Double, value: Double)) -> some View {
-        HStack(spacing: 0) {
-            Divider()
-        }
-        .frame(width: 9)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    handleSeparatorDrag(translation: value.translation.width, widths: widths)
-                }
-                .onEnded { _ in
-                    commitSeparatorDrag()
-                }
-        )
-        .onHover { inside in
-            if inside {
-                NSCursor.resizeLeftRight.push()
-            } else {
-                NSCursor.pop()
+        Divider()
+            .frame(width: 1)
+            .overlay {
+                Color.clear
+                    .frame(width: 9)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 1, coordinateSpace: .named("key-value-table"))
+                            .onChanged { value in
+                                handleSeparatorDrag(translation: value.translation.width, widths: widths)
+                            }
+                            .onEnded { _ in
+                                commitSeparatorDrag()
+                            }
+                    )
+                    .onHover { inside in
+                        if inside {
+                            NSCursor.resizeLeftRight.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+                    .accessibilityIdentifier("key-value.column-separator")
             }
-        }
-        .accessibilityIdentifier("key-value.column-separator")
     }
 
     private func handleSeparatorDrag(translation: Double, widths: (key: Double, value: Double)) {
@@ -136,18 +160,17 @@ struct KeyValueTableView: View {
             initialDragWidths = base
         }
         let minW = KeyValueTableLayout.minColumnWidth
+        let totalW = base.key + base.value
         let firstCol = columnOrder[0]
 
         if firstCol == .key {
-            let newKey = max(base.key + translation, minW)
-            let newValue = max(base.value - translation, minW)
-            dragKeyWidth = newKey
-            dragValueWidth = newValue
+            let clampedKey = min(max(base.key + translation, minW), max(minW, totalW - minW))
+            dragKeyWidth = clampedKey
+            dragValueWidth = max(minW, totalW - clampedKey)
         } else {
-            let newValue = max(base.value + translation, minW)
-            let newKey = max(base.key - translation, minW)
-            dragValueWidth = newValue
-            dragKeyWidth = newKey
+            let clampedValue = min(max(base.value + translation, minW), max(minW, totalW - minW))
+            dragValueWidth = clampedValue
+            dragKeyWidth = max(minW, totalW - clampedValue)
         }
     }
 
@@ -191,7 +214,8 @@ struct KeyValueTableView: View {
             .accessibilityValue(isRowFocused ? "已選取" : "")
             .draggable(entry.id)
             .dropDestination(for: String.self) { draggedIDs, _ in
-                guard let dragged = draggedIDs.first else { return false }
+                guard let dragged = draggedIDs.first,
+                      KeyValueColumn(rawValue: dragged) == nil else { return false }
                 onMove(dragged, entry.id)
                 return true
             }
@@ -213,20 +237,47 @@ struct KeyValueTableView: View {
         let isCopied = copiedCell == CopiedCell(entryID: entry.id, column: column)
         let isFieldFocused = isRowFocused && navigation?.selectedColumn == (column == .key ? .key : .value)
         return HStack(alignment: .top, spacing: 6) {
-            Group {
-                if text.isEmpty {
-                    Text("（空白）").foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 0) {
+                Group {
+                    if text.isEmpty {
+                        Text("（空白）").foregroundStyle(.secondary)
+                    } else {
+                        Text(text)
+                    }
+                }
+                .lineLimit(isExpanded ? nil : 1)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: isExpanded)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement()
+                .accessibilityLabel(text)
+                .accessibilityIdentifier("key-value.\(idName)-cell.\(entry.id)")
+            }
+            .padding(.vertical, 10)
+            .padding(.leading, 10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                NSApp.keyWindow?.makeFirstResponder(nil)
+                navigation?.focusArea = .table
+                navigation?.selectedRowIndex = index
+                navigation?.selectedColumn = (column == .key ? .key : .value)
+                session.begin(entry: entry, column: column, cheatsheetID: cheatsheetID, applicationID: applicationID)
+            }
+            .onTapGesture {
+                if session.isEditing, session.editingEntryID != entry.id {
+                    if session.hasUnsavedChanges {
+                        session.requestLeave {
+                            toggleExpansion(for: entry, column: column, index: index)
+                        }
+                    } else {
+                        session.cancel()
+                        toggleExpansion(for: entry, column: column, index: index)
+                    }
                 } else {
-                    Text(text)
+                    toggleExpansion(for: entry, column: column, index: index)
                 }
             }
-            .lineLimit(isExpanded ? nil : 1)
-            .truncationMode(.tail)
-            .fixedSize(horizontal: false, vertical: isExpanded)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement()
-            .accessibilityLabel(text)
-            .accessibilityIdentifier("key-value.\(idName)-cell.\(entry.id)")
 
             Button {
                 if onCopy(text, name) { flashCopied(entry.id, column) }
@@ -240,26 +291,67 @@ struct KeyValueTableView: View {
             .help("複製 \(name)")
             .accessibilityLabel(isCopied ? "已複製 \(name)" : "複製 \(name)")
             .accessibilityIdentifier("key-value.copy-\(idName).\(entry.id)")
+            .padding(.vertical, 10)
+            .padding(.trailing, 10)
         }
-        .padding(10)
         .frame(width: width, alignment: .topLeading)
         .overlay {
             if isFieldFocused {
                 RoundedRectangle(cornerRadius: 4)
                     .stroke(Color.accentColor, lineWidth: 2)
+                    .shadow(color: Color.accentColor.opacity(0.35), radius: 3, x: 0, y: 0)
                     .padding(2)
+                    .accessibilityElement()
+                    .accessibilityLabel(name)
+                    .accessibilityValue(text)
                     .accessibilityIdentifier("key-value.cell-focused")
+                    .background(
+                        ViewAnchor {
+                            $0.setAccessibilityElement(false)
+                            $0.setAccessibilityIdentifier("key-value.cell-focused")
+                        }
+                        .accessibilityHidden(true)
+                    )
             }
         }
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            session.begin(entry: entry, column: column, cheatsheetID: cheatsheetID, applicationID: applicationID)
+    }
+
+    private func computeTruncatableEntryIDs(widths: (key: Double, value: Double)) -> Set<String> {
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let keyAvailable = max(20, widths.key - 44)
+        let valueAvailable = max(20, widths.value - 44)
+        var result = Set<String>()
+        for entry in entries {
+            if entry.key.contains(where: \.isNewline) || entry.value.contains(where: \.isNewline) {
+                result.insert(entry.id)
+                continue
+            }
+            let keyTextWidth = ceil((entry.key as NSString).size(withAttributes: [.font: font]).width)
+            let valueTextWidth = ceil((entry.value as NSString).size(withAttributes: [.font: font]).width)
+            if keyTextWidth > keyAvailable || valueTextWidth > valueAvailable {
+                result.insert(entry.id)
+            }
         }
-        .onTapGesture {
-            navigation?.focusArea = .table
-            navigation?.selectedRowIndex = index
-            navigation?.selectedColumn = (column == .key ? .key : .value)
-            if isExpanded { expandedEntryIDs.remove(entry.id) } else { expandedEntryIDs.insert(entry.id) }
+        return result
+    }
+
+    private func syncTruncatableIDs(_ ids: Set<String>) {
+        if navigation?.measuredTruncatableRowIDs != ids {
+            navigation?.measuredTruncatableRowIDs = ids
+        }
+    }
+
+    private func toggleExpansion(for entry: KeyValueEntry, column: KeyValueEditSession.Column, index: Int) {
+        NSApp.keyWindow?.makeFirstResponder(nil)
+        navigation?.focusArea = .table
+        navigation?.selectedRowIndex = index
+        navigation?.selectedColumn = (column == .key ? .key : .value)
+        if expandedEntryIDs.contains(entry.id) {
+            expandedEntryIDs.remove(entry.id)
+            navigation?.expandedRowIDs.remove(entry.id)
+        } else if navigation?.isRowTruncatable(entry) ?? true {
+            expandedEntryIDs.insert(entry.id)
+            navigation?.expandedRowIDs.insert(entry.id)
         }
     }
 
@@ -271,11 +363,22 @@ struct KeyValueTableView: View {
 
         return VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 0) {
-                inlineEditor(for: firstCol, width: firstWidth)
+                inlineEditor(for: firstCol, entryID: id, width: firstWidth)
                 Divider()
-                inlineEditor(for: secondCol, width: secondWidth)
+                inlineEditor(for: secondCol, entryID: id, width: secondWidth)
                 Divider()
-                Color.clear.frame(width: 44)
+                Button {
+                    _ = session.save()
+                } label: {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(Color.accentColor)
+                }
+                .buttonStyle(.borderless)
+                .help("儲存項目")
+                .accessibilityLabel("儲存項目")
+                .accessibilityIdentifier("key-value.save-entry")
+                .frame(width: 44)
+                .padding(.top, 10)
             }
             if let message = session.validationMessage {
                 Text(message)
@@ -302,15 +405,32 @@ struct KeyValueTableView: View {
     }
 
     @ViewBuilder
-    private func inlineEditor(for column: KeyValueColumn, width: Double) -> some View {
+    private func inlineEditor(for column: KeyValueColumn, entryID: String, width: Double) -> some View {
         switch column {
         case .key:
             InlineTextEditor(
                 text: $session.draftKey,
                 identifier: "key-value.entry-key",
                 wantsFocus: session.focusColumn == .key,
-                onSubmit: { session.save() },
-                onCancel: { session.cancel() }
+                focusRequestToken: session.focusRequestToken,
+                isEditingThisEntry: { session.editingEntryID == entryID },
+                onFocusAcquired: {
+                    session.syncFocusColumnFromUserInteraction(.key)
+                    navigation?.selectedColumn = .key
+                },
+                onTab: {
+                    session.focus(.value)
+                    navigation?.selectedColumn = .value
+                },
+                onSubmit: {
+                    if session.save() {
+                        NSApp.keyWindow?.makeFirstResponder(nil)
+                    }
+                },
+                onCancel: {
+                    session.cancel()
+                    NSApp.keyWindow?.makeFirstResponder(nil)
+                }
             )
             .padding(10)
             .frame(width: width, alignment: .leading)
@@ -319,8 +439,25 @@ struct KeyValueTableView: View {
                 text: $session.draftValue,
                 identifier: "key-value.entry-value",
                 wantsFocus: session.focusColumn == .value,
-                onSubmit: { session.save() },
-                onCancel: { session.cancel() }
+                focusRequestToken: session.focusRequestToken,
+                isEditingThisEntry: { session.editingEntryID == entryID },
+                onFocusAcquired: {
+                    session.syncFocusColumnFromUserInteraction(.value)
+                    navigation?.selectedColumn = .value
+                },
+                onTab: {
+                    session.focus(.key)
+                    navigation?.selectedColumn = .key
+                },
+                onSubmit: {
+                    if session.save() {
+                        NSApp.keyWindow?.makeFirstResponder(nil)
+                    }
+                },
+                onCancel: {
+                    session.cancel()
+                    NSApp.keyWindow?.makeFirstResponder(nil)
+                }
             )
             .padding(10)
             .frame(width: width, alignment: .leading)
@@ -404,17 +541,47 @@ struct LucideIcon: View {
     }
 }
 
+private final class InlineEditTextField: NSTextField {
+    var shouldFocusOnMoveToWindow = false
+    var onFocusAcquired: (() -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if shouldFocusOnMoveToWindow, let window {
+            shouldFocusOnMoveToWindow = false
+            DispatchQueue.main.async { [weak self, weak window] in
+                guard let self, let window, self.window === window else { return }
+                if self.currentEditor() == nil {
+                    window.makeFirstResponder(self)
+                }
+            }
+        }
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became {
+            onFocusAcquired?()
+        }
+        return became
+    }
+}
+
 private struct InlineTextEditor: NSViewRepresentable {
     @Binding var text: String
     let identifier: String
     let wantsFocus: Bool
+    let focusRequestToken: Int
+    let isEditingThisEntry: () -> Bool
+    let onFocusAcquired: () -> Void
+    let onTab: () -> Void
     let onSubmit: () -> Void
     let onCancel: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
-    func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField(string: text)
+    func makeNSView(context: Context) -> InlineEditTextField {
+        let field = InlineEditTextField(string: text)
         field.delegate = context.coordinator
         field.isEditable = true
         field.isBezeled = true
@@ -425,48 +592,120 @@ private struct InlineTextEditor: NSViewRepresentable {
         field.lineBreakMode = .byWordWrapping
         field.isAutomaticTextCompletionEnabled = false
         field.setAccessibilityIdentifier(identifier)
+        field.onFocusAcquired = { [weak coordinator = context.coordinator] in
+            guard let coordinator else { return }
+            coordinator.lastFocusRequestToken = coordinator.parent.focusRequestToken
+            coordinator.parent.onFocusAcquired()
+        }
+        context.coordinator.lastFocusRequestToken = focusRequestToken
         if wantsFocus {
-            DispatchQueue.main.async { field.window?.makeFirstResponder(field) }
+            field.shouldFocusOnMoveToWindow = true
+            DispatchQueue.main.async { [weak field] in
+                guard let field, let window = field.window else { return }
+                field.shouldFocusOnMoveToWindow = false
+                if field.currentEditor() == nil {
+                    window.makeFirstResponder(field)
+                }
+            }
         }
         return field
     }
 
-    func updateNSView(_ field: NSTextField, context: Context) {
+    func updateNSView(_ field: InlineEditTextField, context: Context) {
         context.coordinator.parent = self
+        field.onFocusAcquired = { [weak coordinator = context.coordinator] in
+            guard let coordinator else { return }
+            coordinator.lastFocusRequestToken = coordinator.parent.focusRequestToken
+            coordinator.parent.onFocusAcquired()
+        }
         if field.stringValue != text, field.currentEditor() == nil {
             field.stringValue = text
+            field.invalidateIntrinsicContentSize()
+        }
+        let tokenChanged = context.coordinator.lastFocusRequestToken != focusRequestToken
+        context.coordinator.lastFocusRequestToken = focusRequestToken
+        if wantsFocus && tokenChanged {
+            if let window = field.window {
+                if field.currentEditor() == nil {
+                    DispatchQueue.main.async { [weak field, weak window] in
+                        guard let field, let window, field.window === window else { return }
+                        if field.currentEditor() == nil {
+                            window.makeFirstResponder(field)
+                        }
+                    }
+                }
+            } else {
+                field.shouldFocusOnMoveToWindow = true
+            }
         }
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView field: NSTextField, context: Context) -> CGSize? {
-        let width = proposal.width ?? 200
-        guard let cell = field.cell else { return nil }
-        let size = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude))
-        return CGSize(width: width, height: max(size.height, 24))
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView field: InlineEditTextField, context: Context) -> CGSize? {
+        let width = max(proposal.width ?? 200, 40)
+        let liveText = (field.currentEditor() as? NSTextView)?.string ?? text
+        let measuredText = liveText.hasSuffix("\n") ? liveText + " " : (liveText.isEmpty ? " " : liveText)
+        let measuringCell = context.coordinator.measuringCell
+        measuringCell.font = field.font
+        measuringCell.stringValue = measuredText
+        let size = measuringCell.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: max(ceil(size.height), 24))
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: InlineTextEditor
+        var lastFocusRequestToken: Int = -1
+        let measuringCell: NSTextFieldCell = {
+            let cell = NSTextFieldCell(textCell: " ")
+            cell.isEditable = true
+            cell.isBezeled = true
+            cell.bezelStyle = .roundedBezel
+            cell.usesSingleLineMode = false
+            cell.wraps = true
+            cell.isScrollable = false
+            cell.lineBreakMode = .byWordWrapping
+            return cell
+        }()
 
         init(_ parent: InlineTextEditor) { self.parent = parent }
 
+        func controlTextDidBeginEditing(_ notification: Notification) {
+            lastFocusRequestToken = parent.focusRequestToken
+            parent.onFocusAcquired()
+        }
+
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
-            parent.text = field.stringValue
+            let currentText = (field.currentEditor() as? NSTextView)?.string ?? field.stringValue
+            if parent.text != currentText {
+                parent.text = currentText
+            }
             field.invalidateIntrinsicContentSize()
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField else { return }
-            parent.text = field.stringValue
+            guard parent.isEditingThisEntry(),
+                  let field = notification.object as? NSTextField else { return }
+            let currentText = (field.currentEditor() as? NSTextView)?.string ?? field.stringValue
+            if parent.text != currentText {
+                parent.text = currentText
+            }
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if textView.hasMarkedText() {
+                return false
+            }
             if selector == #selector(NSResponder.insertNewline(_:)) ||
-               selector == #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)) {
-                let isShift = NSEvent.modifierFlags.contains(.shift) || (NSApp.currentEvent?.modifierFlags.contains(.shift) == true)
+               selector == #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)) ||
+               selector == #selector(NSResponder.insertLineBreak(_:)) {
+                let isShift = NSEvent.modifierFlags.contains(.shift)
+                    || (NSApp.currentEvent?.modifierFlags.contains(.shift) == true)
+                    || selector == #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:))
+                    || selector == #selector(NSResponder.insertLineBreak(_:))
                 if isShift {
-                    textView.insertNewlineIgnoringFieldEditor(nil)
+                    textView.insertText("\n", replacementRange: textView.selectedRange())
+                    parent.text = textView.string
+                    control.invalidateIntrinsicContentSize()
                 } else {
                     parent.text = textView.string
                     parent.onSubmit()
@@ -474,6 +713,11 @@ private struct InlineTextEditor: NSViewRepresentable {
                 return true
             } else if selector == #selector(NSResponder.cancelOperation(_:)) {
                 parent.onCancel()
+                return true
+            } else if selector == #selector(NSResponder.insertTab(_:)) ||
+                      selector == #selector(NSResponder.insertBacktab(_:)) {
+                parent.text = textView.string
+                parent.onTab()
                 return true
             }
             return false

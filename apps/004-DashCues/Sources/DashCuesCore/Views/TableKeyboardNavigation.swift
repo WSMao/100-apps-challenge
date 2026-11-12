@@ -7,8 +7,81 @@ struct TabOverflowLayout {
     let visibleSheets: [AppSheet]
     let overflowSheets: [AppSheet]
 
-    init(sheets: [AppSheet], maxVisible: Int, selectedID: String?) {
-        guard sheets.count > maxVisible, maxVisible > 0 else {
+    init(
+        sheets: [AppSheet],
+        availableWidth: CGFloat? = nil,
+        maxVisible: Int = 4,
+        selectedID: String?,
+        isCompact: Bool = false
+    ) {
+        guard !sheets.isEmpty, maxVisible > 0 else {
+            self.visibleSheets = sheets
+            self.overflowSheets = []
+            return
+        }
+
+        if let availableWidth, availableWidth > 0 {
+            let spacing: CGFloat = 6
+            let overflowButtonWidth: CGFloat = isCompact ? 36 : 46
+            let allTabsWidth = sheets.reduce(CGFloat(0)) { $0 + Self.estimatedTabWidth(for: $1, isCompact: isCompact) }
+                + CGFloat(max(0, sheets.count - 1)) * spacing
+
+            if sheets.count <= maxVisible && allTabsWidth <= availableWidth {
+                self.visibleSheets = sheets
+                self.overflowSheets = []
+                return
+            }
+
+            let budget = max(0, availableWidth - overflowButtonWidth - spacing)
+            let selectedIndex = sheets.firstIndex(where: { $0.id == selectedID }) ?? 0
+            let maxSlots = min(maxVisible, max(1, sheets.count - 1))
+
+            var prefixCount = 0
+            var usedWidth: CGFloat = 0
+            for index in 0..<maxSlots {
+                let width = Self.estimatedTabWidth(for: sheets[index], isCompact: isCompact)
+                let nextWidth = prefixCount == 0 ? width : usedWidth + spacing + width
+                if nextWidth <= budget {
+                    usedWidth = nextWidth
+                    prefixCount += 1
+                } else {
+                    break
+                }
+            }
+            prefixCount = max(1, prefixCount)
+
+            if selectedIndex < prefixCount {
+                let visible = Array(sheets.prefix(prefixCount))
+                self.visibleSheets = visible
+                self.overflowSheets = sheets.filter { sheet in
+                    !visible.contains { $0.id == sheet.id }
+                }
+            } else {
+                let selectedSheet = sheets[selectedIndex]
+                let selectedWidth = Self.estimatedTabWidth(for: selectedSheet, isCompact: isCompact)
+                var visible: [AppSheet] = []
+                var leadingWidth: CGFloat = 0
+                let maxLeading = max(0, min(selectedIndex, maxSlots - 1))
+                for index in 0..<maxLeading {
+                    let width = Self.estimatedTabWidth(for: sheets[index], isCompact: isCompact)
+                    let candidateLeading = visible.isEmpty ? width : leadingWidth + spacing + width
+                    if candidateLeading + spacing + selectedWidth <= budget {
+                        leadingWidth = candidateLeading
+                        visible.append(sheets[index])
+                    } else {
+                        break
+                    }
+                }
+                visible.append(selectedSheet)
+                self.visibleSheets = visible
+                self.overflowSheets = sheets.filter { sheet in
+                    !visible.contains { $0.id == sheet.id }
+                }
+            }
+            return
+        }
+
+        guard sheets.count > maxVisible else {
             self.visibleSheets = sheets
             self.overflowSheets = []
             return
@@ -29,6 +102,14 @@ struct TabOverflowLayout {
             }
         }
     }
+
+    static func estimatedTabWidth(for sheet: AppSheet, isCompact: Bool = false) -> CGFloat {
+        let fontSize = isCompact ? NSFont.smallSystemFontSize : NSFont.systemFontSize
+        let font = NSFont.systemFont(ofSize: fontSize, weight: .regular)
+        let textWidth = ceil((sheet.name as NSString).size(withAttributes: [.font: font]).width)
+        let extra: CGFloat = isCompact ? 40 : 56
+        return textWidth + extra
+    }
 }
 
 /// Navigation mode focus and key events controller for sheet tabs and Key-Value table.
@@ -46,12 +127,14 @@ final class TableKeyboardNavigation: ObservableObject {
     @Published var selectedColumn: KeyValueColumn = .key
     @Published var isTextEditing: Bool = false
     @Published var expandedRowIDs = Set<String>()
+    var measuredTruncatableRowIDs: Set<String>?
     var isPinnedWindow = false
 
     private weak var store: ShortcutStore?
     let applicationID: String
     private weak var editSession: KeyValueEditSession?
     let clipboardWriter: (String) -> Bool
+    var onCopyResult: ((Bool, String) -> Void)?
 
     init(
         store: ShortcutStore,
@@ -100,6 +183,9 @@ final class TableKeyboardNavigation: ObservableObject {
         selectedSheetID = id
         selectedRowIndex = 0
         selectedColumn = columnOrder.first ?? .key
+        if focusArea == .table && entries.isEmpty {
+            focusArea = .tabs
+        }
     }
 
     func selectSheet(at index: Int) {
@@ -116,6 +202,16 @@ final class TableKeyboardNavigation: ObservableObject {
         return true
     }
 
+    func isRowTruncatable(_ entry: KeyValueEntry) -> Bool {
+        if entry.key.contains(where: \.isNewline) || entry.value.contains(where: \.isNewline) {
+            return true
+        }
+        if let measured = measuredTruncatableRowIDs {
+            return measured.contains(entry.id)
+        }
+        return entry.key.count > 24 || entry.value.count > 24
+    }
+
     // Right Arrow
     func handleRightArrow() -> Bool {
         guard !isTextEditing else { return false }
@@ -130,8 +226,9 @@ final class TableKeyboardNavigation: ObservableObject {
             return true
         case .table:
             guard selectedRowIndex < entries.count else { return false }
-            let entryID = entries[selectedRowIndex].id
-            expandedRowIDs.insert(entryID)
+            let entry = entries[selectedRowIndex]
+            guard isRowTruncatable(entry) else { return false }
+            expandedRowIDs.insert(entry.id)
             return true
         }
     }
@@ -149,11 +246,12 @@ final class TableKeyboardNavigation: ObservableObject {
             return true
         case .table:
             guard selectedRowIndex < entries.count else { return false }
-            let entryID = entries[selectedRowIndex].id
-            if expandedRowIDs.contains(entryID) {
-                expandedRowIDs.remove(entryID)
+            let entry = entries[selectedRowIndex]
+            if isRowTruncatable(entry) && expandedRowIDs.contains(entry.id) {
+                expandedRowIDs.remove(entry.id)
                 return true
             } else {
+                expandedRowIDs.remove(entry.id)
                 focusArea = isPinnedWindow ? .tabs : .sidebar
                 return true
             }
@@ -220,10 +318,13 @@ final class TableKeyboardNavigation: ObservableObject {
 
     // Cmd-C
     func handleCopy() -> Bool {
-        guard !isTextEditing, focusArea == .table, selectedRowIndex < entries.count else { return false }
+        guard !isTextEditing, editSession?.isEditing != true, focusArea == .table, selectedRowIndex < entries.count else { return false }
         let entry = entries[selectedRowIndex]
         let text = selectedColumn == .key ? entry.key : entry.value
-        return clipboardWriter(text)
+        let fieldName = selectedColumn == .key ? "Key" : "Value"
+        let success = clipboardWriter(text)
+        onCopyResult?(success, fieldName)
+        return success
     }
 
     // Enter
@@ -247,6 +348,7 @@ final class TableKeyboardNavigation: ObservableObject {
 
     var isFieldEditorFocused: Bool {
         if isTextEditing { return true }
+        if editSession?.isEditing == true { return true }
         if let responder = NSApplication.shared.keyWindow?.firstResponder, responder is NSTextView {
             return true
         }
@@ -256,6 +358,14 @@ final class TableKeyboardNavigation: ObservableObject {
     // Unified key handler for NSEvent
     func consumes(keyDown event: NSEvent) -> Bool {
         guard !isFieldEditorFocused else { return false }
+        if let window = event.window {
+            if window.attachedSheet != nil || window.sheetParent != nil {
+                return false
+            }
+            if window.firstResponder is NSTextView {
+                return false
+            }
+        }
 
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
 

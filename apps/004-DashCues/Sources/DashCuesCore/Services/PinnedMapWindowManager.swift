@@ -111,6 +111,14 @@ struct PinnedApplicationView: View {
     @State private var keyMonitor: Any?
     @State private var errorMessage: String?
     @State private var successMessage: String?
+    @State private var navigationChangeToken = 0
+
+    private var navigationPublisher: AnyPublisher<Void, Never> {
+        if let tableNav {
+            return tableNav.objectWillChange.map { _ in () }.eraseToAnyPublisher()
+        }
+        return Empty<Void, Never>().eraseToAnyPublisher()
+    }
 
     private var application: ShortcutApplication? {
         store.application(id: applicationID)
@@ -122,6 +130,7 @@ struct PinnedApplicationView: View {
     }
 
     var body: some View {
+        let _ = navigationChangeToken
         Group {
             if let application {
                 VStack(alignment: .leading, spacing: 12) {
@@ -137,11 +146,27 @@ struct PinnedApplicationView: View {
         }
         .frame(minWidth: 360, minHeight: 460)
         .background(Color(nsColor: .windowBackgroundColor))
+        .onReceive(navigationPublisher) { _ in
+            navigationChangeToken &+= 1
+        }
         .onAppear {
             setupNavigation()
         }
         .onDisappear {
             teardownNavigation()
+        }
+        .onChange(of: currentSheet?.id) { newSheetID in
+            if let newSheetID, tableNav?.selectedSheetID != newSheetID {
+                tableNav?.selectSheet(id: newSheetID)
+            }
+        }
+        .alert("無法完成操作", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("好", role: .cancel) { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "")
         }
         .overlay(alignment: .bottom) {
             if let successMessage {
@@ -150,6 +175,11 @@ struct PinnedApplicationView: View {
                     .padding(8)
                     .background(.regularMaterial, in: Capsule())
                     .padding()
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            self.successMessage = nil
+                        }
+                    }
             }
         }
     }
@@ -172,47 +202,63 @@ struct PinnedApplicationView: View {
 
     private func contentTabs(for application: ShortcutApplication) -> some View {
         let selectedID = currentSheet?.id
-        let overflow = TabOverflowLayout(sheets: application.sheets, maxVisible: 3, selectedID: selectedID)
-        return HStack(spacing: 6) {
-            ForEach(overflow.visibleSheets) { sheet in
-                Button {
-                    contentNavigation.selectSheet(sheet, for: application.id)
-                    tableNav?.selectSheet(id: sheet.id)
-                } label: {
-                    Label(sheet.name, systemImage: sheet.kind == .shortcuts ? "keyboard" : "list.bullet.rectangle")
-                        .font(.caption)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(sheet.id == selectedID ? Color.accentColor.opacity(0.18) : .clear, in: Capsule())
-                        .overlay {
-                            Capsule().stroke(sheet.id == selectedID ? Color.accentColor : Color(nsColor: .separatorColor))
-                        }
+        let isTabBarFocused = tableNav?.focusArea == .tabs
+        return GeometryReader { geometry in
+            let overflow = TabOverflowLayout(
+                sheets: application.sheets,
+                availableWidth: geometry.size.width > 0 ? geometry.size.width : nil,
+                maxVisible: 3,
+                selectedID: selectedID,
+                isCompact: true
+            )
+            HStack(spacing: 6) {
+                ForEach(overflow.visibleSheets) { sheet in
+                    let isSelected = sheet.id == selectedID
+                    let isFocused = isTabBarFocused && isSelected
+                    Button {
+                        NSApp.keyWindow?.makeFirstResponder(nil)
+                        tableNav?.focusArea = .tabs
+                        contentNavigation.selectSheet(sheet, for: application.id)
+                        tableNav?.selectSheet(id: sheet.id)
+                    } label: {
+                        Label(sheet.name, systemImage: sheet.kind == .shortcuts ? "keyboard" : "list.bullet.rectangle")
+                            .font(.caption)
+                            .lineLimit(1)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(isSelected ? Color.accentColor.opacity(0.18) : .clear, in: Capsule())
+                            .overlay {
+                                Capsule().stroke(
+                                    isSelected ? Color.accentColor : Color(nsColor: .separatorColor),
+                                    lineWidth: isFocused ? 2 : 1
+                                )
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .accessibilityIdentifier("pinned.sheet-tab.\(sheet.id)")
+                    .accessibilityValue(isSelected ? "已選取" : "未選取")
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("pinned.sheet-tab.\(sheet.id)")
-                .accessibilityValue(sheet.id == selectedID ? "已選取" : "未選取")
-            }
-            if !overflow.overflowSheets.isEmpty {
-                Menu {
-                    ForEach(overflow.overflowSheets) { sheet in
-                        Button(sheet.name) {
-                            contentNavigation.selectSheet(sheet, for: application.id)
-                            tableNav?.selectSheet(id: sheet.id)
+                if !overflow.overflowSheets.isEmpty {
+                    Menu("") {
+                        ForEach(overflow.overflowSheets) { sheet in
+                            Button {
+                                NSApp.keyWindow?.makeFirstResponder(nil)
+                                contentNavigation.selectSheet(sheet, for: application.id)
+                                tableNav?.selectSheet(id: sheet.id)
+                            } label: {
+                                Label(sheet.name, systemImage: sheet.kind == .shortcuts ? "keyboard" : "list.bullet.rectangle")
+                            }
                         }
                     }
-                } label: {
-                    Image(systemName: "chevron.down")
-                        .font(.caption)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 4)
-                        .background(Color(nsColor: .controlBackgroundColor), in: Capsule())
-                        .overlay(Capsule().stroke(Color(nsColor: .separatorColor)))
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .accessibilityIdentifier("pinned.tab-overflow-menu")
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .accessibilityIdentifier("pinned.tab-overflow-menu")
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
+        .frame(height: 28)
     }
 
     @ViewBuilder
@@ -248,14 +294,35 @@ struct PinnedApplicationView: View {
             clipboardWriter: clipboardWriter
         )
         nav.isPinnedWindow = true
+        nav.focusArea = .tabs
+        nav.onCopyResult = { success, fieldName in
+            if success {
+                successMessage = "\(fieldName) 已複製。"
+            } else {
+                errorMessage = "無法複製 \(fieldName) 到剪貼簿。"
+                successMessage = nil
+            }
+        }
         if let current = currentSheet {
             nav.selectedSheetID = current.id
         }
         tableNav = nav
         if keyMonitor == nil {
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                if let nav = tableNav, nav.consumes(keyDown: event) {
-                    if let sel = nav.currentSheet {
+                guard let window = event.window,
+                      window is NSPanel,
+                      window.styleMask.contains(.titled),
+                      window.attachedSheet == nil,
+                      window.sheetParent == nil,
+                      let nav = tableNav else {
+                    return event
+                }
+                if let current = currentSheet, nav.selectedSheetID != current.id {
+                    nav.selectedSheetID = current.id
+                }
+                let previousSheetID = nav.selectedSheetID
+                if nav.consumes(keyDown: event) {
+                    if nav.selectedSheetID != previousSheetID, let sel = nav.currentSheet {
                         contentNavigation.selectSheet(sel, for: applicationID)
                     }
                     return nil

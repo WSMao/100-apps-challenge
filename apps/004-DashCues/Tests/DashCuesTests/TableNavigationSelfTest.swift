@@ -35,6 +35,28 @@ enum TableNavigationSelfTest {
             "Total sheet count must be preserved."
         )
 
+        // Test 1b: Width-adaptive overflow calculation (narrow vs wide container width)
+        let narrowOverflow = TabOverflowLayout(
+            sheets: Array(app.sheets.prefix(4)),
+            availableWidth: 190,
+            maxVisible: 4,
+            selectedID: sheetIDs[2] // 4th sheet overall (index 3)
+        )
+        try check(
+            narrowOverflow.visibleSheets.count < 4 && !narrowOverflow.overflowSheets.isEmpty,
+            "When 4 sheets do not fit within availableWidth (190pt), hidden tabs must move to overflowSheets."
+        )
+        try check(
+            narrowOverflow.visibleSheets.contains { $0.id == sheetIDs[2] },
+            "Selected hidden sheet must become visible even in a narrow container."
+        )
+        try check(
+            narrowOverflow.overflowSheets.map(\.id) == Array(app.sheets.prefix(4)).filter { s in
+                !narrowOverflow.visibleSheets.contains { $0.id == s.id }
+            }.map(\.id),
+            "Width-based overflow sheets must preserve original sheet order."
+        )
+
         // Setup TableKeyboardNavigation controller
         let e1 = KeyValueEntry(id: "e1", key: "Short", value: "A very long text that can be truncated")
         let e2 = KeyValueEntry(id: "e2", key: "Key2", value: "Val2")
@@ -88,10 +110,10 @@ enum TableNavigationSelfTest {
         try check(nav.selectedRowIndex == 0, "First row should be selected.")
         try check(nav.selectedColumn == .key, "First column should be selected.")
 
-        // Down on empty sheet retains tab focus
+        // Down on empty sheet retains tab focus, and switching from table focus to an empty/shortcuts sheet resets focus to tabs
         let emptySheetID = sheetIDs[9]
         nav.selectSheet(id: emptySheetID)
-        nav.focusArea = .tabs
+        try check(nav.focusArea == .tabs, "Selecting an empty sheet while in table focus must reset focusArea to tabs.")
         try check(!nav.handleDownArrow(), "Down arrow on empty sheet should not enter table.")
         try check(nav.focusArea == .tabs, "Tab focus should be retained when sheet is empty.")
 
@@ -135,7 +157,9 @@ enum TableNavigationSelfTest {
         // Enter begins editing
         try check(nav.handleEnter(), "Enter should begin editing selected cell.")
         try check(session.isEditing && session.editingEntryID == "e1" && session.focusColumn == .value, "Enter did not begin edit session.")
+        try check(nav.isFieldEditorFocused, "Active edit session must mark field editor as focused to prevent navigation key hijacking.")
         session.cancel()
+        try check(!nav.isFieldEditorFocused, "Cancelling edit session should clear field editor focus state.")
 
         // Truncation expansion with Right Arrow, collapse with Left Arrow, return to sidebar when collapsed
         nav.expandedRowIDs.removeAll()
@@ -145,6 +169,14 @@ enum TableNavigationSelfTest {
         try check(!nav.expandedRowIDs.contains("e1"), "Row was not collapsed.")
         try check(nav.handleLeftArrow(), "Left arrow on collapsed row should return to sidebar.")
         try check(nav.focusArea == .sidebar, "Focus did not return to sidebar.")
+
+        // Non-truncated row (e2: "Key2" / "Val2"): Right arrow does not expand it, and Left arrow returns directly to sidebar
+        nav.focusArea = .table
+        nav.selectedRowIndex = 1
+        _ = nav.handleRightArrow()
+        try check(!nav.expandedRowIDs.contains("e2"), "Right arrow must not expand a non-truncated row.")
+        try check(nav.handleLeftArrow(), "Left arrow on non-truncated row should be handled.")
+        try check(nav.focusArea == .sidebar, "Left arrow from a non-truncated row must return directly to sidebar.")
     }
 
     private static func check(_ condition: Bool, _ message: String) throws {

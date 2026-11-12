@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 struct KeyValueCheatsheetView: View {
@@ -29,7 +30,10 @@ struct KeyValueCheatsheetView: View {
     @State private var expandedEntryIDs = Set<String>()
     @State private var expandedSearchResultIDs = Set<String>()
     @State private var searchText = ""
+    @State private var isApplyingHistoryPreview = false
     @State private var pendingScrollEntryID: String?
+    @State private var sessionChangeToken = 0
+    @State private var navigationChangeToken = 0
 
     private var application: ShortcutApplication? {
         store.application(id: applicationID)
@@ -51,7 +55,23 @@ struct KeyValueCheatsheetView: View {
         cheatsheets.first { $0.id == selectedCheatsheetID }
     }
 
+    private var sessionPublisher: AnyPublisher<Void, Never> {
+        if let editSession {
+            return editSession.objectWillChange.map { _ in () }.eraseToAnyPublisher()
+        }
+        return Empty<Void, Never>().eraseToAnyPublisher()
+    }
+
+    private var navigationPublisher: AnyPublisher<Void, Never> {
+        if let navigation {
+            return navigation.objectWillChange.map { _ in () }.eraseToAnyPublisher()
+        }
+        return Empty<Void, Never>().eraseToAnyPublisher()
+    }
+
     var body: some View {
+        let _ = sessionChangeToken
+        let _ = navigationChangeToken
         VStack(alignment: .leading, spacing: 12) {
             if cheatsheets.isEmpty {
                 VStack(spacing: 10) {
@@ -84,29 +104,45 @@ struct KeyValueCheatsheetView: View {
             if searchKeyMonitor == nil {
                 searchKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
                     guard searchFocused, let session = historySession else { return event }
+                    if let textView = event.window?.firstResponder as? NSTextView, textView.hasMarkedText() {
+                        return event
+                    }
+                    let flags = event.modifierFlags.intersection([.command, .option, .control])
+                    guard flags.isEmpty else { return event }
                     if event.keyCode == 126 { // Up
                         if let preview = session.handleUp(currentText: searchText) {
+                            isApplyingHistoryPreview = true
                             searchText = preview
                             return nil
                         }
                     } else if event.keyCode == 125 { // Down
                         if let preview = session.handleDown() {
+                            isApplyingHistoryPreview = true
                             searchText = preview
                             return nil
                         }
                     } else if event.keyCode == 53 { // Esc
                         if let restored = session.handleEsc() {
+                            isApplyingHistoryPreview = true
                             searchText = restored
                             return nil
                         }
                     } else if event.keyCode == 36 || event.keyCode == 76 { // Enter
                         if let chosen = session.handleEnter() {
+                            isApplyingHistoryPreview = true
                             searchText = chosen
                             return nil
                         }
                     }
                     return event
                 }
+            }
+        }
+        .onChange(of: searchText) { _ in
+            if isApplyingHistoryPreview {
+                isApplyingHistoryPreview = false
+            } else if historySession?.isBrowsingHistory == true {
+                historySession?.dismiss()
             }
         }
         .onChange(of: applicationID) { newAppID in
@@ -116,6 +152,7 @@ struct KeyValueCheatsheetView: View {
         }
         .onChange(of: contentNavigation.pendingJump) { _ in followPendingJump() }
         .onChange(of: searchFocused) { focused in
+            navigation?.isTextEditing = focused
             if !focused {
                 activeRecentSearchStore.record(query: searchText, for: applicationID)
             }
@@ -126,11 +163,21 @@ struct KeyValueCheatsheetView: View {
                 NSEvent.removeMonitor(searchKeyMonitor)
                 self.searchKeyMonitor = nil
             }
+            navigation?.isTextEditing = false
             onSearchFocusChanged(false)
         }
         .onChange(of: selectedCheatsheetID) { _ in
             searchText = ""
             if let editSession, editSession.isEditing { editSession.cancel() }
+        }
+        .onReceive(sessionPublisher) { _ in
+            sessionChangeToken &+= 1
+        }
+        .onReceive(navigationPublisher) { _ in
+            navigationChangeToken &+= 1
+            if let expanded = navigation?.expandedRowIDs, expanded != expandedEntryIDs {
+                expandedEntryIDs = expanded
+            }
         }
         .onChange(of: cheatsheets.map(\.id)) { ids in
             if !ids.contains(selectedCheatsheetID ?? "") { selectFirstCheatsheetIfNeeded() }
@@ -194,10 +241,15 @@ struct KeyValueCheatsheetView: View {
 
     private var cheatsheetToolbar: some View {
         HStack(spacing: 8) {
-            if isReadOnly {
+            if isReadOnly && sheetID == nil {
                 Picker("Key-Value 清單", selection: Binding(
                     get: { selectedCheatsheetID },
-                    set: { newID in leaveEditing { contentNavigation.selectCheatsheet(newID, for: applicationID) } }
+                    set: { newID in
+                        leaveEditing {
+                            contentNavigation.selectCheatsheet(newID, for: applicationID)
+                            if let newID { navigation?.selectSheet(id: newID) }
+                        }
+                    }
                 )) {
                     ForEach(cheatsheets) { cheatsheet in
                         Text(cheatsheet.name).tag(Optional(cheatsheet.id))
@@ -318,17 +370,20 @@ struct KeyValueCheatsheetView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 8) {
-                            ForEach(cheatsheet.entries) { entry in
+                            ForEach(Array(cheatsheet.entries.enumerated()), id: \.element.id) { index, entry in
                                 KeyValueEntryRow(
                                     entry: entry,
                                     isReadOnly: isReadOnly,
+                                    isFocused: navigation?.focusArea == .table && navigation?.selectedRowIndex == index,
                                     isExpanded: Binding(
                                         get: { expandedEntryIDs.contains(entry.id) },
                                         set: { expanded in
                                             if expanded {
                                                 expandedEntryIDs.insert(entry.id)
+                                                navigation?.expandedRowIDs.insert(entry.id)
                                             } else {
                                                 expandedEntryIDs.remove(entry.id)
+                                                navigation?.expandedRowIDs.remove(entry.id)
                                             }
                                         }
                                     ),
@@ -366,6 +421,8 @@ struct KeyValueCheatsheetView: View {
     private func jump(to result: KeyValueSearchResult) {
         activeRecentSearchStore.record(query: searchText, for: applicationID)
         contentNavigation.selectCheatsheet(result.cheatsheetID, for: applicationID)
+        contentNavigation.selectContentType(.keyValue)
+        navigation?.selectSheet(id: result.cheatsheetID)
         pendingScrollEntryID = result.entry.id
         searchText = ""
     }
@@ -378,6 +435,8 @@ struct KeyValueCheatsheetView: View {
               }) else { return }
         activeRecentSearchStore.record(query: searchText, for: applicationID)
         contentNavigation.selectCheatsheet(jump.cheatsheetID, for: applicationID)
+        contentNavigation.selectContentType(.keyValue)
+        navigation?.selectSheet(id: jump.cheatsheetID)
         pendingScrollEntryID = jump.entryID
         searchText = ""
         contentNavigation.completeJump(jump)
@@ -397,7 +456,10 @@ struct KeyValueCheatsheetView: View {
 
     private func addEntry() {
         guard let selectedCheatsheetID else { return }
-        editSession?.beginNew(cheatsheetID: selectedCheatsheetID, applicationID: applicationID)
+        if let newID = editSession?.beginNew(cheatsheetID: selectedCheatsheetID, applicationID: applicationID) {
+            navigation?.focusArea = .table
+            pendingScrollEntryID = newID
+        }
     }
 
     private func leaveEditing(_ proceed: @escaping () -> Void) {
@@ -496,6 +558,7 @@ struct KeyValueCheatsheetView: View {
 private struct KeyValueEntryRow: View {
     let entry: KeyValueEntry
     let isReadOnly: Bool
+    var isFocused = false
     @Binding var isExpanded: Bool
     let onEdit: () -> Void
     let onDelete: () -> Void
@@ -572,8 +635,8 @@ private struct KeyValueEntryRow: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(nsColor: .separatorColor)))
+        .background(isFocused ? Color.accentColor.opacity(0.08) : Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(isFocused ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: isFocused ? 2 : 1))
         .accessibilityElement(children: .contain)
     }
 

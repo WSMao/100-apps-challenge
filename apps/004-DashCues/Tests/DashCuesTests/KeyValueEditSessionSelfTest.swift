@@ -18,8 +18,16 @@ enum KeyValueEditSessionSelfTest {
         let session = KeyValueEditSession(store: store)
 
         // Editing starts in the clicked column and untouched drafts are not unsaved.
+        let initialFocusToken = session.focusRequestToken
         session.begin(entry: build, column: .value, cheatsheetID: sheetID, applicationID: appID)
         try check(session.editingEntryID == "build" && session.focusColumn == .value, "Edit did not focus the clicked column.")
+        try check(session.focusRequestToken > initialFocusToken, "Starting edit did not increment focusRequestToken.")
+        let tokenAfterBegin = session.focusRequestToken
+        session.focus(.key)
+        try check(session.focusColumn == .key && session.focusRequestToken > tokenAfterBegin, "Programmatic column focus did not increment focusRequestToken.")
+        let tokenAfterFocus = session.focusRequestToken
+        session.syncFocusColumnFromUserInteraction(.value)
+        try check(session.focusColumn == .value && session.focusRequestToken == tokenAfterFocus, "User interaction focus sync should not increment focusRequestToken.")
         try check(!session.hasUnsavedChanges, "Untouched draft counted as unsaved.")
 
         // Saving persists multiline text exactly.
@@ -74,8 +82,10 @@ enum KeyValueEditSessionSelfTest {
         session.draftKey = "Dirty"
         session.requestLeave { left += 1 }
         try check(left == 1 && session.isPromptingToLeave, "Unsaved leave did not prompt.")
+        let tokenBeforeContinue = session.focusRequestToken
         session.resolveLeave(.continueEditing)
         try check(left == 1 && !session.isPromptingToLeave && session.editingEntryID == "build", "Continue editing lost the edit.")
+        try check(session.focusRequestToken > tokenBeforeContinue, "Continue editing should increment focusRequestToken to restore field focus.")
         session.requestLeave { left += 1 }
         session.resolveLeave(.discard)
         try check(left == 2 && entries()[0].key == "Build" && session.editingEntryID == nil, "Discard did not restore and leave.")
