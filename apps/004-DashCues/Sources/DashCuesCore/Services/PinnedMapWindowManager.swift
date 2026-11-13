@@ -222,17 +222,17 @@ struct PinnedApplicationView: View {
                         tableNav?.selectSheet(id: sheet.id)
                     } label: {
                         Label(sheet.name, systemImage: sheet.kind == .shortcuts ? "keyboard" : "list.bullet.rectangle")
-                            .font(.caption)
+                            .font(.caption.weight(isSelected ? .medium : .regular))
                             .lineLimit(1)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
-                            .background(isSelected ? Color.accentColor.opacity(0.18) : .clear, in: Capsule())
-                            .overlay {
-                                Capsule().stroke(
-                                    isSelected ? Color.accentColor : Color(nsColor: .separatorColor),
-                                    lineWidth: isFocused ? 2 : 1
-                                )
-                            }
+                            .foregroundStyle(isFocused ? Color.white : (isSelected ? Color.primary : Color.secondary))
+                            .background(
+                                isFocused
+                                    ? Color.accentColor
+                                    : (isSelected ? Color(nsColor: .unemphasizedSelectedContentBackgroundColor) : Color.clear),
+                                in: RoundedRectangle(cornerRadius: 5)
+                            )
                     }
                     .buttonStyle(.plain)
                     .fixedSize(horizontal: true, vertical: false)

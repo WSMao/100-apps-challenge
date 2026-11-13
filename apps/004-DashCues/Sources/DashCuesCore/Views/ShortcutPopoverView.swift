@@ -168,21 +168,15 @@ struct ShortcutPopoverView: View {
                         contentNavigation.selectSheet(sheet, for: application.id)
                     } label: {
                         Label(sheet.name, systemImage: sheet.kind == .shortcuts ? "keyboard" : "list.bullet.rectangle")
-                            .font(.caption)
+                            .font(.caption.weight(sheet.id == selectedID ? .medium : .regular))
                             .lineLimit(1)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
+                            .foregroundStyle(sheet.id == selectedID ? Color.primary : Color.secondary)
                             .background(
-                                sheet.id == selectedID ? Color.accentColor.opacity(0.18) : .clear,
-                                in: Capsule()
+                                sheet.id == selectedID ? Color(nsColor: .unemphasizedSelectedContentBackgroundColor) : .clear,
+                                in: RoundedRectangle(cornerRadius: 5)
                             )
-                            .overlay {
-                                Capsule().stroke(
-                                    sheet.id == selectedID
-                                        ? Color.accentColor
-                                        : Color(nsColor: .separatorColor)
-                                )
-                            }
                     }
                     .buttonStyle(.plain)
                     .fixedSize(horizontal: true, vertical: false)

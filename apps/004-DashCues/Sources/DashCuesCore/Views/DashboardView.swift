@@ -755,47 +755,13 @@ struct DashboardView: View {
         identifier: String,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .lineLimit(1)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(isSelected ? Color.accentColor.opacity(0.18) : Color.clear, in: Capsule())
-                .overlay {
-                    Capsule().stroke(
-                        isSelected ? Color.accentColor : Color(nsColor: .separatorColor),
-                        lineWidth: isKeyboardFocused ? 2 : 1
-                    )
-                }
-                .overlay {
-                    if isKeyboardFocused {
-                        Capsule()
-                            .stroke(Color.accentColor, lineWidth: 2)
-                            .shadow(color: Color.accentColor.opacity(0.4), radius: 3, x: 0, y: 0)
-                            .padding(-2)
-                            .accessibilityElement()
-                            .accessibilityLabel(title)
-                            .accessibilityIdentifier("dashboard.tab-focused")
-                            .background(
-                                ViewAnchor {
-                                    $0.setAccessibilityElement(false)
-                                    $0.setAccessibilityIdentifier("dashboard.tab-focused")
-                                }
-                                .accessibilityHidden(true)
-                            )
-                    }
-                }
-        }
-        .buttonStyle(.plain)
-        .fixedSize(horizontal: true, vertical: false)
-        .accessibilityIdentifier(identifier)
-        .accessibilityValue(isSelected ? "已選取" : "未選取")
-        .background(
-            ViewAnchor {
-                $0.setAccessibilityElement(false)
-                $0.setAccessibilityIdentifier(identifier)
-            }
-            .accessibilityHidden(true)
+        SheetTabButton(
+            title: title,
+            systemImage: systemImage,
+            isSelected: isSelected,
+            isKeyboardFocused: isKeyboardFocused,
+            identifier: identifier,
+            action: action
         )
     }
 
@@ -915,5 +881,84 @@ private struct ApplicationRowView: View {
         }
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
+    }
+}
+
+private struct SheetTabButton: View {
+    let title: String
+    let systemImage: String
+    let isSelected: Bool
+    var isKeyboardFocused: Bool = false
+    let identifier: String
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    private var backgroundColor: Color {
+        if isKeyboardFocused {
+            return Color.accentColor
+        } else if isSelected {
+            return Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
+        } else if isHovering {
+            return Color.primary.opacity(0.06)
+        } else {
+            return Color.clear
+        }
+    }
+
+    private var foregroundColor: Color {
+        if isKeyboardFocused {
+            return Color.white
+        } else if isSelected {
+            return Color.primary
+        } else if isHovering {
+            return Color.primary
+        } else {
+            return Color.secondary
+        }
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .lineLimit(1)
+                .font(.system(size: 13, weight: isSelected ? .medium : .regular))
+                .foregroundStyle(foregroundColor)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    backgroundColor,
+                    in: RoundedRectangle(cornerRadius: 6)
+                )
+                .contentShape(Rectangle())
+                .onHover { isHovering = $0 }
+                .overlay {
+                    if isKeyboardFocused {
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.clear, lineWidth: 0)
+                            .accessibilityElement()
+                            .accessibilityLabel(title)
+                            .accessibilityIdentifier("dashboard.tab-focused")
+                            .background(
+                                ViewAnchor {
+                                    $0.setAccessibilityElement(false)
+                                    $0.setAccessibilityIdentifier("dashboard.tab-focused")
+                                }
+                                .accessibilityHidden(true)
+                            )
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityIdentifier(identifier)
+        .accessibilityValue(isSelected ? "已選取" : "未選取")
+        .background(
+            ViewAnchor {
+                $0.setAccessibilityElement(false)
+                $0.setAccessibilityIdentifier(identifier)
+            }
+            .accessibilityHidden(true)
+        )
     }
 }
