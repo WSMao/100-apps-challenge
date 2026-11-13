@@ -538,7 +538,50 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
             "Down arrow from non-editing search bar must focus search results list"
         )
 
-        // 5. In search results, press Enter on the focused result to trigger Jump:
+        // Target 0 is shortcut row (single row focused).
+        // Press Down Arrow to move to Target 1 (Key-Value row):
+        sendKeyDown(to: window, keyCode: 125, characters: "") // Down Arrow -> Target 1 (Key-Value)
+        pumpRunLoop(seconds: 0.08)
+
+        XCTAssertTrue(
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-kv-cell.focused"),
+            "Key-Value row in search results must focus individual cells"
+        )
+        XCTAssertEqual(
+            findAccessibilityValue(in: window.contentView, identifier: "sheet.search-kv-cell.focused"),
+            "Key",
+            "Initially Key cell is focused on Key-Value result row"
+        )
+
+        // Test Right Arrow -> moves focus to Value cell
+        sendKeyDown(to: window, keyCode: 124, characters: "") // Right Arrow
+        pumpRunLoop(seconds: 0.08)
+        XCTAssertEqual(
+            findAccessibilityValue(in: window.contentView, identifier: "sheet.search-kv-cell.focused"),
+            "Value",
+            "Right arrow must move focus to Value cell in search results"
+        )
+
+        // Test Cmd-C on Value cell
+        sendKeyDown(to: window, keyCode: 8, characters: "c", modifiers: .command) // Cmd-C
+        pumpRunLoop(seconds: 0.08)
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "postgres://prod.internal")
+
+        // Test Left Arrow -> moves focus back to Key cell
+        sendKeyDown(to: window, keyCode: 123, characters: "") // Left Arrow
+        pumpRunLoop(seconds: 0.08)
+        XCTAssertEqual(
+            findAccessibilityValue(in: window.contentView, identifier: "sheet.search-kv-cell.focused"),
+            "Key",
+            "Left arrow must move focus back to Key cell in search results"
+        )
+
+        // Test Cmd-C on Key cell
+        sendKeyDown(to: window, keyCode: 8, characters: "c", modifiers: .command) // Cmd-C
+        pumpRunLoop(seconds: 0.08)
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "prod_db")
+
+        // 5. In search results on Key-Value row, press Enter to trigger Jump:
         sendKeyDown(to: window, keyCode: 36, characters: "\r") // Enter
         pumpRunLoop(seconds: 0.15)
 
@@ -547,9 +590,60 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
             hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-results"),
             "Jump must dismiss search results and clear search"
         )
-        let hasJumpHighlight = hasAccessibilityIdentifier(in: window.contentView, identifier: "shortcut.jump-highlighted")
-            || hasAccessibilityIdentifier(in: window.contentView, identifier: "key-value.jump-highlighted")
-        XCTAssertTrue(hasJumpHighlight, "Jumped item must be visibly highlighted")
+        XCTAssertTrue(
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "key-value.jump-highlighted"),
+            "Jumped Key-Value item must be visibly highlighted"
+        )
+
+        // 6. Test number key tab selection from search results & Down Arrow from tabs:
+        // Focus search and search "prod" again
+        sendKeyDown(to: window, keyCode: 3, characters: "f", modifiers: .command)
+        pumpRunLoop(seconds: 0.1)
+        if searchInput.currentEditor() == nil {
+            window.makeFirstResponder(searchInput)
+            pumpRunLoop(seconds: 0.05)
+        }
+        let editor1b = try XCTUnwrap(searchInput.currentEditor() as? NSTextView)
+        editor1b.string = "prod"
+        searchInput.delegate?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: searchInput))
+        pumpRunLoop(seconds: 0.1)
+        _ = searchInput.delegate?.control?(
+            searchInput,
+            textView: editor1b,
+            doCommandBy: #selector(NSResponder.insertNewline(_:))
+        )
+        pumpRunLoop(seconds: 0.1)
+
+        // Move to search results list
+        sendKeyDown(to: window, keyCode: 125, characters: "") // Down Arrow
+        pumpRunLoop(seconds: 0.1)
+        XCTAssertTrue(hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-results"))
+
+        // Press unmodified digit '1' to select Sheet Tab 1 ("快捷鍵")
+        sendKeyDown(to: window, keyCode: 18, characters: "1")
+        pumpRunLoop(seconds: 0.15)
+
+        XCTAssertTrue(
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "dashboard.tab-focused"),
+            "Pressing number key from search results must select and focus corresponding Sheet tab"
+        )
+
+        // Press Down Arrow from focused Sheet tab -> moves focus to search bar (focusedNonEditing)
+        sendKeyDown(to: window, keyCode: 125, characters: "")
+        pumpRunLoop(seconds: 0.1)
+        XCTAssertEqual(
+            findAccessibilityValue(in: window.contentView, identifier: "sheet.search-bar"),
+            "focusedNonEditing",
+            "Down arrow from Sheet tab must move focus to search bar in focusedNonEditing state"
+        )
+
+        // Press Down Arrow again from search bar -> moves focus to first search result option below
+        sendKeyDown(to: window, keyCode: 125, characters: "")
+        pumpRunLoop(seconds: 0.1)
+        XCTAssertTrue(
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-result.focused"),
+            "Second Down arrow must move focus to first item in the search results below"
+        )
 
         // 6. Test History Dropdown:
         for q in ["query-1", "query-2", "query-3", "query-4", "query-5"] {
@@ -644,6 +738,35 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
         ) {
             NSApp.sendEvent(queued)
         }
+    }
+
+    @MainActor
+    private func findAccessibilityValue(in root: NSView?, identifier: String) -> String? {
+        guard let root else { return nil }
+        var result: String?
+        func walkView(_ view: NSView) {
+            if result != nil { return }
+            if view.accessibilityIdentifier() == identifier {
+                result = view.accessibilityValue() as? String
+                return
+            }
+            for sub in view.subviews { walkView(sub) }
+        }
+        func walkAX(_ element: Any) {
+            if result != nil { return }
+            if let ax = element as? NSAccessibilityProtocol {
+                if ax.accessibilityIdentifier() == identifier {
+                    result = ax.accessibilityValue() as? String
+                    return
+                }
+                if let children = ax.accessibilityChildren() {
+                    for child in children { walkAX(child) }
+                }
+            }
+        }
+        walkView(root)
+        if result == nil { walkAX(root) }
+        return result
     }
 
     @MainActor

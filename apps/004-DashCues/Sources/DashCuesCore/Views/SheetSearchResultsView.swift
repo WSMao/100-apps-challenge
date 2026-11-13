@@ -16,11 +16,15 @@ enum SearchResultTarget: Equatable {
 @MainActor
 final class SearchResultsCoordinator: ObservableObject {
     @Published var focusedIndex: Int = 0
+    @Published var selectedColumn: KeyValueColumn = .key
     var getIsFocused: () -> Bool = { false }
     var setIsFocused: (Bool) -> Void = { _ in }
     var getTargetsCount: () -> Int = { 0 }
+    var getTargetAtIndex: ((Int) -> SearchResultTarget?) = { _ in nil }
     var onExitToSearch: (() -> Void)?
     var onTriggerJump: ((Int) -> Void)?
+    var onCopy: ((String, String) -> Void)?
+    var onSelectSheetIndex: ((Int) -> Void)?
 
     private var keyMonitor: Any?
 
@@ -29,11 +33,36 @@ final class SearchResultsCoordinator: ObservableObject {
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, self.getIsFocused() else { return event }
                 let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+
+                // Handle Cmd-C
+                if flags == .command && event.charactersIgnoringModifiers?.lowercased() == "c" {
+                    let count = self.getTargetsCount()
+                    if count > 0, let target = self.getTargetAtIndex(self.focusedIndex) {
+                        switch target {
+                        case .keyValue(_, let entry):
+                            let text = self.selectedColumn == .key ? entry.key : entry.value
+                            let name = self.selectedColumn == .key ? "Key" : "Value"
+                            self.onCopy?(text, name)
+                        case .shortcut(_, let item):
+                            let text = item.keys.joined(separator: " ")
+                            self.onCopy?(text, "快捷鍵")
+                        }
+                    }
+                    return nil
+                }
+
                 guard flags.isEmpty else { return event }
 
                 if event.keyCode == 53 { // Esc
                     self.setIsFocused(false)
                     self.onExitToSearch?()
+                    return nil
+                }
+
+                // Digits 1-9 for selecting sheet tabs
+                if let chars = event.characters, chars.count == 1,
+                   let digit = Int(chars), digit >= 1 && digit <= 9 {
+                    self.onSelectSheetIndex?(digit - 1)
                     return nil
                 }
 
@@ -47,6 +76,8 @@ final class SearchResultsCoordinator: ObservableObject {
                     return event
                 }
 
+                let currentTarget = self.getTargetAtIndex(self.focusedIndex)
+
                 if event.keyCode == 125 { // Down Arrow
                     if self.focusedIndex + 1 < count {
                         self.focusedIndex += 1
@@ -58,6 +89,22 @@ final class SearchResultsCoordinator: ObservableObject {
                     } else {
                         self.setIsFocused(false)
                         self.onExitToSearch?()
+                    }
+                    return nil
+                } else if event.keyCode == 123 { // Left Arrow
+                    if case .keyValue = currentTarget {
+                        if self.selectedColumn == .value {
+                            self.selectedColumn = .key
+                        }
+                        return nil
+                    }
+                    return nil
+                } else if event.keyCode == 124 { // Right Arrow
+                    if case .keyValue = currentTarget {
+                        if self.selectedColumn == .key {
+                            self.selectedColumn = .value
+                        }
+                        return nil
                     }
                     return nil
                 } else if event.keyCode == 36 || event.keyCode == 76 { // Enter
@@ -84,6 +131,7 @@ struct SheetSearchResultsView: View {
     let clipboardWriter: (String) -> Bool
     var isFocused: Binding<Bool> = .constant(false)
     var onExitToSearch: (() -> Void)? = nil
+    var onSelectSheetIndex: ((Int) -> Void)? = nil
     let onCopySuccess: (String) -> Void
     let onJumpToKeyValue: (KeyValueCheatsheet, KeyValueEntry) -> Void
     let onJumpToShortcut: (ShortcutSheet, ShortcutItem) -> Void
@@ -160,6 +208,7 @@ struct SheetSearchResultsView: View {
             syncCoordinator()
             if focused {
                 coordinator.focusedIndex = 0
+                coordinator.selectedColumn = .key
             }
         }
     }
@@ -169,7 +218,25 @@ struct SheetSearchResultsView: View {
         coordinator.getIsFocused = { focusedBinding.wrappedValue }
         coordinator.setIsFocused = { focusedBinding.wrappedValue = $0 }
         coordinator.getTargetsCount = { [self] in allTargets.count }
+        coordinator.getTargetAtIndex = { [self] idx in
+            let targets = allTargets
+            return targets.indices.contains(idx) ? targets[idx] : nil
+        }
         coordinator.onExitToSearch = onExitToSearch
+        coordinator.onSelectSheetIndex = onSelectSheetIndex
+        coordinator.onCopy = { [self] text, name in
+            let targets = allTargets
+            if targets.indices.contains(coordinator.focusedIndex) {
+                let target = targets[coordinator.focusedIndex]
+                switch target {
+                case .keyValue(_, let entry):
+                    let token = coordinator.selectedColumn == .key ? "\(entry.id)-key" : "\(entry.id)-val"
+                    copyText(text, fieldName: name, token: token)
+                case .shortcut:
+                    copyText(text, fieldName: name, token: "shortcut-\(coordinator.focusedIndex)")
+                }
+            }
+        }
         coordinator.onTriggerJump = { [self] idx in
             let targets = allTargets
             if targets.indices.contains(idx) {
@@ -261,6 +328,8 @@ struct SheetSearchResultsView: View {
                 let (cheatsheet, entry) = item
                 let targetID = "kv-\(entry.id)"
                 let isRowFocused = isFocused.wrappedValue && allTargets.indices.contains(coordinator.focusedIndex) && allTargets[coordinator.focusedIndex].id == targetID
+                let isKeyFocused = isRowFocused && coordinator.selectedColumn == .key
+                let isValueFocused = isRowFocused && coordinator.selectedColumn == .value
 
                 HStack(alignment: .top, spacing: 0) {
                     // Key Cell
@@ -283,6 +352,26 @@ struct SheetSearchResultsView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .overlay {
+                        if isKeyFocused {
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color.accentColor, lineWidth: 2)
+                                .shadow(color: Color.accentColor.opacity(0.35), radius: 3, x: 0, y: 0)
+                                .padding(2)
+                                .accessibilityElement()
+                                .accessibilityIdentifier("sheet.search-kv-cell.focused")
+                                .accessibilityValue("Key")
+                                .background(identifiableView(identifier: "sheet.search-kv-cell.focused", value: "Key"))
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if let idx = allTargets.firstIndex(where: { $0.id == targetID }) {
+                            coordinator.focusedIndex = idx
+                            coordinator.selectedColumn = .key
+                            isFocused.wrappedValue = true
+                        }
+                    }
 
                     Divider()
 
@@ -306,6 +395,26 @@ struct SheetSearchResultsView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .overlay {
+                        if isValueFocused {
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color.accentColor, lineWidth: 2)
+                                .shadow(color: Color.accentColor.opacity(0.35), radius: 3, x: 0, y: 0)
+                                .padding(2)
+                                .accessibilityElement()
+                                .accessibilityIdentifier("sheet.search-kv-cell.focused")
+                                .accessibilityValue("Value")
+                                .background(identifiableView(identifier: "sheet.search-kv-cell.focused", value: "Value"))
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if let idx = allTargets.firstIndex(where: { $0.id == targetID }) {
+                            coordinator.focusedIndex = idx
+                            coordinator.selectedColumn = .value
+                            isFocused.wrappedValue = true
+                        }
+                    }
 
                     Divider()
 
@@ -324,23 +433,14 @@ struct SheetSearchResultsView: View {
                     .background(identifiableView(identifier: "sheet.search-jump.key-value.\(entry.id)"))
                     .frame(width: 44, height: 32, alignment: .center)
                 }
-                .background(isRowFocused ? Color.accentColor.opacity(0.12) : Color.clear)
+                .background(isRowFocused ? Color.accentColor.opacity(0.08) : Color.clear)
                 .overlay {
                     if isRowFocused {
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(Color.accentColor, lineWidth: 2)
-                            .shadow(color: Color.accentColor.opacity(0.4), radius: 3)
+                        Color.clear
                             .accessibilityElement()
                             .accessibilityIdentifier("sheet.search-result.focused")
                             .accessibilityValue("已選取")
                             .background(identifiableView(identifier: "sheet.search-result.focused"))
-                    }
-                }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    if let idx = allTargets.firstIndex(where: { $0.id == targetID }) {
-                        coordinator.focusedIndex = idx
-                        isFocused.wrappedValue = true
                     }
                 }
                 .id(targetID)
@@ -431,10 +531,13 @@ struct SheetSearchResultsView: View {
         }
     }
 
-    private func identifiableView(identifier: String) -> some View {
+    private func identifiableView(identifier: String, value: String? = nil) -> some View {
         ViewAnchor {
             $0.setAccessibilityElement(false)
             $0.setAccessibilityIdentifier(identifier)
+            if let value {
+                $0.setAccessibilityValue(value)
+            }
         }
         .accessibilityHidden(true)
     }

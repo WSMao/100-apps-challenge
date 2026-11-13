@@ -70,6 +70,7 @@ struct DashboardView: View {
             if let current = contentNavigation.selectedSheet(for: initialAppID, in: store.application(id: initialAppID)?.sheets ?? []) {
                 nav.selectedSheetID = current.id
             }
+            configureTableNavCallbacks(nav)
             _tableNav = State(initialValue: nav)
         }
     }
@@ -320,10 +321,10 @@ struct DashboardView: View {
                     updateTableNav(for: id)
                 }
             }
-            followPendingJump()
-            tableNav?.onFocusSearch = {
-                sheetSearchState = .focusedEditing
+            if let nav = tableNav {
+                configureTableNavCallbacks(nav)
             }
+            followPendingJump()
             syncSidebarFocus(for: tableNav?.focusArea)
             if keyMonitor == nil {
                 keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -412,8 +413,6 @@ struct DashboardView: View {
             }
         }
         .onChange(of: currentSheetID) { newSheetID in
-            sheetSearchText = ""
-            sheetSearchState = .inactive
             if let newSheetID, tableNav?.selectedSheetID != newSheetID {
                 tableNav?.selectSheet(id: newSheetID)
             }
@@ -493,6 +492,18 @@ struct DashboardView: View {
                         isFocused: $searchResultsFocused,
                         onExitToSearch: {
                             sheetSearchState = .focusedNonEditing
+                        },
+                        onSelectSheetIndex: { index in
+                            guard index >= 0 && index < application.sheets.count else { return }
+                            let targetSheet = application.sheets[index]
+                            editSession.requestLeave {
+                                NSApp.keyWindow?.makeFirstResponder(nil)
+                                tableNav?.selectSheet(id: targetSheet.id)
+                                contentNavigation.selectSheet(targetSheet, for: application.id)
+                                tableNav?.focusArea = .tabs
+                                searchResultsFocused = false
+                                sheetSearchState = .inactive
+                            }
                         },
                         onCopySuccess: { successMessage = $0 },
                         onJumpToKeyValue: { cheatsheet, entry in
@@ -689,6 +700,9 @@ struct DashboardView: View {
                             tableNav?.focusArea = .tabs
                             contentNavigation.selectSheet(sheet, for: application.id)
                             tableNav?.selectSheet(id: sheet.id)
+                            sheetSearchText = ""
+                            sheetSearchState = .inactive
+                            searchResultsFocused = false
                         }
                     }
                 }
@@ -701,6 +715,9 @@ struct DashboardView: View {
                                     tableNav?.focusArea = .tabs
                                     contentNavigation.selectSheet(sheet, for: application.id)
                                     tableNav?.selectSheet(id: sheet.id)
+                                    sheetSearchText = ""
+                                    sheetSearchState = .inactive
+                                    searchResultsFocused = false
                                 }
                             } label: {
                                 Label(
@@ -728,15 +745,17 @@ struct DashboardView: View {
         .frame(height: 36)
     }
 
-    private func updateTableNav(for appID: String) {
-        let nav = TableKeyboardNavigation(
-            store: store,
-            applicationID: appID,
-            editSession: editSession,
-            clipboardWriter: clipboardWriter
-        )
+    private func configureTableNavCallbacks(_ nav: TableKeyboardNavigation) {
         nav.onFocusSearch = {
             sheetSearchState = .focusedEditing
+        }
+        nav.onMoveFocusToSearch = { [weak nav] in
+            guard let app = selectedApplication, !app.sheets.isEmpty else { return false }
+            let trimmed = sheetSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return false }
+            sheetSearchState = .focusedNonEditing
+            nav?.focusArea = .table
+            return true
         }
         nav.onCopyResult = { success, fieldName in
             if success {
@@ -746,6 +765,16 @@ struct DashboardView: View {
                 successMessage = nil
             }
         }
+    }
+
+    private func updateTableNav(for appID: String) {
+        let nav = TableKeyboardNavigation(
+            store: store,
+            applicationID: appID,
+            editSession: editSession,
+            clipboardWriter: clipboardWriter
+        )
+        configureTableNavCallbacks(nav)
         if let current = contentNavigation.selectedSheet(for: appID, in: store.application(id: appID)?.sheets ?? []) {
             nav.selectedSheetID = current.id
         }

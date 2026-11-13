@@ -141,6 +141,7 @@ final class TableKeyboardNavigation: ObservableObject {
     var onMoveFocusToShortcuts: (() -> Bool)?
     var onLeaveShortcuts: (() -> Void)?
     var onFocusSearch: (() -> Void)?
+    var onMoveFocusToSearch: (() -> Bool)?
     var measuredTruncatableRowIDs: Set<String>?
     var isPinnedWindow = false
 
@@ -344,6 +345,9 @@ final class TableKeyboardNavigation: ObservableObject {
         case .sidebar:
             return false
         case .tabs:
+            if let onMoveFocusToSearch, onMoveFocusToSearch() {
+                return true
+            }
             if currentSheet?.kind == .shortcuts {
                 if let onMoveFocusToShortcuts {
                     if onMoveFocusToShortcuts() {

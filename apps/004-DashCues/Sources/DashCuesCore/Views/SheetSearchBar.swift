@@ -187,6 +187,8 @@ struct SheetSearchBar: View {
                     containerView = view
                 }
             }
+            view.setAccessibilityIdentifier("sheet.search-bar")
+            view.setAccessibilityValue(state.rawValue)
         })
         .overlay(alignment: .topLeading) {
             if session.isShowingHistory && !historyItems.isEmpty {
