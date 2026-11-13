@@ -13,6 +13,7 @@ struct ShortcutListView: View {
     let onError: (String) -> Void
 
     @StateObject private var model: ShortcutListModel
+    @State private var jumpHighlightID: String? = nil
 
     init(
         store: ShortcutStore,
@@ -59,14 +60,33 @@ struct ShortcutListView: View {
                     ScrollView {
                         VStack(spacing: 2) {
                             ForEach(model.rows) { item in
-                                ShortcutRowView(item: item, model: model)
-                                    .id(item.id)
+                                ShortcutRowView(
+                                    item: item,
+                                    model: model,
+                                    isJumpHighlighted: jumpHighlightID == item.id
+                                )
+                                .id(item.id)
                             }
                         }
                         .padding(6)
                     }
                     .onChange(of: model.scrollTarget) { request in
-                        if let request { proxy.scrollTo(request.id) }
+                        if let request {
+                            DispatchQueue.main.async {
+                                withAnimation {
+                                    proxy.scrollTo(request.id, anchor: .center)
+                                }
+                            }
+                        }
+                    }
+                    .onAppear {
+                        if let request = model.scrollTarget {
+                            DispatchQueue.main.async {
+                                withAnimation {
+                                    proxy.scrollTo(request.id, anchor: .center)
+                                }
+                            }
+                        }
                     }
                 }
                 .overlay {
@@ -138,6 +158,11 @@ struct ShortcutListView: View {
         .onChange(of: contentNavigation?.pendingShortcutJump) { jump in
             followPendingShortcutJump(jump)
         }
+        .onChange(of: model.selection) { newSel in
+            if let id = jumpHighlightID, !newSel.contains(id) {
+                jumpHighlightID = nil
+            }
+        }
         .alert(
             model.selection.count > 1 ? "刪除 \(model.selection.count) 個快捷鍵？" : "刪除這個快捷鍵？",
             isPresented: $model.requestsDeleteConfirmation
@@ -168,6 +193,7 @@ struct ShortcutListView: View {
     private func followPendingShortcutJump(_ jump: ShortcutJump?) {
         guard let jump, jump.applicationID == applicationID, jump.sheetID == (sheetID ?? model.sheetID) else { return }
         model.selectAndScroll(to: jump.shortcutID)
+        jumpHighlightID = jump.shortcutID
         contentNavigation?.completeShortcutJump(jump)
     }
 }
@@ -175,6 +201,7 @@ struct ShortcutListView: View {
 private struct ShortcutRowView: View {
     let item: ShortcutItem
     @ObservedObject var model: ShortcutListModel
+    var isJumpHighlighted: Bool = false
     @FocusState private var focus: ShortcutField?
 
     private var isSelected: Bool { model.selection.contains(item.id) }
@@ -194,9 +221,42 @@ private struct ShortcutRowView: View {
         .padding(.vertical, 6)
         .frame(minHeight: 58)
         .background(
-            isSelected ? Color.accentColor.opacity(0.2) : Color.clear,
+            isJumpHighlighted
+                ? Color.accentColor.opacity(0.24)
+                : (isSelected ? Color.accentColor.opacity(0.2) : Color.clear),
             in: RoundedRectangle(cornerRadius: 8)
         )
+        .overlay {
+            if isJumpHighlighted {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.accentColor, lineWidth: 2)
+                    .shadow(color: Color.accentColor.opacity(0.4), radius: 3)
+                    .accessibilityElement()
+                    .accessibilityIdentifier("shortcut.jump-highlighted.\(item.id)")
+                    .accessibilityValue("已選取 高亮")
+                    .background(
+                        ViewAnchor {
+                            $0.setAccessibilityElement(false)
+                            $0.setAccessibilityIdentifier("shortcut.jump-highlighted.\(item.id)")
+                        }
+                        .accessibilityHidden(true)
+                    )
+            } else if isSelected && model.isCapturingKeyboard {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.accentColor, lineWidth: 1.5)
+                    .accessibilityElement()
+                    .accessibilityIdentifier("shortcut.row-focused")
+                    .accessibilityValue("已選取")
+                    .background(
+                        ViewAnchor {
+                            $0.setAccessibilityElement(false)
+                            $0.setAccessibilityIdentifier("shortcut.row-focused")
+                        }
+                        .accessibilityHidden(true)
+                    )
+            }
+        }
+        .accessibilityValue(isJumpHighlighted ? "已選取 高亮" : (isSelected ? "已選取" : ""))
         .contentShape(Rectangle())
         .onTapGesture {
             model.click(item.id, field: nil, modifiers: NSEvent.modifierFlags)

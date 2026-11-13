@@ -28,6 +28,8 @@ struct KeyValueTableView: View {
     var onUpdateLayout: ([KeyValueColumn]?, Double?, Double?) -> Void = { _, _, _ in }
     var navigation: TableKeyboardNavigation? = nil
     var isReadOnly: Bool = false
+    var jumpHighlightID: String? = nil
+    var scrollToEntryID: String? = nil
 
     @State private var selection = Set<String>()
     @State private var anchorIndex: Int?
@@ -76,23 +78,52 @@ struct KeyValueTableView: View {
             let scrollAxes: Axis.Set = totalTableWidth > geometry.size.width + 1 ? [.horizontal, .vertical] : .vertical
 
             VStack(spacing: 0) {
-                ScrollView(scrollAxes) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        header(widths: widths)
-                        Divider()
+                ScrollViewReader { proxy in
+                    ScrollView(scrollAxes) {
                         VStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                                row(entry, widths: widths, index: index)
-                                Divider()
+                            header(widths: widths)
+                            Divider()
+                            VStack(alignment: .leading, spacing: 0) {
+                                ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                                    row(entry, widths: widths, index: index)
+                                    Divider()
+                                }
+                                if showsNewRow, let id = session.editingEntryID {
+                                    editingRow(id: id, widths: widths)
+                                    Divider()
+                                }
                             }
-                            if showsNewRow, let id = session.editingEntryID {
-                                editingRow(id: id, widths: widths)
-                                Divider()
+                        }
+                        .frame(width: max(totalTableWidth, geometry.size.width), alignment: .leading)
+                        .coordinateSpace(name: "key-value-table")
+                    }
+                    .onChange(of: scrollToEntryID) { id in
+                        if let id {
+                            DispatchQueue.main.async {
+                                withAnimation {
+                                    proxy.scrollTo(id, anchor: .center)
+                                }
                             }
                         }
                     }
-                    .frame(width: max(totalTableWidth, geometry.size.width), alignment: .leading)
-                    .coordinateSpace(name: "key-value-table")
+                    .onChange(of: navigation?.selectedRowIndex) { newIndex in
+                        if let newIndex, entries.indices.contains(newIndex) {
+                            DispatchQueue.main.async {
+                                withAnimation {
+                                    proxy.scrollTo(entries[newIndex].id, anchor: .center)
+                                }
+                            }
+                        }
+                    }
+                    .onAppear {
+                        if let id = scrollToEntryID {
+                            DispatchQueue.main.async {
+                                withAnimation {
+                                    proxy.scrollTo(id, anchor: .center)
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if !selection.isEmpty && !isReadOnly {
@@ -254,6 +285,7 @@ struct KeyValueTableView: View {
     private func row(_ entry: KeyValueEntry, widths: (key: Double, value: Double), index: Int) -> some View {
         let isRowFocused = navigation?.focusArea == .table && navigation?.selectedRowIndex == index
         let isRowSelected = selection.contains(entry.id)
+        let isJumpHighlighted = jumpHighlightID == entry.id
         if session.editingEntryID == entry.id {
             editingRow(id: entry.id, widths: widths)
         } else {
@@ -269,11 +301,30 @@ struct KeyValueTableView: View {
                 cell(entry, column: secondCol == .key ? .key : .value, isExpanded: isExpanded, width: secondWidth, index: index, isRowFocused: isRowFocused)
             }
             .background(
-                isRowSelected
-                    ? Color.accentColor.opacity(0.14)
-                    : (isRowFocused ? Color.accentColor.opacity(0.08) : Color.clear)
+                isJumpHighlighted
+                    ? Color.accentColor.opacity(0.20)
+                    : (isRowSelected
+                        ? Color.accentColor.opacity(0.14)
+                        : (isRowFocused ? Color.accentColor.opacity(0.08) : Color.clear))
             )
-            .accessibilityValue(isRowSelected || isRowFocused ? "已選取" : "")
+            .accessibilityValue(isJumpHighlighted ? "已選取 高亮" : (isRowSelected || isRowFocused ? "已選取" : ""))
+            .overlay {
+                if isJumpHighlighted {
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(Color.accentColor, lineWidth: 2)
+                        .shadow(color: Color.accentColor.opacity(0.4), radius: 3)
+                        .accessibilityElement()
+                        .accessibilityIdentifier("key-value.jump-highlighted")
+                        .accessibilityValue("已選取 高亮")
+                        .background(
+                            ViewAnchor {
+                                $0.setAccessibilityElement(false)
+                                $0.setAccessibilityIdentifier("key-value.jump-highlighted")
+                            }
+                            .accessibilityHidden(true)
+                        )
+                }
+            }
             .overlay(alignment: .top) {
                 if dropTarget?.entryID == entry.id && dropTarget?.edge == .top {
                     Rectangle()

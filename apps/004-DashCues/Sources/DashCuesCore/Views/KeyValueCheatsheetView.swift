@@ -33,6 +33,7 @@ struct KeyValueCheatsheetView: View {
     @State private var searchText = ""
     @State private var isApplyingHistoryPreview = false
     @State private var pendingScrollEntryID: String?
+    @State private var jumpHighlightID: String? = nil
     @State private var sessionChangeToken = 0
     @State private var navigationChangeToken = 0
 
@@ -152,6 +153,11 @@ struct KeyValueCheatsheetView: View {
             followPendingJump()
         }
         .onChange(of: contentNavigation.pendingJump) { _ in followPendingJump() }
+        .onChange(of: navigation?.selectedEntryIDs) { newSel in
+            if let id = jumpHighlightID, let newSel, !newSel.contains(id) {
+                jumpHighlightID = nil
+            }
+        }
         .onChange(of: searchFocused) { focused in
             navigation?.isTextEditing = focused
             if !focused {
@@ -364,7 +370,9 @@ struct KeyValueCheatsheetView: View {
                             updateLayout(newOrder: newOrder, keyWidth: keyWidth, valueWidth: valueWidth, in: cheatsheet)
                         },
                         navigation: navigation,
-                        isReadOnly: isReadOnly
+                        isReadOnly: isReadOnly,
+                        jumpHighlightID: jumpHighlightID,
+                        scrollToEntryID: pendingScrollEntryID
                     )
                     .onAppear { scrollToPendingEntry(using: proxy) }
                     .onChange(of: pendingScrollEntryID) { _ in scrollToPendingEntry(using: proxy) }
@@ -437,22 +445,28 @@ struct KeyValueCheatsheetView: View {
         activeRecentSearchStore.record(query: searchText, for: applicationID)
         contentNavigation.selectCheatsheet(result.cheatsheetID, for: applicationID)
         contentNavigation.selectContentType(.keyValue)
-        navigation?.selectSheet(id: result.cheatsheetID)
+        if let sheet = cheatsheets.first(where: { $0.id == result.cheatsheetID }),
+           let idx = sheet.entries.firstIndex(where: { $0.id == result.entry.id }) {
+            navigation?.selectSheet(id: result.cheatsheetID, entryID: result.entry.id, rowIndex: idx)
+        } else {
+            navigation?.selectSheet(id: result.cheatsheetID)
+        }
         pendingScrollEntryID = result.entry.id
+        jumpHighlightID = result.entry.id
         searchText = ""
     }
 
     private func followPendingJump() {
         guard !isReadOnly, let jump = contentNavigation.pendingJump,
               jump.applicationID == applicationID,
-              cheatsheets.contains(where: { sheet in
-                  sheet.id == jump.cheatsheetID && sheet.entries.contains { $0.id == jump.entryID }
-              }) else { return }
+              let sheet = cheatsheets.first(where: { $0.id == jump.cheatsheetID }),
+              let idx = sheet.entries.firstIndex(where: { $0.id == jump.entryID }) else { return }
         activeRecentSearchStore.record(query: searchText, for: applicationID)
         contentNavigation.selectCheatsheet(jump.cheatsheetID, for: applicationID)
         contentNavigation.selectContentType(.keyValue)
-        navigation?.selectSheet(id: jump.cheatsheetID)
+        navigation?.selectSheet(id: jump.cheatsheetID, entryID: jump.entryID, rowIndex: idx)
         pendingScrollEntryID = jump.entryID
+        jumpHighlightID = jump.entryID
         searchText = ""
         contentNavigation.completeJump(jump)
     }

@@ -196,15 +196,27 @@ final class TableKeyboardNavigation: ObservableObject {
         sheets.firstIndex(where: { $0.id == selectedSheetID }) ?? 0
     }
 
-    func selectSheet(id: String) {
+    func selectSheet(id: String, entryID: String? = nil, rowIndex: Int? = nil) {
         guard sheets.contains(where: { $0.id == id }) else { return }
         selectedSheetID = id
-        selectedRowIndex = 0
+        selectedRowIndex = rowIndex ?? 0
         selectedColumn = columnOrder.first ?? .key
-        selectedEntryIDs = []
-        anchorRowIndex = nil
-        if focusArea == .table && entries.isEmpty {
-            focusArea = .tabs
+        if let entryID {
+            selectedEntryIDs = [entryID]
+            anchorRowIndex = rowIndex ?? 0
+            focusArea = .table
+        } else {
+            selectedEntryIDs = []
+            anchorRowIndex = nil
+            if focusArea == .table {
+                if let current = currentSheet {
+                    if current.kind == .keyValue && entries.isEmpty {
+                        focusArea = .tabs
+                    } else if current.kind == .shortcuts && (currentShortcutSheet?.shortcuts.isEmpty ?? true) {
+                        focusArea = .tabs
+                    }
+                }
+            }
         }
     }
 

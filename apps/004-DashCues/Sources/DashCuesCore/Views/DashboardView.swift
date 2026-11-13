@@ -25,6 +25,7 @@ struct DashboardView: View {
     @State private var keyMonitor: Any?
     @State private var navigationChangeToken = 0
     @State private var shortcutListCapturingKeys = false
+    @State private var searchResultsFocused = false
 
     private enum AppEditorRequest: Identifiable {
         case add
@@ -333,7 +334,9 @@ struct DashboardView: View {
                           sheetCreateRequest == nil,
                           applicationPendingDelete == nil,
                           errorMessage == nil,
-                          !editSession.isPromptingToLeave else {
+                          !editSession.isPromptingToLeave,
+                          sheetSearchState == .inactive,
+                          !searchResultsFocused else {
                         return event
                     }
                     if editSession.isEditing {
@@ -462,6 +465,7 @@ struct DashboardView: View {
                         text: $sheetSearchText,
                         state: $sheetSearchState,
                         placeholder: "搜尋目前 App 的所有工作表…",
+                        applicationID: application.id,
                         onDownArrow: {
                             handleSearchDownArrow(application: application)
                         },
@@ -473,6 +477,7 @@ struct DashboardView: View {
 
                     Spacer()
                 }
+                .zIndex(10)
 
                 if !sheetSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     SheetSearchResultsView(
@@ -480,6 +485,10 @@ struct DashboardView: View {
                         query: sheetSearchText,
                         store: store,
                         clipboardWriter: clipboardWriter,
+                        isFocused: $searchResultsFocused,
+                        onExitToSearch: {
+                            sheetSearchState = .focusedNonEditing
+                        },
                         onCopySuccess: { successMessage = $0 },
                         onJumpToKeyValue: { cheatsheet, entry in
                             jumpToKeyValue(cheatsheet: cheatsheet, entry: entry, in: application)
@@ -518,6 +527,7 @@ struct DashboardView: View {
                             navigation: tableNav,
                             showsSearchBar: false
                         )
+                        .id(currentSheet?.id)
                     }
                 }
             }
@@ -526,15 +536,12 @@ struct DashboardView: View {
     }
 
     private func jumpToKeyValue(cheatsheet: KeyValueCheatsheet, entry: KeyValueEntry, in application: ShortcutApplication) {
+        let idx = cheatsheet.entries.firstIndex(where: { $0.id == entry.id }) ?? 0
         contentNavigation.selectSheet(.keyValue(cheatsheet), for: application.id)
-        tableNav?.selectSheet(id: cheatsheet.id)
+        tableNav?.selectSheet(id: cheatsheet.id, entryID: entry.id, rowIndex: idx)
         sheetSearchText = ""
+        searchResultsFocused = false
         sheetSearchState = .inactive
-        if let idx = cheatsheet.entries.firstIndex(where: { $0.id == entry.id }) {
-            tableNav?.selectedRowIndex = idx
-            tableNav?.selectedEntryIDs = [entry.id]
-            tableNav?.focusArea = .table
-        }
         contentNavigation.requestJump(
             applicationID: application.id,
             result: KeyValueSearchResult(
@@ -547,10 +554,11 @@ struct DashboardView: View {
 
     private func jumpToShortcut(sheet: ShortcutSheet, item: ShortcutItem, in application: ShortcutApplication) {
         contentNavigation.selectSheet(.shortcuts(sheet), for: application.id)
-        tableNav?.selectSheet(id: sheet.id)
-        sheetSearchText = ""
-        sheetSearchState = .inactive
+        tableNav?.selectSheet(id: sheet.id, entryID: item.id)
         tableNav?.focusArea = .table
+        sheetSearchText = ""
+        searchResultsFocused = false
+        sheetSearchState = .inactive
         contentNavigation.requestShortcutJump(
             applicationID: application.id,
             sheetID: sheet.id,
@@ -561,14 +569,25 @@ struct DashboardView: View {
     private func handleSearchDownArrow(application: ShortcutApplication) {
         let trimmed = sheetSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
-            tableNav?.focusArea = .table
+            let sections = store.searchAllSheets(query: trimmed, in: application)
+            let hasResults = sections.contains { !$0.keyValueEntries.isEmpty || !$0.shortcuts.isEmpty }
+            if hasResults {
+                searchResultsFocused = true
+            }
         } else {
+            searchResultsFocused = false
             let currentSheet = contentNavigation.selectedSheet(for: application.id, in: application.sheets)
+            if let currentSheet {
+                tableNav?.selectedSheetID = currentSheet.id
+            }
             if currentSheet?.kind == .shortcuts {
+                tableNav?.focusArea = .table
                 _ = tableNav?.onMoveFocusToShortcuts?()
             } else if currentSheet?.kind == .keyValue {
                 tableNav?.focusArea = .table
                 tableNav?.selectedRowIndex = 0
+                tableNav?.anchorRowIndex = 0
+                tableNav?.selectedColumn = tableNav?.columnOrder.first ?? .key
                 if let first = tableNav?.entries.first {
                     tableNav?.selectedEntryIDs = [first.id]
                 }

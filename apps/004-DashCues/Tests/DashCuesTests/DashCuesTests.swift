@@ -436,6 +436,163 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testHostedSheetSearchDownArrowNavigationAndHistoryAndJump() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("dashcues-search-host-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = try ShortcutStore(storageURL: directory.appendingPathComponent("shortcuts.json"))
+        let defaultsSuite = "DashCues.SearchHostTest.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuite))
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+
+        let contentNav = SharedContentNavigation(defaults: defaults)
+        let editSession = KeyValueEditSession(store: store)
+
+        // Setup test app with a Shortcuts sheet and a Key-Value sheet
+        let appID = try store.addApplication(name: "SearchHostApp", bundleIdentifier: "com.example.searchhost", symbolName: "magnifyingglass")
+        try store.setPinned(true, applicationID: appID)
+
+        let initialSheets = store.application(id: appID)?.sheets ?? []
+        let scSheetID = try XCTUnwrap(initialSheets.first(where: { $0.kind == .shortcuts })?.id)
+        let kvSheetID = try store.createSheet(kind: .keyValue, name: "Production Config", applicationID: appID)
+
+        // Save searchable items
+        try store.saveShortcut(
+            ShortcutItem(title: "Deploy Prod", keys: ["⌘", "P"]),
+            applicationID: appID,
+            sheetID: scSheetID
+        )
+        try store.saveKeyValueEntry(
+            KeyValueEntry(key: "prod_db", value: "postgres://prod.internal"),
+            cheatsheetID: kvSheetID,
+            applicationID: appID
+        )
+
+        let dashboard = DashboardView(
+            store: store,
+            contentNavigation: contentNav,
+            editSession: editSession,
+            onHotKeyChanged: { _ in }
+        )
+
+        let hostingController = NSHostingController(rootView: dashboard)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 520),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hostingController
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        pumpRunLoop(seconds: 0.15)
+
+        // 1. Press Cmd-F to focus search bar into editing state
+        window.makeFirstResponder(nil)
+        sendKeyDown(to: window, keyCode: 3, characters: "f", modifiers: .command)
+        pumpRunLoop(seconds: 0.1)
+
+        let searchInput = try XCTUnwrap(findTextField(in: window.contentView, identifier: "sheet.search-input"))
+
+        // Ensure searchInput is first responder
+        if searchInput.currentEditor() == nil {
+            window.makeFirstResponder(searchInput)
+            pumpRunLoop(seconds: 0.05)
+        }
+        let editor = try XCTUnwrap(searchInput.currentEditor() as? NSTextView, "Search input should have active editor")
+
+        // 2. Type "prod" into search bar
+        editor.string = "prod"
+        searchInput.delegate?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: searchInput))
+        pumpRunLoop(seconds: 0.1)
+
+        // Verify search results appear
+        XCTAssertTrue(hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-results"))
+
+        // 3. Press Enter to confirm search query and enter focusedNonEditing state
+        // This should record "prod" into RecentSearchStore
+        let handledEnter = searchInput.delegate?.control?(
+            searchInput,
+            textView: editor,
+            doCommandBy: #selector(NSResponder.insertNewline(_:))
+        ) ?? false
+        XCTAssertTrue(handledEnter, "Enter in search input must be handled")
+        pumpRunLoop(seconds: 0.1)
+
+        let recentSearches = RecentSearchStore.shared.recentSearches(for: appID)
+        XCTAssertTrue(recentSearches.contains("prod"), "Enter in search input must record query in RecentSearchStore")
+
+        // 4. In focusedNonEditing state, press Down Arrow:
+        // Focus must cleanly move to the search results list with visual focus indicator!
+        sendKeyDown(to: window, keyCode: 125, characters: "") // Down Arrow
+        pumpRunLoop(seconds: 0.1)
+
+        XCTAssertTrue(
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-result.focused"),
+            "Down arrow from non-editing search bar must focus search results list"
+        )
+
+        // 5. In search results, press Enter on the focused result to trigger Jump:
+        sendKeyDown(to: window, keyCode: 36, characters: "\r") // Enter
+        pumpRunLoop(seconds: 0.15)
+
+        // Jump must switch to target sheet, clear search text, and highlight jumped item!
+        XCTAssertFalse(
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-results"),
+            "Jump must dismiss search results and clear search"
+        )
+        let hasJumpHighlight = hasAccessibilityIdentifier(in: window.contentView, identifier: "shortcut.jump-highlighted")
+            || hasAccessibilityIdentifier(in: window.contentView, identifier: "key-value.jump-highlighted")
+        XCTAssertTrue(hasJumpHighlight, "Jumped item must be visibly highlighted")
+
+        // 6. Test History Dropdown:
+        // Press Cmd-F to focus search bar into editing state
+        sendKeyDown(to: window, keyCode: 3, characters: "f", modifiers: .command)
+        pumpRunLoop(seconds: 0.1)
+
+        if searchInput.currentEditor() == nil {
+            window.makeFirstResponder(searchInput)
+            pumpRunLoop(seconds: 0.05)
+        }
+        let editor2 = try XCTUnwrap(searchInput.currentEditor() as? NSTextView)
+
+        // Press Down Arrow while in editing state:
+        let handledDownInEditing = searchInput.delegate?.control?(
+            searchInput,
+            textView: editor2,
+            doCommandBy: #selector(NSResponder.moveDown(_:))
+        ) ?? false
+        XCTAssertTrue(handledDownInEditing, "Down arrow in editing state must be handled by search history")
+        pumpRunLoop(seconds: 0.1)
+
+        // History dropdown must be visible with recent search items!
+        XCTAssertTrue(
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-history-dropdown"),
+            "Down arrow in editing state must open search history dropdown"
+        )
+        XCTAssertTrue(
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-history-item.0"),
+            "History dropdown must show recent items"
+        )
+
+        // Press Enter to confirm history selection
+        let handledEnterHistory = searchInput.delegate?.control?(
+            searchInput,
+            textView: editor2,
+            doCommandBy: #selector(NSResponder.insertNewline(_:))
+        ) ?? false
+        XCTAssertTrue(handledEnterHistory, "Enter must select history item")
+        pumpRunLoop(seconds: 0.1)
+
+        XCTAssertFalse(
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-history-dropdown"),
+            "Selecting history item must dismiss dropdown"
+        )
+    }
+
+    @MainActor
     private func findTextField(in root: NSView?, identifier: String) -> NSTextField? {
         guard let root else { return nil }
         if let field = root as? NSTextField, field.accessibilityIdentifier() == identifier {
