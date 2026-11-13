@@ -12,6 +12,12 @@ struct KeyValueJump: Equatable {
     let entryID: String
 }
 
+struct ShortcutJump: Equatable {
+    let applicationID: String
+    let sheetID: String
+    let shortcutID: String
+}
+
 @MainActor
 final class SharedContentNavigation: ObservableObject {
     private static let selectedContentKey = "DashCues.selectedContentType"
@@ -20,6 +26,7 @@ final class SharedContentNavigation: ObservableObject {
     @Published private(set) var selectedContentType: DashboardContentType
     @Published private(set) var lastSelectedCheatsheetIDs: [String: String]
     @Published private(set) var pendingJump: KeyValueJump?
+    @Published private(set) var pendingShortcutJump: ShortcutJump?
 
     private let defaults: UserDefaults
     private var notificationObserver: NSObjectProtocol?
@@ -108,11 +115,27 @@ final class SharedContentNavigation: ObservableObject {
         if pendingJump == jump { pendingJump = nil }
     }
 
+    func requestShortcutJump(applicationID: String, sheetID: String, shortcutID: String) {
+        selectCheatsheet(sheetID, for: applicationID)
+        selectContentType(.shortcuts)
+        pendingShortcutJump = ShortcutJump(
+            applicationID: applicationID,
+            sheetID: sheetID,
+            shortcutID: shortcutID
+        )
+    }
+
+    func completeShortcutJump(_ jump: ShortcutJump) {
+        if pendingShortcutJump == jump { pendingShortcutJump = nil }
+    }
+
     func resetForTesting() {
         defaults.removeObject(forKey: Self.selectedContentKey)
         defaults.removeObject(forKey: Self.selectedCheatsheetsKey)
         selectedContentType = .shortcuts
         lastSelectedCheatsheetIDs = [:]
+        pendingJump = nil
+        pendingShortcutJump = nil
     }
 }
 

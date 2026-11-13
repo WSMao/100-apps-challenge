@@ -324,6 +324,15 @@ struct KeyValueSearchResult: Identifiable, Equatable {
     }
 }
 
+struct SheetSearchResultSection: Identifiable {
+    let id: String
+    let sheetID: String
+    let sheetName: String
+    let kind: SheetKind
+    var keyValueEntries: [(cheatsheet: KeyValueCheatsheet, entry: KeyValueEntry)]
+    var shortcuts: [(sheet: ShortcutSheet, item: ShortcutItem)]
+}
+
 struct ShortcutItem: Codable, Identifiable, Equatable {
     var id: String
     var title: String

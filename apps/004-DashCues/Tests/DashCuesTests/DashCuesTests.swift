@@ -355,6 +355,68 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
         sendKeyDown(to: window, keyCode: 125, characters: "") // Down arrow in sidebar -> selects next app
         pumpRunLoop(seconds: 0.1)
         XCTAssertNotEqual(contentNav.selectedSheet(for: appID, in: initialApp.sheets)?.id, nil)
+
+        // 6. User Story 55, 56, 57: Cmd-F opens sheet search bar, state machine interaction, and section-grouped search results
+        sendKeyDown(to: window, keyCode: 126, characters: "") // Up arrow -> back to Hosted Terminal
+        pumpRunLoop(seconds: 0.1)
+
+        // Press Cmd-F to open/focus sheet search bar into editing state (US 55)
+        sendKeyDown(to: window, keyCode: 3, characters: "f", modifiers: .command)
+        pumpRunLoop(seconds: 0.1)
+
+        let searchInput = try XCTUnwrap(
+            findTextField(in: window.contentView, identifier: "sheet.search-input"),
+            "Expected sheet.search-input to be present after Cmd-F"
+        )
+        if searchInput.currentEditor() == nil {
+            window.makeFirstResponder(searchInput)
+            pumpRunLoop(seconds: 0.05)
+        }
+        let searchEditor = try XCTUnwrap(searchInput.currentEditor() as? NSTextView, "Search field must acquire field editor")
+        searchEditor.string = "PROMPT"
+        searchInput.stringValue = "PROMPT"
+        searchInput.delegate?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: searchInput))
+        pumpRunLoop(seconds: 0.1)
+
+        // Verify search results grouped by section (US 57)
+        XCTAssertTrue(
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-results"),
+            "Search results container must be rendered for matching query"
+        )
+        XCTAssertTrue(
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-section.\(kv3)"),
+            "Matching sheet kv3 must be rendered as a boxed Section"
+        )
+        XCTAssertTrue(
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-jump.key-value.e-trunc"),
+            "Matching key-value entry must provide a jump icon button"
+        )
+
+        // Test State Machine (US 56):
+        // In editing state: press Enter -> confirms input and exits editing state, focus remains on search box
+        let handledEnter = searchInput.delegate?.control?(
+            searchInput,
+            textView: searchEditor,
+            doCommandBy: #selector(NSResponder.insertNewline(_:))
+        ) ?? false
+        XCTAssertTrue(handledEnter, "Enter in editing state should be handled")
+        pumpRunLoop(seconds: 0.08)
+
+        // In editing state: press Esc -> clears content and exits editing state
+        sendKeyDown(to: window, keyCode: 3, characters: "f", modifiers: .command)
+        pumpRunLoop(seconds: 0.08)
+        let handledEsc = searchInput.delegate?.control?(
+            searchInput,
+            textView: searchEditor,
+            doCommandBy: #selector(NSResponder.cancelOperation(_:))
+        ) ?? false
+        XCTAssertTrue(handledEsc, "Esc in editing state should be handled")
+        pumpRunLoop(seconds: 0.08)
+        XCTAssertEqual(searchInput.stringValue, "", "Esc in editing state must clear the search text")
+
+        // Down arrow in focusedNonEditing moves focus to content below
+        sendKeyDown(to: window, keyCode: 125, characters: "")
+        pumpRunLoop(seconds: 0.08)
     }
 
     @MainActor

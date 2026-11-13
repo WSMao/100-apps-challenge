@@ -19,6 +19,8 @@ struct DashboardView: View {
     @State private var sheetCreateApplicationID: String?
     @State private var errorMessage: String?
     @State private var successMessage: String?
+    @State private var sheetSearchText = ""
+    @State private var sheetSearchState: SearchBarFocusState = .inactive
     @State private var tableNav: TableKeyboardNavigation?
     @State private var keyMonitor: Any?
     @State private var navigationChangeToken = 0
@@ -317,6 +319,9 @@ struct DashboardView: View {
                 }
             }
             followPendingJump()
+            tableNav?.onFocusSearch = {
+                sheetSearchState = .focusedEditing
+            }
             if keyMonitor == nil {
                 keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
                     guard let window = event.window,
@@ -395,11 +400,15 @@ struct DashboardView: View {
             }
         }
         .onChange(of: selectedApplicationID) { newID in
+            sheetSearchText = ""
+            sheetSearchState = .inactive
             if let newID {
                 updateTableNav(for: newID)
             }
         }
         .onChange(of: currentSheetID) { newSheetID in
+            sheetSearchText = ""
+            sheetSearchState = .inactive
             if let newSheetID, tableNav?.selectedSheetID != newSheetID {
                 tableNav?.selectSheet(id: newSheetID)
             }
@@ -448,35 +457,123 @@ struct DashboardView: View {
             if application.sheets.isEmpty {
                 emptySheetState(for: application)
             } else {
-                switch currentSheet?.kind ?? .shortcuts {
-                case .shortcuts:
-                    ShortcutListView(
-                        store: store,
-                        applicationID: application.id,
-                        sheetID: currentSheet?.id,
-                        navigation: tableNav,
-                        onKeyboardCaptureChanged: { shortcutListCapturingKeys = $0 }
-                    ) { errorMessage = $0 }
-                        .id(currentSheet?.id)
-                case .keyValue:
-                    KeyValueCheatsheetView(
-                        store: store,
-                        contentNavigation: contentNavigation,
-                        applicationID: application.id,
-                        sheetID: currentSheet?.id,
-                        onError: {
-                            errorMessage = $0
-                            successMessage = nil
+                HStack(spacing: 8) {
+                    SheetSearchBar(
+                        text: $sheetSearchText,
+                        state: $sheetSearchState,
+                        placeholder: "搜尋目前 App 的所有工作表…",
+                        onDownArrow: {
+                            handleSearchDownArrow(application: application)
                         },
-                        onCopySuccess: { successMessage = $0 },
-                        clipboardWriter: clipboardWriter,
-                        editSession: editSession,
-                        navigation: tableNav
+                        onEscNonEditing: {
+                            tableNav?.focusArea = .tabs
+                        }
                     )
+                    .frame(maxWidth: 320)
+
+                    Spacer()
+                }
+
+                if !sheetSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    SheetSearchResultsView(
+                        application: application,
+                        query: sheetSearchText,
+                        store: store,
+                        clipboardWriter: clipboardWriter,
+                        onCopySuccess: { successMessage = $0 },
+                        onJumpToKeyValue: { cheatsheet, entry in
+                            jumpToKeyValue(cheatsheet: cheatsheet, entry: entry, in: application)
+                        },
+                        onJumpToShortcut: { sheet, item in
+                            jumpToShortcut(sheet: sheet, item: item, in: application)
+                        }
+                    )
+                } else {
+                    switch currentSheet?.kind ?? .shortcuts {
+                    case .shortcuts:
+                        ShortcutListView(
+                            store: store,
+                            applicationID: application.id,
+                            sheetID: currentSheet?.id,
+                            navigation: tableNav,
+                            showsSearchBar: false,
+                            contentNavigation: contentNavigation,
+                            onFocusSearch: { sheetSearchState = .focusedEditing },
+                            onKeyboardCaptureChanged: { shortcutListCapturingKeys = $0 }
+                        ) { errorMessage = $0 }
+                            .id(currentSheet?.id)
+                    case .keyValue:
+                        KeyValueCheatsheetView(
+                            store: store,
+                            contentNavigation: contentNavigation,
+                            applicationID: application.id,
+                            sheetID: currentSheet?.id,
+                            onError: {
+                                errorMessage = $0
+                                successMessage = nil
+                            },
+                            onCopySuccess: { successMessage = $0 },
+                            clipboardWriter: clipboardWriter,
+                            editSession: editSession,
+                            navigation: tableNav,
+                            showsSearchBar: false
+                        )
+                    }
                 }
             }
         }
         .padding(24)
+    }
+
+    private func jumpToKeyValue(cheatsheet: KeyValueCheatsheet, entry: KeyValueEntry, in application: ShortcutApplication) {
+        contentNavigation.selectSheet(.keyValue(cheatsheet), for: application.id)
+        tableNav?.selectSheet(id: cheatsheet.id)
+        sheetSearchText = ""
+        sheetSearchState = .inactive
+        if let idx = cheatsheet.entries.firstIndex(where: { $0.id == entry.id }) {
+            tableNav?.selectedRowIndex = idx
+            tableNav?.selectedEntryIDs = [entry.id]
+            tableNav?.focusArea = .table
+        }
+        contentNavigation.requestJump(
+            applicationID: application.id,
+            result: KeyValueSearchResult(
+                cheatsheetID: cheatsheet.id,
+                cheatsheetName: cheatsheet.name,
+                entry: entry
+            )
+        )
+    }
+
+    private func jumpToShortcut(sheet: ShortcutSheet, item: ShortcutItem, in application: ShortcutApplication) {
+        contentNavigation.selectSheet(.shortcuts(sheet), for: application.id)
+        tableNav?.selectSheet(id: sheet.id)
+        sheetSearchText = ""
+        sheetSearchState = .inactive
+        tableNav?.focusArea = .table
+        contentNavigation.requestShortcutJump(
+            applicationID: application.id,
+            sheetID: sheet.id,
+            shortcutID: item.id
+        )
+    }
+
+    private func handleSearchDownArrow(application: ShortcutApplication) {
+        let trimmed = sheetSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            tableNav?.focusArea = .table
+        } else {
+            let currentSheet = contentNavigation.selectedSheet(for: application.id, in: application.sheets)
+            if currentSheet?.kind == .shortcuts {
+                _ = tableNav?.onMoveFocusToShortcuts?()
+            } else if currentSheet?.kind == .keyValue {
+                tableNav?.focusArea = .table
+                tableNav?.selectedRowIndex = 0
+                if let first = tableNav?.entries.first {
+                    tableNav?.selectedEntryIDs = [first.id]
+                }
+            }
+        }
     }
 
     private func followPendingJump() {
@@ -606,6 +703,9 @@ struct DashboardView: View {
             editSession: editSession,
             clipboardWriter: clipboardWriter
         )
+        nav.onFocusSearch = {
+            sheetSearchState = .focusedEditing
+        }
         nav.onCopyResult = { success, fieldName in
             if success {
                 successMessage = "\(fieldName) 已複製。"

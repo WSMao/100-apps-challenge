@@ -14,6 +14,7 @@ struct KeyValueCheatsheetView: View {
     var editSession: KeyValueEditSession?
     var navigation: TableKeyboardNavigation? = nil
     var recentSearchStore: RecentSearchStore? = nil
+    var showsSearchBar: Bool = true
     var onSearchFocusChanged: (Bool) -> Void = { _ in }
     var onJumpToDashboard: ((KeyValueSearchResult) -> Void)?
 
@@ -261,18 +262,20 @@ struct KeyValueCheatsheetView: View {
                 .frame(maxWidth: 150)
             }
 
-            TextField("搜尋 Key 或 Value", text: $searchText)
-                .textFieldStyle(.roundedBorder)
-                .focused($searchFocused)
-                .onSubmit {
-                    if let session = historySession, let applied = session.handleEnter() {
-                        searchText = applied
-                    } else {
-                        activeRecentSearchStore.record(query: searchText, for: applicationID)
+            if showsSearchBar {
+                TextField("搜尋 Key 或 Value", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($searchFocused)
+                    .onSubmit {
+                        if let session = historySession, let applied = session.handleEnter() {
+                            searchText = applied
+                        } else {
+                            activeRecentSearchStore.record(query: searchText, for: applicationID)
+                        }
                     }
-                }
-                .accessibilityIdentifier("key-value.search")
-                .frame(maxWidth: isReadOnly ? 180 : 240)
+                    .accessibilityIdentifier("key-value.search")
+                    .frame(maxWidth: isReadOnly ? 180 : 240)
+            }
 
             Spacer()
             if !isReadOnly {

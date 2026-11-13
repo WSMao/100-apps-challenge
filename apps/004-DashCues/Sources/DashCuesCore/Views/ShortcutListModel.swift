@@ -61,6 +61,7 @@ final class ShortcutListModel: ObservableObject {
     var onKeyboardCaptureChanged: (Bool) -> Void = { _ in }
     var onExitToTabs: (() -> Void)?
     var onEnterTable: (() -> Void)?
+    var onFocusSearch: (() -> Void)?
     weak var listView: NSView?
 
     var isCapturingKeyboard: Bool {
@@ -71,7 +72,7 @@ final class ShortcutListModel: ObservableObject {
 
     private let store: ShortcutStore
     private(set) var applicationID: String
-    private let sheetID: String?
+    let sheetID: String?
     let recentSearchStore: RecentSearchStore
     private(set) lazy var historySession = SearchHistorySession(applicationID: applicationID, recentStore: recentSearchStore)
     private var cursorID: String?
@@ -565,6 +566,14 @@ final class ShortcutListModel: ObservableObject {
         let window = event.window ?? listView?.window
         // Let input methods (e.g. Chinese IME) handle Enter/Esc while composing text.
         if let text = window?.firstResponder as? NSTextView, text.hasMarkedText() { return false }
+        let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if flags == .command && event.charactersIgnoringModifiers?.lowercased() == "f" {
+            if let onFocusSearch {
+                onFocusSearch()
+                return true
+            }
+        }
+
         if isRecordingSearchKeys { return recordSearchKey(event) }
         if searchFocused, editingField == nil, window?.firstResponder is NSTextView {
             return handleSearchKey(keyCode: event.keyCode, flags: event.modifierFlags)
@@ -598,6 +607,18 @@ final class ShortcutListModel: ObservableObject {
         anchorID = first
         requestScroll(first)
         return true
+    }
+
+    func selectAndScroll(to id: String) {
+        let ids = rows.map(\.id)
+        guard ids.contains(id) else { return }
+        isListActive = true
+        onEnterTable?()
+        resignTextFocus()
+        selection = [id]
+        cursorID = id
+        anchorID = id
+        requestScroll(id)
     }
 
     /// Returns keyboard focus to the app sidebar or tabs.

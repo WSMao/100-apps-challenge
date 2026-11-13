@@ -6,6 +6,9 @@ struct ShortcutListView: View {
     let applicationID: String
     var sheetID: String? = nil
     var navigation: TableKeyboardNavigation? = nil
+    var showsSearchBar: Bool = true
+    var contentNavigation: SharedContentNavigation? = nil
+    var onFocusSearch: (() -> Void)? = nil
     var onKeyboardCaptureChanged: (Bool) -> Void = { _ in }
     let onError: (String) -> Void
 
@@ -16,6 +19,9 @@ struct ShortcutListView: View {
         applicationID: String,
         sheetID: String? = nil,
         navigation: TableKeyboardNavigation? = nil,
+        showsSearchBar: Bool = true,
+        contentNavigation: SharedContentNavigation? = nil,
+        onFocusSearch: (() -> Void)? = nil,
         onKeyboardCaptureChanged: @escaping (Bool) -> Void = { _ in },
         onError: @escaping (String) -> Void
     ) {
@@ -23,6 +29,9 @@ struct ShortcutListView: View {
         self.applicationID = applicationID
         self.sheetID = sheetID
         self.navigation = navigation
+        self.showsSearchBar = showsSearchBar
+        self.contentNavigation = contentNavigation
+        self.onFocusSearch = onFocusSearch
         self.onKeyboardCaptureChanged = onKeyboardCaptureChanged
         self.onError = onError
         _model = StateObject(wrappedValue: ShortcutListModel(store: store, applicationID: applicationID, sheetID: sheetID))
@@ -41,7 +50,9 @@ struct ShortcutListView: View {
                 }
             }
 
-            ShortcutSearchBar(model: model)
+            if showsSearchBar {
+                ShortcutSearchBar(model: model)
+            }
 
             VStack(spacing: 0) {
                 ScrollViewReader { proxy in
@@ -124,6 +135,9 @@ struct ShortcutListView: View {
             model.setApplication(appID)
             setupNavigation()
         }
+        .onChange(of: contentNavigation?.pendingShortcutJump) { jump in
+            followPendingShortcutJump(jump)
+        }
         .alert(
             model.selection.count > 1 ? "刪除 \(model.selection.count) 個快捷鍵？" : "刪除這個快捷鍵？",
             isPresented: $model.requestsDeleteConfirmation
@@ -136,6 +150,8 @@ struct ShortcutListView: View {
     }
 
     private func setupNavigation() {
+        model.onFocusSearch = onFocusSearch
+        followPendingShortcutJump(contentNavigation?.pendingShortcutJump)
         guard let navigation else { return }
         navigation.onMoveFocusToShortcuts = { [weak model] in
             guard let model else { return false }
@@ -147,6 +163,12 @@ struct ShortcutListView: View {
         model.onEnterTable = { [weak navigation] in
             navigation?.focusArea = .table
         }
+    }
+
+    private func followPendingShortcutJump(_ jump: ShortcutJump?) {
+        guard let jump, jump.applicationID == applicationID, jump.sheetID == (sheetID ?? model.sheetID) else { return }
+        model.selectAndScroll(to: jump.shortcutID)
+        contentNavigation?.completeShortcutJump(jump)
     }
 }
 

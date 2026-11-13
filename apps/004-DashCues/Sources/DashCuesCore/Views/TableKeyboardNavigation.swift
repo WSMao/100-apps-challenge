@@ -139,6 +139,7 @@ final class TableKeyboardNavigation: ObservableObject {
     @Published var anchorRowIndex: Int?
     var onDeleteRequested: (() -> Void)?
     var onMoveFocusToShortcuts: (() -> Bool)?
+    var onFocusSearch: (() -> Void)?
     var measuredTruncatableRowIDs: Set<String>?
     var isPinnedWindow = false
 
@@ -476,6 +477,14 @@ final class TableKeyboardNavigation: ObservableObject {
         }
 
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+
+        // Cmd-F (Focus Sheet Search)
+        if flags == .command && event.charactersIgnoringModifiers?.lowercased() == "f" {
+            if let onFocusSearch {
+                onFocusSearch()
+                return true
+            }
+        }
 
         // Cmd-C
         if flags == .command && event.charactersIgnoringModifiers?.lowercased() == "c" {

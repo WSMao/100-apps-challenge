@@ -105,6 +105,7 @@ enum ShortcutStoreSelfTest {
         try runTableArrangementChecks(in: directory)
         try TableNavigationSelfTest.run(store: reopenedStore)
         try CrossSheetSearchSelfTest.run(store: reopenedStore)
+        try SheetSearchStateMachineSelfTest.run(store: reopenedStore)
         try RecentSearchSelfTest.run(store: reopenedStore)
         try SynchronizedSheetsSelfTest.run(store: reopenedStore)
         try IntegratedVerificationSelfTest.run(store: reopenedStore)

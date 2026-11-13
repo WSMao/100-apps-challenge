@@ -81,6 +81,55 @@ final class ShortcutStore: ObservableObject {
         }
     }
 
+    func searchAllSheets(query: String, in application: ShortcutApplication) -> [SheetSearchResultSection] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        var sections: [SheetSearchResultSection] = []
+
+        for sheet in application.sheets {
+            switch sheet {
+            case .keyValue(let cheatsheet):
+                let matches = cheatsheet.entries.filter { entry in
+                    entry.key.localizedCaseInsensitiveContains(trimmed)
+                        || entry.value.localizedCaseInsensitiveContains(trimmed)
+                }
+                if !matches.isEmpty {
+                    sections.append(
+                        SheetSearchResultSection(
+                            id: cheatsheet.id,
+                            sheetID: cheatsheet.id,
+                            sheetName: cheatsheet.name,
+                            kind: .keyValue,
+                            keyValueEntries: matches.map { (cheatsheet, $0) },
+                            shortcuts: []
+                        )
+                    )
+                }
+            case .shortcuts(let shortcutSheet):
+                let matches = shortcutSheet.shortcuts.filter { item in
+                    item.title.localizedCaseInsensitiveContains(trimmed)
+                        || item.keys.joined().localizedCaseInsensitiveContains(trimmed)
+                        || item.tags.contains { $0.localizedCaseInsensitiveContains(trimmed) }
+                }
+                if !matches.isEmpty {
+                    sections.append(
+                        SheetSearchResultSection(
+                            id: shortcutSheet.id,
+                            sheetID: shortcutSheet.id,
+                            sheetName: shortcutSheet.name,
+                            kind: .shortcuts,
+                            keyValueEntries: [],
+                            shortcuts: matches.map { (shortcutSheet, $0) }
+                        )
+                    )
+                }
+            }
+        }
+
+        return sections
+    }
+
     func setPinned(_ isPinned: Bool, applicationID: String) throws {
         guard var app = application(id: applicationID) else {
             throw ShortcutStoreError.applicationNotFound
