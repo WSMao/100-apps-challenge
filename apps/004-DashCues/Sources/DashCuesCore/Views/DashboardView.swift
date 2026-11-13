@@ -436,6 +436,9 @@ struct DashboardView: View {
         }
         .onChange(of: tableNav?.focusArea) { area in
             syncSidebarFocus(for: area)
+            if area == .tabs, let app = selectedApplication {
+                handleTabsFocusArrived(application: app)
+            }
         }
         .onChange(of: contentNavigation.pendingJump) { _ in followPendingJump() }
         .confirmationDialog(
@@ -490,8 +493,19 @@ struct DashboardView: View {
                         onDownArrow: {
                             handleSearchDownArrow(application: application)
                         },
+                        onUpArrow: {
+                            handleTabsFocusArrived(application: application)
+                        },
                         onEscNonEditing: {
-                            tableNav?.focusArea = .tabs
+                            handleTabsFocusArrived(application: application)
+                        },
+                        onSelectSheetIndex: { index in
+                            guard index >= 0 && index < application.sheets.count else { return }
+                            let targetSheet = application.sheets[index]
+                            editSession.requestLeave {
+                                NSApp.keyWindow?.makeFirstResponder(nil)
+                                handleTabsFocusArrived(targetSheet: targetSheet, application: application)
+                            }
                         }
                     )
                     .frame(maxWidth: 320)
@@ -515,11 +529,7 @@ struct DashboardView: View {
                             let targetSheet = application.sheets[index]
                             editSession.requestLeave {
                                 NSApp.keyWindow?.makeFirstResponder(nil)
-                                tableNav?.selectSheet(id: targetSheet.id)
-                                contentNavigation.selectSheet(targetSheet, for: application.id)
-                                tableNav?.focusArea = .tabs
-                                searchResultsFocused = false
-                                sheetSearchState = .inactive
+                                handleTabsFocusArrived(targetSheet: targetSheet, application: application)
                             }
                         },
                         onCopySuccess: { successMessage = $0 },
@@ -605,6 +615,33 @@ struct DashboardView: View {
             sheetID: sheet.id,
             shortcutID: item.id
         )
+    }
+
+    private func handleTabsFocusArrived(targetSheet: AppSheet? = nil, application: ShortcutApplication) {
+        let trimmed = sheetSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isSearching = !trimmed.isEmpty
+
+        if isSearching {
+            sheetSearchText = ""
+            sheetSearchState = .inactive
+            searchResultsFocused = false
+        }
+
+        let sheetToSelect: AppSheet
+        if let targetSheet {
+            sheetToSelect = targetSheet
+        } else {
+            let selectedID = tableNav?.selectedSheetID
+                ?? contentNavigation.selectedSheet(for: application.id, in: application.sheets)?.id
+                ?? application.sheets.first?.id
+            sheetToSelect = application.sheets.first(where: { $0.id == selectedID })
+                ?? application.sheets.first
+                ?? .shortcuts(ShortcutSheet())
+        }
+
+        contentNavigation.selectSheet(sheetToSelect, for: application.id)
+        tableNav?.selectSheet(id: sheetToSelect.id)
+        tableNav?.focusArea = .tabs
     }
 
     private func handleSearchDownArrow(application: ShortcutApplication) {
@@ -724,12 +761,7 @@ struct DashboardView: View {
                     ) {
                         editSession.requestLeave {
                             NSApp.keyWindow?.makeFirstResponder(nil)
-                            tableNav?.focusArea = .tabs
-                            contentNavigation.selectSheet(sheet, for: application.id)
-                            tableNav?.selectSheet(id: sheet.id)
-                            sheetSearchText = ""
-                            sheetSearchState = .inactive
-                            searchResultsFocused = false
+                            handleTabsFocusArrived(targetSheet: sheet, application: application)
                         }
                     }
                 }
@@ -739,12 +771,7 @@ struct DashboardView: View {
                             Button {
                                 editSession.requestLeave {
                                     NSApp.keyWindow?.makeFirstResponder(nil)
-                                    tableNav?.focusArea = .tabs
-                                    contentNavigation.selectSheet(sheet, for: application.id)
-                                    tableNav?.selectSheet(id: sheet.id)
-                                    sheetSearchText = ""
-                                    sheetSearchState = .inactive
-                                    searchResultsFocused = false
+                                    handleTabsFocusArrived(targetSheet: sheet, application: application)
                                 }
                             } label: {
                                 Label(

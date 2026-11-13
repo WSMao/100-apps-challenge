@@ -628,22 +628,17 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
             hasAccessibilityIdentifier(in: window.contentView, identifier: "dashboard.tab-focused"),
             "Pressing number key from search results must select and focus corresponding Sheet tab"
         )
-
-        // Press Down Arrow from focused Sheet tab -> moves focus to search bar (focusedNonEditing)
-        sendKeyDown(to: window, keyCode: 125, characters: "")
-        pumpRunLoop(seconds: 0.1)
-        XCTAssertEqual(
-            findAccessibilityValue(in: window.contentView, identifier: "sheet.search-bar"),
-            "focusedNonEditing",
-            "Down arrow from Sheet tab must move focus to search bar in focusedNonEditing state"
+        XCTAssertFalse(
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-results"),
+            "Focusing sheet tab bar must clear search results and exit search page"
         )
 
-        // Press Down Arrow again from search bar -> moves focus to first search result option below
+        // Press Down Arrow from focused Sheet tab -> moves focus into Sheet 1 shortcuts table
         sendKeyDown(to: window, keyCode: 125, characters: "")
         pumpRunLoop(seconds: 0.1)
         XCTAssertTrue(
-            hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-result.focused"),
-            "Second Down arrow must move focus to first item in the search results below"
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "shortcut.row-focused"),
+            "Down arrow from Sheet tab after search dismissal moves directly to sheet items"
         )
 
         // 6. Test History Dropdown:
@@ -695,6 +690,41 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
             hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-history-dropdown"),
             "Selecting history item must dismiss dropdown"
         )
+
+        // 7. Verify Esc in search bar (non-editing) clears search and focuses tab bar, switching to selected sheet
+        if searchInput.currentEditor() == nil {
+            window.makeFirstResponder(searchInput)
+            pumpRunLoop(seconds: 0.05)
+        }
+        if let editor3 = searchInput.currentEditor() as? NSTextView {
+            editor3.string = "prod"
+            searchInput.delegate?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: searchInput))
+            pumpRunLoop(seconds: 0.1)
+
+            XCTAssertTrue(hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-results"))
+
+            // Confirm query to exit editing into focusedNonEditing
+            _ = searchInput.delegate?.control?(
+                searchInput,
+                textView: editor3,
+                doCommandBy: #selector(NSResponder.insertNewline(_:))
+            )
+            pumpRunLoop(seconds: 0.1)
+
+            // Press Esc in focusedNonEditing state: focus moves to sheet tab bar
+            sendKeyDown(to: window, keyCode: 53, characters: "")
+            pumpRunLoop(seconds: 0.1)
+
+            XCTAssertTrue(
+                hasAccessibilityIdentifier(in: window.contentView, identifier: "dashboard.tab-focused"),
+                "Esc in search bar must focus sheet tab bar"
+            )
+            XCTAssertFalse(
+                hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-results"),
+                "Arriving at sheet tab bar must clear search results and exit search page"
+            )
+            XCTAssertEqual(searchInput.stringValue, "", "Search input text must be cleared when focus arrives at tab bar")
+        }
     }
 
     @MainActor

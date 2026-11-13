@@ -15,7 +15,9 @@ final class SheetSearchSession: ObservableObject {
     var getState: () -> SearchBarFocusState = { .inactive }
     var setState: (SearchBarFocusState) -> Void = { _ in }
     var onDownArrow: (() -> Void)?
+    var onUpArrow: (() -> Void)?
     var onEscNonEditing: (() -> Void)?
+    var onSelectSheetIndex: ((Int) -> Void)?
 
     private var searchKeyMonitor: Any?
     private var searchMouseMonitor: Any?
@@ -43,9 +45,18 @@ final class SheetSearchSession: ObservableObject {
                         self.setState(.inactive)
                         self.onDownArrow?()
                         return nil
+                    } else if event.keyCode == 126 { // Up Arrow
+                        self.setState(.inactive)
+                        self.onUpArrow?()
+                        return nil
                     } else if event.keyCode == 53 { // Esc
                         self.setState(.inactive)
                         self.onEscNonEditing?()
+                        return nil
+                    } else if let chars = event.characters, chars.count == 1,
+                              let digit = Int(chars), digit >= 1 && digit <= 9 {
+                        self.setState(.inactive)
+                        self.onSelectSheetIndex?(digit - 1)
                         return nil
                     }
                 }
@@ -98,7 +109,9 @@ struct SheetSearchBar: View {
     var applicationID: String? = nil
     @ObservedObject var recentSearchStore: RecentSearchStore = .shared
     var onDownArrow: (() -> Void)? = nil
+    var onUpArrow: (() -> Void)? = nil
     var onEscNonEditing: (() -> Void)? = nil
+    var onSelectSheetIndex: ((Int) -> Void)? = nil
 
     @StateObject private var session = SheetSearchSession()
     @State private var containerView: NSView?
@@ -220,7 +233,9 @@ struct SheetSearchBar: View {
         session.getState = { stateBinding.wrappedValue }
         session.setState = { stateBinding.wrappedValue = $0 }
         session.onDownArrow = onDownArrow
+        session.onUpArrow = onUpArrow
         session.onEscNonEditing = onEscNonEditing
+        session.onSelectSheetIndex = onSelectSheetIndex
     }
 
     private var itemRowHeight: CGFloat { 28 }
