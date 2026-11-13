@@ -290,6 +290,10 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
             hasAccessibilityIdentifier(in: window.contentView, identifier: "dashboard.tab-focused"),
             "Esc on tab bar must return focus to sidebar"
         )
+        XCTAssertTrue(
+            window.firstResponder is NSTableView,
+            "Esc on tab bar must focus sidebar NSTableView (active blue highlight)"
+        )
 
         // Re-enter table: Right arrow -> tabs, Down arrow -> table
         sendKeyDown(to: window, keyCode: 124, characters: "")

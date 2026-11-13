@@ -141,6 +141,7 @@ struct DashboardView: View {
                     if NSApp.keyWindow?.firstResponder is NSTextView {
                         NSApp.keyWindow?.makeFirstResponder(nil)
                     }
+                    tableNav?.focusArea = .sidebar
                     selectedApplicationID = newID
                 }
             }
@@ -323,6 +324,7 @@ struct DashboardView: View {
             tableNav?.onFocusSearch = {
                 sheetSearchState = .focusedEditing
             }
+            syncSidebarFocus(for: tableNav?.focusArea)
             if keyMonitor == nil {
                 keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
                     guard let window = event.window,
@@ -415,6 +417,9 @@ struct DashboardView: View {
             if let newSheetID, tableNav?.selectedSheetID != newSheetID {
                 tableNav?.selectSheet(id: newSheetID)
             }
+        }
+        .onChange(of: tableNav?.focusArea) { area in
+            syncSidebarFocus(for: area)
         }
         .onChange(of: contentNavigation.pendingJump) { _ in followPendingJump() }
         .confirmationDialog(
@@ -745,6 +750,32 @@ struct DashboardView: View {
             nav.selectedSheetID = current.id
         }
         tableNav = nav
+    }
+
+    private func syncSidebarFocus(for area: TableKeyboardNavigation.FocusArea?) {
+        DispatchQueue.main.async {
+            guard let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isKeyWindow || $0.isVisible }),
+                  let content = window.contentView else { return }
+            if area == .sidebar {
+                if let table = Self.firstTableView(in: content) {
+                    if window.firstResponder !== table {
+                        window.makeFirstResponder(table)
+                    }
+                }
+            } else {
+                if let table = Self.firstTableView(in: content), window.firstResponder === table {
+                    window.makeFirstResponder(nil)
+                }
+            }
+        }
+    }
+
+    private static func firstTableView(in view: NSView) -> NSTableView? {
+        if let table = view as? NSTableView { return table }
+        for sub in view.subviews {
+            if let found = firstTableView(in: sub) { return found }
+        }
+        return nil
     }
 
     private func sheetTab(
