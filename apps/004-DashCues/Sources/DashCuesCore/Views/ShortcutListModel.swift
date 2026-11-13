@@ -249,6 +249,30 @@ final class ShortcutListModel: ObservableObject {
         }
     }
 
+    func updateShortcutKeys(id: String, keys: [String]) {
+        if editingID == id {
+            workingItem?.keys = keys
+            finishEditing()
+            return
+        }
+        if pendingItem?.id == id {
+            pendingItem?.keys = keys
+            if !(pendingItem?.isBlank ?? true) {
+                finishEditing()
+            }
+            return
+        }
+        guard let item = savedShortcuts.first(where: { $0.id == id }) else { return }
+        var updated = item
+        updated.keys = keys
+        do {
+            try store.saveShortcut(updated, applicationID: applicationID, sheetID: sheetID)
+            selection = [id]
+        } catch {
+            onError(error.localizedDescription)
+        }
+    }
+
     // MARK: - Keyboard
 
     /// Returns true when the key was consumed.

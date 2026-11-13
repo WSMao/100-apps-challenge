@@ -16,6 +16,10 @@ enum ShortcutMappingParserSelfTest {
             ShortcutMappingParser.templatePrompt.contains("【macOS 常用快捷鍵符號對照表】"),
             "Template prompt must contain macOS shortcut symbols table."
         )
+        try check(
+            ShortcutMappingParser.templatePrompt.contains("【滑鼠操作對照表】"),
+            "Template prompt must contain mouse operations table."
+        )
 
         // 2. Empty string
         let emptyResult = try ShortcutMappingParser.parse("")
@@ -149,6 +153,41 @@ enum ShortcutMappingParserSelfTest {
             caughtError = true
         }
         try check(caughtError, "Invalid JSON must throw error.")
+
+        // 8. Scheme B left/right modifiers and mouse operations normalization
+        let schemeBAndMouseJSON = """
+        [
+          {
+            "title": "左修飾鍵與滑鼠拖曳",
+            "keys": ["lcmd", "拖曳"]
+          },
+          {
+            "title": "右Ctrl點擊",
+            "keys": ["rcmd", "rctrl", "lopt", "rshift", "右鍵雙擊"]
+          },
+          {
+            "title": "滾輪操作",
+            "keys": ["垂直滾輪", "水平滾輪", "前滾", "後滾", "左滾", "右滾"]
+          }
+        ]
+        """
+        let mouseItems = try ShortcutMappingParser.parse(schemeBAndMouseJSON)
+        try check(mouseItems[0].keys == ["LCmd", "Drag"], "lcmd + 拖曳 should normalize to [LCmd, Drag].")
+        try check(mouseItems[1].keys == ["RCmd", "RCtrl", "LOpt", "RShift", "Right Double Click"], "Modifiers and double click should normalize.")
+        try check(mouseItems[2].keys == ["Scroll", "Horizontal Scroll", "Scroll Up", "Scroll Down", "Scroll Left", "Scroll Right"], "Scroll keywords should normalize.")
+
+        // 9. parseKeysInput tests
+        let parsedJson = ShortcutMappingParser.parseKeysInput("[\"⌘\", \"V\"]")
+        try check(parsedJson == ["⌘", "V"], "parseKeysInput should parse JSON array.")
+
+        let parsedMouseJson = ShortcutMappingParser.parseKeysInput("[\"⌥\", \"Drag\"]")
+        try check(parsedMouseJson == ["⌥", "Drag"], "parseKeysInput should parse mouse keyword in JSON.")
+
+        let parsedLoose = ShortcutMappingParser.parseKeysInput("LCtrl, 拖曳")
+        try check(parsedLoose == ["LCtrl", "Drag"], "parseKeysInput should normalize loose input.")
+
+        let parsedPlus = ShortcutMappingParser.parseKeysInput("⌘ + C")
+        try check(parsedPlus == ["⌘", "C"], "parseKeysInput should handle plus-separated keys.")
 
         print("ShortcutMappingParserSelfTest passed.")
     }

@@ -1,6 +1,43 @@
 import Foundation
 
 enum ShortcutMappingParser {
+    static let cheatSheetText: String = """
+【macOS 常用快捷鍵符號對照表】
+- ⌘ : Command
+- ⇧ : Shift
+- ⌥ : Option / Alt
+- ⌃ : Control
+- 左右修飾鍵（可選）：LCmd / RCmd、LCtrl / RCtrl、LOpt / ROpt、LShift / RShift
+- ⇪ : Caps Lock
+- Fn 或 🌐 : Function / 地球儀鍵
+- ↩ : Return / Enter
+- ⌫ : Delete / Backspace
+- ⌦ : Forward Delete
+- ⇥ : Tab
+- ⎋ 或 Esc : Escape
+- Space : 空白鍵
+- ↑ / ↓ / ← / → : 方向鍵（上、下、左、右）
+- ↖ 或 Home : Home（行首 / 頁首）
+- ↘ 或 End : End（行尾 / 頁尾）
+- ⇞ / ⇟ : Page Up / Page Down
+- F1～F12 : 功能鍵
+
+【滑鼠操作對照表】
+- 左鍵 : Click 或 左鍵
+- 右鍵 : Right Click 或 右鍵
+- 中鍵 : Middle Click 或 中鍵
+- 左鍵雙擊 : Double Click 或 左鍵雙擊
+- 中鍵雙擊 : Middle Double Click 或 中鍵雙擊
+- 右鍵雙擊 : Right Double Click 或 右鍵雙擊
+- 拖曳 : Drag 或 拖曳
+- 垂直滾輪 : Scroll 或 垂直滾輪
+- 水平滾輪 : Horizontal Scroll 或 水平滾輪
+- 前滾 : Scroll Up 或 前滾
+- 後滾 : Scroll Down 或 後滾
+- 左滾 : Scroll Left 或 左滾
+- 右滾 : Scroll Right 或 右滾
+"""
+
     static let templatePrompt: String = """
 請照以下的 JSON 格式製作快捷鍵映射檔案，將製作好的內容提供給我：
 ```json
@@ -16,28 +53,11 @@ enum ShortcutMappingParser {
 ]
 ```
 
-【macOS 常用快捷鍵符號對照表】
-- ⌘ : Command
-- ⇧ : Shift
-- ⌥ : Option / Alt
-- ⌃ : Control
-- ⇪ : Caps Lock
-- Fn 或 🌐 : Function / 地球儀鍵
-- ↩ : Return / Enter
-- ⌫ : Delete / Backspace
-- ⌦ : Forward Delete
-- ⇥ : Tab
-- ⎋ 或 Esc : Escape
-- Space : 空白鍵
-- ↑ / ↓ / ← / → : 方向鍵（上、下、左、右）
-- ↖ 或 Home : Home（行首 / 頁首）
-- ↘ 或 End : End（行尾 / 頁尾）
-- ⇞ / ⇟ : Page Up / Page Down
-- F1～F12 : 功能鍵
+\(cheatSheetText)
 
 注意事項：
-- `keys` 陣列請填寫按鍵符號或大寫英文字母／數字（例如 `["⌘", "C"]` 或 `["⌘", "⇧", "P"]`）。
-- 修飾鍵請依照 `⌃`、`⌥`、`⇧`、`⌘` 之順序排列。
+- `keys` 陣列請填寫按鍵符號、大寫英文字母／數字或滑鼠關鍵字（例如 `["⌘", "C"]`、`["⌥", "Drag"]` 或 `["⌘", "Click"]`）。
+- 修飾鍵請依照 `⌃`、`⌥`、`⇧`、`⌘` 之順序排列，滑鼠動作請置於最後。
 """
 
     static func parse(_ rawText: String) throws -> [ShortcutItem] {
@@ -129,6 +149,14 @@ enum ShortcutMappingParser {
         case "ctrl", "control", "⌃": return "⌃"
         case "opt", "option", "alt", "⌥": return "⌥"
         case "shift", "⇧": return "⇧"
+        case "lcmd", "leftcmd", "leftcommand": return "LCmd"
+        case "rcmd", "rightcmd", "rightcommand": return "RCmd"
+        case "lctrl", "leftctrl", "leftcontrol": return "LCtrl"
+        case "rctrl", "rightctrl", "rightcontrol": return "RCtrl"
+        case "lopt", "leftopt", "leftoption", "lalt", "leftalt": return "LOpt"
+        case "ropt", "rightopt", "rightoption", "ralt", "rightalt": return "ROpt"
+        case "lshift", "leftshift": return "LShift"
+        case "rshift", "rightshift": return "RShift"
         case "capslock", "caps", "⇪": return "⇪"
         case "fn": return "Fn"
         case "globe", "🌐": return "🌐"
@@ -146,6 +174,19 @@ enum ShortcutMappingParser {
         case "pagedown", "pgdn", "⇟": return "⇟"
         case "home", "↖": return "Home"
         case "end", "↘": return "End"
+        case "click", "左鍵": return "Click"
+        case "right click", "rightclick", "右鍵": return "Right Click"
+        case "middle click", "middleclick", "中鍵": return "Middle Click"
+        case "double click", "doubleclick", "左鍵雙擊": return "Double Click"
+        case "middle double click", "middledoubleclick", "中鍵雙擊": return "Middle Double Click"
+        case "right double click", "rightdoubleclick", "右鍵雙擊": return "Right Double Click"
+        case "drag", "拖曳": return "Drag"
+        case "scroll", "垂直滾輪": return "Scroll"
+        case "horizontal scroll", "horizontalscroll", "水平滾輪": return "Horizontal Scroll"
+        case "scroll up", "scrollup", "前滾": return "Scroll Up"
+        case "scroll down", "scrolldown", "後滾": return "Scroll Down"
+        case "scroll left", "scrollleft", "左滾": return "Scroll Left"
+        case "scroll right", "scrollright", "右滾": return "Scroll Right"
         default:
             if lower.hasPrefix("f"), let num = Int(lower.dropFirst()), num >= 1 && num <= 24 {
                 return "F\(num)"
@@ -158,5 +199,39 @@ enum ShortcutMappingParser {
         let separators = CharacterSet(charactersIn: "+ -")
         let components = str.components(separatedBy: separators).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         return components.map(normalizeKeySymbol)
+    }
+
+    static func parseKeysInput(_ input: String) -> [String] {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        if let data = trimmed.data(using: .utf8),
+           let array = try? JSONSerialization.jsonObject(with: data) as? [String] {
+            return array.map(normalizeKeySymbol).filter { !$0.isEmpty }
+        }
+
+        var cleaned = trimmed
+        if cleaned.hasPrefix("[") && cleaned.hasSuffix("]") {
+            cleaned.removeFirst()
+            cleaned.removeLast()
+        }
+
+        let separators = CharacterSet(charactersIn: ",+")
+        let rawParts = cleaned.components(separatedBy: separators)
+        var result: [String] = []
+        for part in rawParts {
+            var token = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            if (token.hasPrefix("\"") && token.hasSuffix("\"")) || (token.hasPrefix("'") && token.hasSuffix("'")) {
+                if token.count >= 2 {
+                    token.removeFirst()
+                    token.removeLast()
+                }
+            }
+            let normalized = normalizeKeySymbol(token)
+            if !normalized.isEmpty {
+                result.append(normalized)
+            }
+        }
+        return result
     }
 }

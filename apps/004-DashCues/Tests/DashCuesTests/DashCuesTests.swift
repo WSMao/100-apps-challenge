@@ -821,6 +821,37 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testManualShortcutKeyInputAndUpdate() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("dashcues-manual-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = try ShortcutStore(storageURL: directory.appendingPathComponent("shortcuts.json"))
+        let appID = try store.addApplication(name: "Manual Key App", bundleIdentifier: "com.example.manual", symbolName: "command")
+        let item = ShortcutItem(title: "縮放視圖", keys: ["⌘", "+"])
+        try store.saveShortcut(item, applicationID: appID)
+
+        let model = ShortcutListModel(store: store, applicationID: appID)
+        XCTAssertEqual(model.rows.count, 1)
+        XCTAssertEqual(model.rows[0].keys, ["⌘", "+"])
+
+        // Test updating with Scheme B and mouse keys
+        let parsed = ShortcutMappingParser.parseKeysInput("[\"⌥\", \"Drag\"]")
+        XCTAssertEqual(parsed, ["⌥", "Drag"])
+
+        model.updateShortcutKeys(id: item.id, keys: parsed)
+        let updated = try XCTUnwrap(store.application(id: appID)?.shortcuts.first(where: { $0.id == item.id }))
+        XCTAssertEqual(updated.keys, ["⌥", "Drag"])
+
+        // Test updating with Scheme B modifier
+        let schemeBKeys = ShortcutMappingParser.parseKeysInput("[\"LCtrl\", \"Click\"]")
+        XCTAssertEqual(schemeBKeys, ["LCtrl", "Click"])
+        model.updateShortcutKeys(id: item.id, keys: schemeBKeys)
+        let updated2 = try XCTUnwrap(store.application(id: appID)?.shortcuts.first(where: { $0.id == item.id }))
+        XCTAssertEqual(updated2.keys, ["LCtrl", "Click"])
+    }
+
+    @MainActor
     private func findTextField(in root: NSView?, identifier: String) -> NSTextField? {
         guard let root else { return nil }
         if let field = root as? NSTextField, field.accessibilityIdentifier() == identifier {

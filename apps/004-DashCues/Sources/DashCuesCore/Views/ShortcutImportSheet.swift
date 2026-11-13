@@ -391,6 +391,7 @@ private struct PreviewShortcutRow: View {
     @State private var keyCaptureMonitor: Any?
     @State private var newTagText = ""
     @State private var showingAddTag = false
+    @State private var showingManualInput = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -502,6 +503,19 @@ private struct PreviewShortcutRow: View {
         .padding(8)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(nsColor: .separatorColor)))
+        .contextMenu {
+            Button("手動輸入…") {
+                showingManualInput = true
+            }
+        }
+        .sheet(isPresented: $showingManualInput) {
+            ManualShortcutKeySheet(
+                item: item,
+                onSave: { updatedKeys in
+                    item.keys = updatedKeys
+                }
+            )
+        }
         .onDisappear {
             teardownMonitor()
         }

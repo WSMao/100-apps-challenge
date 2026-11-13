@@ -14,6 +14,7 @@ struct ShortcutListView: View {
 
     @StateObject private var model: ShortcutListModel
     @State private var jumpHighlightID: String? = nil
+    @State private var manualInputItem: ShortcutItem? = nil
 
     init(
         store: ShortcutStore,
@@ -63,7 +64,10 @@ struct ShortcutListView: View {
                                 ShortcutRowView(
                                     item: item,
                                     model: model,
-                                    isJumpHighlighted: jumpHighlightID == item.id
+                                    isJumpHighlighted: jumpHighlightID == item.id,
+                                    onManualInput: { selected in
+                                        manualInputItem = selected
+                                    }
                                 )
                                 .id(item.id)
                             }
@@ -172,6 +176,14 @@ struct ShortcutListView: View {
         } message: {
             Text("此操作無法復原。")
         }
+        .sheet(item: $manualInputItem) { item in
+            ManualShortcutKeySheet(
+                item: item,
+                onSave: { updatedKeys in
+                    model.updateShortcutKeys(id: item.id, keys: updatedKeys)
+                }
+            )
+        }
     }
 
     private func setupNavigation() {
@@ -205,6 +217,7 @@ private struct ShortcutRowView: View {
     let item: ShortcutItem
     @ObservedObject var model: ShortcutListModel
     var isJumpHighlighted: Bool = false
+    var onManualInput: ((ShortcutItem) -> Void)? = nil
     @FocusState private var focus: ShortcutField?
 
     private var isSelected: Bool { model.selection.contains(item.id) }
@@ -263,6 +276,11 @@ private struct ShortcutRowView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             model.click(item.id, field: nil, modifiers: NSEvent.modifierFlags)
+        }
+        .contextMenu {
+            Button("手動輸入…") {
+                onManualInput?(item)
+            }
         }
         .background {
             if isEditingRow {
