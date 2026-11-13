@@ -383,7 +383,7 @@ struct ShortcutItem: Codable, Identifiable, Equatable {
     }
 
     var keyCombination: String {
-        keys.joined()
+        keys.map { ShortcutKeyFormatter.displaySymbol(for: $0) }.joined()
     }
 
     /// A shortcut needs at least a name or a key combination to be kept.

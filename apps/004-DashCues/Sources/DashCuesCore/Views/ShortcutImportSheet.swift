@@ -430,7 +430,7 @@ private struct PreviewShortcutRow: View {
                                 .foregroundStyle(.secondary)
                         } else {
                             ForEach(item.keys, id: \.self) { key in
-                                Text(key)
+                                Text(ShortcutKeyFormatter.displaySymbol(for: key))
                                     .font(.system(.caption, design: .rounded).weight(.medium))
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
@@ -552,7 +552,7 @@ private struct PreviewShortcutRow: View {
                 teardownMonitor()
                 return nil
             }
-            let recorded = ShortcutKeyFormatter.keys(keyCode: event.keyCode, flags: flags, characters: event.characters)
+            let recorded = ShortcutKeyFormatter.keys(keyCode: event.keyCode, flags: event.modifierFlags, characters: event.characters)
             item.keys = recorded
             isRecordingKeys = false
             teardownMonitor()

@@ -277,35 +277,35 @@ final class ShortcutListModel: ObservableObject {
 
     /// Returns true when the key was consumed.
     func handleKey(keyCode: UInt16, flags: NSEvent.ModifierFlags, characters: String?) -> Bool {
-        let flags = flags.intersection([.command, .control, .option, .shift])
+        let standardFlags = flags.intersection([.command, .control, .option, .shift])
         let isReturn = keyCode == 36 || keyCode == 76
         let isEscape = keyCode == 53
         let isTab = keyCode == 48
-        let noCommandModifiers = flags.intersection([.command, .control, .option]).isEmpty
+        let noCommandModifiers = standardFlags.intersection([.command, .control, .option]).isEmpty
 
         if let field = editingField {
             if field == .keys {
-                if flags.isEmpty && isEscape { finishEditing(revertCurrentField: true); return true }
-                if flags.isEmpty && isReturn { finishEditing(); return true }
-                if isTab && noCommandModifiers { moveField(backwards: flags.contains(.shift)); return true }
+                if standardFlags.isEmpty && isEscape { finishEditing(revertCurrentField: true); return true }
+                if standardFlags.isEmpty && isReturn { finishEditing(); return true }
+                if isTab && noCommandModifiers { moveField(backwards: standardFlags.contains(.shift)); return true }
                 workingItem?.keys = ShortcutKeyFormatter.keys(keyCode: keyCode, flags: flags, characters: characters)
                 recordingPreview = nil
                 return true
             }
-            if field == .tags { return handleTagKey(keyCode: keyCode, flags: flags) }
-            if isEscape && flags.isEmpty { finishEditing(revertCurrentField: true); return true }
+            if field == .tags { return handleTagKey(keyCode: keyCode, flags: standardFlags) }
+            if isEscape && standardFlags.isEmpty { finishEditing(revertCurrentField: true); return true }
             if isReturn && noCommandModifiers { finishEditing(); return true }
-            if isTab && noCommandModifiers { moveField(backwards: flags.contains(.shift)); return true }
+            if isTab && noCommandModifiers { moveField(backwards: standardFlags.contains(.shift)); return true }
             return false
         }
 
-        if isEscape && flags.isEmpty {
+        if isEscape && standardFlags.isEmpty {
             leaveList()
             onExitToTabs?()
             return true
         }
         guard !selection.isEmpty else { return false }
-        if isReturn && flags.isEmpty {
+        if isReturn && standardFlags.isEmpty {
             guard selection.count == 1, let item = rows.first(where: { selection.contains($0.id) }) else {
                 return true
             }
@@ -313,7 +313,7 @@ final class ShortcutListModel: ObservableObject {
             return true
         }
         if (keyCode == 125 || keyCode == 126) && noCommandModifiers {
-            if keyCode == 126, !flags.contains(.shift) {
+            if keyCode == 126, !standardFlags.contains(.shift) {
                 let ids = rows.map(\.id)
                 let current = cursorID.flatMap { ids.firstIndex(of: $0) }
                     ?? ids.firstIndex { selection.contains($0) }
@@ -323,7 +323,7 @@ final class ShortcutListModel: ObservableObject {
                     return true
                 }
             }
-            moveCursor(by: keyCode == 125 ? 1 : -1, extend: flags.contains(.shift))
+            moveCursor(by: keyCode == 125 ? 1 : -1, extend: standardFlags.contains(.shift))
             return true
         }
         return false
@@ -332,7 +332,8 @@ final class ShortcutListModel: ObservableObject {
     func updateRecordingPreview(flags: NSEvent.ModifierFlags) {
         guard editingField == .keys || isRecordingSearchKeys else { return }
         let symbols = ShortcutKeyFormatter.modifierSymbols(flags)
-        recordingPreview = symbols.isEmpty ? nil : symbols.joined() + "…"
+        let displaySymbols = symbols.map { ShortcutKeyFormatter.displaySymbol(for: $0) }
+        recordingPreview = displaySymbols.isEmpty ? nil : displaySymbols.joined() + "…"
     }
 
     // MARK: - Search

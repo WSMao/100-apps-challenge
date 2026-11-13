@@ -71,7 +71,7 @@ struct ManualShortcutKeySheet: View {
                             .foregroundStyle(.tertiary)
                     } else {
                         ForEach(previewKeys, id: \.self) { key in
-                            Text(key)
+                            Text(ShortcutKeyFormatter.displaySymbol(for: key))
                                 .font(.system(.caption, design: .rounded).weight(.medium))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)

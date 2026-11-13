@@ -478,7 +478,7 @@ struct SheetSearchResultsView: View {
 
                     HStack(spacing: 3) {
                         ForEach(item.keys, id: \.self) { key in
-                            Text(key)
+                            Text(ShortcutKeyFormatter.displaySymbol(for: key))
                                 .font(.system(.body, design: .rounded).weight(.medium))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 3)

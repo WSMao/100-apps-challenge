@@ -893,6 +893,63 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testLeftRightModifierDetectionAndDisplayBadges() throws {
+        // 1. Detection of left vs right modifiers
+        let rCmdFlags = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.command.rawValue | ShortcutKeyFormatter.NX_DEVICERCMDKEYMASK)
+        XCTAssertEqual(ShortcutKeyFormatter.modifierSymbols(rCmdFlags), ["RCmd"], "Right Command must be detected as RCmd")
+
+        let lCmdFlags = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.command.rawValue | ShortcutKeyFormatter.NX_DEVICELCMDKEYMASK)
+        XCTAssertEqual(ShortcutKeyFormatter.modifierSymbols(lCmdFlags), ["⌘"], "Left Command must not have special label (remain ⌘)")
+
+        let rOptFlags = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.option.rawValue | ShortcutKeyFormatter.NX_DEVICERALTKEYMASK)
+        XCTAssertEqual(ShortcutKeyFormatter.modifierSymbols(rOptFlags), ["ROpt"])
+
+        let lOptFlags = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.option.rawValue | ShortcutKeyFormatter.NX_DEVICELALTKEYMASK)
+        XCTAssertEqual(ShortcutKeyFormatter.modifierSymbols(lOptFlags), ["⌥"])
+
+        let rCtrlFlags = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.control.rawValue | ShortcutKeyFormatter.NX_DEVICERCTLKEYMASK)
+        XCTAssertEqual(ShortcutKeyFormatter.modifierSymbols(rCtrlFlags), ["RCtrl"])
+
+        let lCtrlFlags = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.control.rawValue | ShortcutKeyFormatter.NX_DEVICELCTLKEYMASK)
+        XCTAssertEqual(ShortcutKeyFormatter.modifierSymbols(lCtrlFlags), ["⌃"])
+
+        let rShiftFlags = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.shift.rawValue | ShortcutKeyFormatter.NX_DEVICERSHIFTKEYMASK)
+        XCTAssertEqual(ShortcutKeyFormatter.modifierSymbols(rShiftFlags), ["RShift"])
+
+        let lShiftFlags = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.shift.rawValue | ShortcutKeyFormatter.NX_DEVICELSHIFTKEYMASK)
+        XCTAssertEqual(ShortcutKeyFormatter.modifierSymbols(lShiftFlags), ["⇧"])
+
+        // 2. Display badge symbols
+        XCTAssertEqual(ShortcutKeyFormatter.displaySymbol(for: "RCmd"), "⌘ʀ")
+        XCTAssertEqual(ShortcutKeyFormatter.displaySymbol(for: "LCmd"), "⌘ʟ")
+        XCTAssertEqual(ShortcutKeyFormatter.displaySymbol(for: "ROpt"), "⌥ʀ")
+        XCTAssertEqual(ShortcutKeyFormatter.displaySymbol(for: "LOpt"), "⌥ʟ")
+        XCTAssertEqual(ShortcutKeyFormatter.displaySymbol(for: "RCtrl"), "⌃ʀ")
+        XCTAssertEqual(ShortcutKeyFormatter.displaySymbol(for: "LCtrl"), "⌃ʟ")
+        XCTAssertEqual(ShortcutKeyFormatter.displaySymbol(for: "RShift"), "⇧ʀ")
+        XCTAssertEqual(ShortcutKeyFormatter.displaySymbol(for: "LShift"), "⇧ʟ")
+        XCTAssertEqual(ShortcutKeyFormatter.displaySymbol(for: "⌘"), "⌘")
+        XCTAssertEqual(ShortcutKeyFormatter.displaySymbol(for: "C"), "C")
+
+        // 3. keyCombination display mapping
+        let rItem = ShortcutItem(title: "右鍵快捷鍵", keys: ["RCmd", "C"])
+        XCTAssertEqual(rItem.keyCombination, "⌘ʀC")
+
+        let lItem = ShortcutItem(title: "手動左鍵快捷鍵", keys: ["LCmd", "V"])
+        XCTAssertEqual(lItem.keyCombination, "⌘ʟV")
+
+        let defaultItem = ShortcutItem(title: "一般快捷鍵", keys: ["⌘", "Z"])
+        XCTAssertEqual(defaultItem.keyCombination, "⌘Z")
+
+        // 4. Manual input retention
+        let manualLCmd = ShortcutMappingParser.parseKeysInput("[\"LCmd\", \"K\"]")
+        XCTAssertEqual(manualLCmd, ["LCmd", "K"])
+
+        let manualRCmd = ShortcutMappingParser.parseKeysInput("[\"RCmd\", \"K\"]")
+        XCTAssertEqual(manualRCmd, ["RCmd", "K"])
+    }
+
+    @MainActor
     private func findTextField(in root: NSView?, identifier: String) -> NSTextField? {
         guard let root else { return nil }
         if let field = root as? NSTextField, field.accessibilityIdentifier() == identifier {
