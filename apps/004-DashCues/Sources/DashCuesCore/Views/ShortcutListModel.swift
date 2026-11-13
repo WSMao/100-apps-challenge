@@ -60,6 +60,7 @@ final class ShortcutListModel: ObservableObject {
     var onError: (String) -> Void = { _ in }
     var onKeyboardCaptureChanged: (Bool) -> Void = { _ in }
     var onExitToTabs: (() -> Void)?
+    var onEnterTable: (() -> Void)?
     weak var listView: NSView?
 
     var isCapturingKeyboard: Bool {
@@ -148,6 +149,7 @@ final class ShortcutListModel: ObservableObject {
         let item = ShortcutItem(title: "", keys: [], tags: [])
         pendingItem = item
         isListActive = true
+        onEnterTable?()
         selection = [item.id]
         cursorID = item.id
         anchorID = item.id
@@ -158,6 +160,7 @@ final class ShortcutListModel: ObservableObject {
 
     func click(_ id: String, field: ShortcutField?, modifiers: NSEvent.ModifierFlags) {
         isListActive = true
+        onEnterTable?()
         if editingID == id {
             if let field { setField(field) }
             return
@@ -589,6 +592,7 @@ final class ShortcutListModel: ObservableObject {
         let ids = rows.map(\.id)
         guard let first = ids.first else { return false }
         isListActive = true
+        onEnterTable?()
         resignTextFocus()
         selection = [first]
         cursorID = first

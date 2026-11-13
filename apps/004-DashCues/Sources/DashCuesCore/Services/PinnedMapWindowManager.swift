@@ -244,6 +244,7 @@ struct PinnedApplicationView: View {
                         ForEach(overflow.overflowSheets) { sheet in
                             Button {
                                 NSApp.keyWindow?.makeFirstResponder(nil)
+                                tableNav?.focusArea = .tabs
                                 contentNavigation.selectSheet(sheet, for: application.id)
                                 tableNav?.selectSheet(id: sheet.id)
                             } label: {

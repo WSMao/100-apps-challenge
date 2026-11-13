@@ -256,6 +256,8 @@ final class TableKeyboardNavigation: ObservableObject {
         case .tabs:
             if selectedTabIndex > 0 {
                 selectSheet(at: selectedTabIndex - 1)
+            } else if !isPinnedWindow {
+                focusArea = .sidebar
             }
             return true
         case .table:

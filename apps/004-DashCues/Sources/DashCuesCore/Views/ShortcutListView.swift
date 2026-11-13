@@ -96,11 +96,20 @@ struct ShortcutListView: View {
             model.finishEditing()
             model.stopMonitoring()
             onKeyboardCaptureChanged(false)
-            teardownNavigation()
+        }
+        .background {
+            Color.clear.onAppear { setupNavigation() }
         }
         .onChange(of: navigation?.focusArea) { area in
-            if area == .tabs, model.isCapturingKeyboard {
-                model.leaveList()
+            setupNavigation()
+            if area == .table {
+                if !model.isCapturingKeyboard {
+                    model.enterList()
+                }
+            } else if area == .tabs {
+                if model.isCapturingKeyboard {
+                    model.leaveList()
+                }
             }
         }
         .onChange(of: navigation?.selectedSheetID) { _ in
@@ -127,18 +136,16 @@ struct ShortcutListView: View {
     }
 
     private func setupNavigation() {
-        navigation?.onMoveFocusToShortcuts = { [weak model] in
+        guard let navigation else { return }
+        navigation.onMoveFocusToShortcuts = { [weak model] in
             guard let model else { return false }
             return model.enterList()
         }
         model.onExitToTabs = { [weak navigation] in
             navigation?.focusArea = .tabs
         }
-    }
-
-    private func teardownNavigation() {
-        if navigation?.onMoveFocusToShortcuts != nil {
-            navigation?.onMoveFocusToShortcuts = nil
+        model.onEnterTable = { [weak navigation] in
+            navigation?.focusArea = .table
         }
     }
 }

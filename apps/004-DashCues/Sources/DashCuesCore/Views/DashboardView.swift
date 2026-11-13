@@ -57,6 +57,18 @@ struct DashboardView: View {
         self.clipboardWriter = clipboardWriter
         let initialAppID = store.applications.first?.id
         _selectedApplicationID = State(initialValue: initialAppID)
+        if let initialAppID {
+            let nav = TableKeyboardNavigation(
+                store: store,
+                applicationID: initialAppID,
+                editSession: editSession,
+                clipboardWriter: clipboardWriter
+            )
+            if let current = contentNavigation.selectedSheet(for: initialAppID, in: store.application(id: initialAppID)?.sheets ?? []) {
+                nav.selectedSheetID = current.id
+            }
+            _tableNav = State(initialValue: nav)
+        }
     }
 
     private var navigationPublisher: AnyPublisher<Void, Never> {
@@ -300,7 +312,9 @@ struct DashboardView: View {
         .onAppear {
             selectedApplicationID = selectedApplicationID ?? store.applications.first?.id
             if let id = selectedApplicationID {
-                updateTableNav(for: id)
+                if tableNav == nil || tableNav?.applicationID != id {
+                    updateTableNav(for: id)
+                }
             }
             followPendingJump()
             if keyMonitor == nil {
@@ -555,6 +569,7 @@ struct DashboardView: View {
                             Button {
                                 editSession.requestLeave {
                                     NSApp.keyWindow?.makeFirstResponder(nil)
+                                    tableNav?.focusArea = .tabs
                                     contentNavigation.selectSheet(sheet, for: application.id)
                                     tableNav?.selectSheet(id: sheet.id)
                                 }

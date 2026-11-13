@@ -274,6 +274,54 @@ enum TableNavigationSelfTest {
             try check(nav.focusArea == .tabs, "Up arrow from first shortcut item must return focus to tabs.")
             try check(shortcutModel.selection.isEmpty, "Returning to tabs should clear shortcut selection.")
         }
+
+        // Test shortcuts-only app: Navigation from sidebar -> tabs -> shortcuts list, and tabs -> sidebar
+        let soloAppID = try store.addApplication(name: "ShortcutsSolo", bundleIdentifier: "com.example.solo", symbolName: "keyboard")
+        guard let soloSheetID = store.application(id: soloAppID)?.sheets.first?.id else {
+            throw TableNavigationSelfTestError.failed("Solo app must have default sheet")
+        }
+        let sItem1 = ShortcutItem(id: "s1", title: "Copy", keys: ["⌘", "C"])
+        let sItem2 = ShortcutItem(id: "s2", title: "Paste", keys: ["⌘", "V"])
+        try store.saveShortcut(sItem1, applicationID: soloAppID, sheetID: soloSheetID)
+        try store.saveShortcut(sItem2, applicationID: soloAppID, sheetID: soloSheetID)
+
+        let soloNav = TableKeyboardNavigation(store: store, applicationID: soloAppID, editSession: nil, clipboardWriter: { _ in true })
+        let soloModel = ShortcutListModel(store: store, applicationID: soloAppID, sheetID: soloSheetID)
+        soloNav.onMoveFocusToShortcuts = { soloModel.enterList() }
+        soloModel.onExitToTabs = { soloNav.focusArea = .tabs }
+        soloModel.onEnterTable = { soloNav.focusArea = .table }
+
+        try check(soloNav.focusArea == .sidebar, "Initial focus must be in sidebar.")
+        try check(soloNav.handleRightArrow(), "Right arrow from sidebar must enter tabs.")
+        try check(soloNav.focusArea == .tabs, "Focus must be on tabs.")
+
+        // Left arrow on single sheet tab returns to sidebar
+        try check(soloNav.handleLeftArrow(), "Left arrow on first sheet tab must return to sidebar.")
+        try check(soloNav.focusArea == .sidebar, "Focus should return to sidebar.")
+
+        // Right arrow to tabs again, then Down arrow into shortcuts list
+        _ = soloNav.handleRightArrow()
+        try check(soloNav.handleDownArrow(), "Down arrow from solo shortcuts tab must be handled.")
+        try check(soloNav.focusArea == .table, "Focus must be in table.")
+        try check(soloModel.selection == ["s1"], "First shortcut item must be selected.")
+
+        // Down arrow on shortcut item moves to second item
+        let downArrowEvent = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: 125
+        )
+        if let downArrowEvent {
+            try check(soloModel.consumes(keyDown: downArrowEvent), "Down arrow in shortcut list should move selection.")
+            try check(soloModel.selection == ["s2"], "Second shortcut item should be selected.")
+        }
     }
 
     private static func check(_ condition: Bool, _ message: String) throws {
