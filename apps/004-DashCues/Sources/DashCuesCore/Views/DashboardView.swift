@@ -440,6 +440,7 @@ struct DashboardView: View {
                         store: store,
                         applicationID: application.id,
                         sheetID: currentSheet?.id,
+                        navigation: tableNav,
                         onKeyboardCaptureChanged: { shortcutListCapturingKeys = $0 }
                     ) { errorMessage = $0 }
                         .id(currentSheet?.id)

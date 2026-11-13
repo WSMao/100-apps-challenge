@@ -236,6 +236,44 @@ enum TableNavigationSelfTest {
         try store.moveKeyValueEntries(fromOffsets: IndexSet(integer: 2), toOffset: 1, cheatsheetID: sheetIDs[1], applicationID: appID)
         let moved2 = store.application(id: appID)?.keyValueCheatsheets.first(where: { $0.id == sheetIDs[1] })?.entries.map(\.id) ?? []
         try check(moved2 == ["mB", "mC", "mA"], "Moving itemC above itemA failed.")
+
+        // Test User Story 29: Down arrow on "快捷鍵" sheet moves focus directly into first item of shortcuts list
+        let shortcutSheetID = app.sheets.first { $0.kind == .shortcuts }?.id ?? app.sheets[0].id
+        let sc1 = ShortcutItem(id: "sc1", title: "Open File", keys: ["⌘", "O"], tags: [])
+        let sc2 = ShortcutItem(id: "sc2", title: "Save File", keys: ["⌘", "S"], tags: [])
+        try store.saveShortcut(sc1, applicationID: appID, sheetID: shortcutSheetID)
+        try store.saveShortcut(sc2, applicationID: appID, sheetID: shortcutSheetID)
+
+        nav.selectSheet(id: shortcutSheetID)
+        nav.focusArea = .tabs
+
+        let shortcutModel = ShortcutListModel(store: store, applicationID: appID, sheetID: shortcutSheetID)
+        nav.onMoveFocusToShortcuts = { shortcutModel.enterList() }
+        shortcutModel.onExitToTabs = { nav.focusArea = .tabs }
+
+        try check(shortcutModel.selection.isEmpty, "Shortcuts should initially have no selection.")
+        try check(nav.handleDownArrow(), "Down arrow on shortcuts sheet tab must be handled.")
+        try check(nav.focusArea == .table, "Focus must move into table/list area.")
+        try check(shortcutModel.selection == ["sc1"], "Focus should be directly on the first shortcut item.")
+
+        // Up arrow from first shortcut item returns focus to tabs
+        let upArrowEvent = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: 126
+        )
+        if let upArrowEvent {
+            try check(shortcutModel.consumes(keyDown: upArrowEvent), "Up arrow on first shortcut item should be consumed.")
+            try check(nav.focusArea == .tabs, "Up arrow from first shortcut item must return focus to tabs.")
+            try check(shortcutModel.selection.isEmpty, "Returning to tabs should clear shortcut selection.")
+        }
     }
 
     private static func check(_ condition: Bool, _ message: String) throws {

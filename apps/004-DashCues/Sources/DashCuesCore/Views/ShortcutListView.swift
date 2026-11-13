@@ -4,6 +4,8 @@ import SwiftUI
 struct ShortcutListView: View {
     @ObservedObject var store: ShortcutStore
     let applicationID: String
+    var sheetID: String? = nil
+    var navigation: TableKeyboardNavigation? = nil
     var onKeyboardCaptureChanged: (Bool) -> Void = { _ in }
     let onError: (String) -> Void
 
@@ -13,11 +15,14 @@ struct ShortcutListView: View {
         store: ShortcutStore,
         applicationID: String,
         sheetID: String? = nil,
+        navigation: TableKeyboardNavigation? = nil,
         onKeyboardCaptureChanged: @escaping (Bool) -> Void = { _ in },
         onError: @escaping (String) -> Void
     ) {
         self.store = store
         self.applicationID = applicationID
+        self.sheetID = sheetID
+        self.navigation = navigation
         self.onKeyboardCaptureChanged = onKeyboardCaptureChanged
         self.onError = onError
         _model = StateObject(wrappedValue: ShortcutListModel(store: store, applicationID: applicationID, sheetID: sheetID))
@@ -85,18 +90,31 @@ struct ShortcutListView: View {
             model.onKeyboardCaptureChanged = onKeyboardCaptureChanged
             onKeyboardCaptureChanged(model.isCapturingKeyboard)
             model.startMonitoring()
+            setupNavigation()
         }
         .onDisappear {
             model.finishEditing()
             model.stopMonitoring()
             onKeyboardCaptureChanged(false)
+            teardownNavigation()
+        }
+        .onChange(of: navigation?.focusArea) { area in
+            if area == .tabs, model.isCapturingKeyboard {
+                model.leaveList()
+            }
+        }
+        .onChange(of: navigation?.selectedSheetID) { _ in
+            setupNavigation()
         }
         .onReceive(model.objectWillChange) { _ in
             DispatchQueue.main.async {
                 onKeyboardCaptureChanged(model.isCapturingKeyboard)
             }
         }
-        .onChange(of: applicationID) { model.setApplication($0) }
+        .onChange(of: applicationID) { appID in
+            model.setApplication(appID)
+            setupNavigation()
+        }
         .alert(
             model.selection.count > 1 ? "刪除 \(model.selection.count) 個快捷鍵？" : "刪除這個快捷鍵？",
             isPresented: $model.requestsDeleteConfirmation
@@ -105,6 +123,22 @@ struct ShortcutListView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("此操作無法復原。")
+        }
+    }
+
+    private func setupNavigation() {
+        navigation?.onMoveFocusToShortcuts = { [weak model] in
+            guard let model else { return false }
+            return model.enterList()
+        }
+        model.onExitToTabs = { [weak navigation] in
+            navigation?.focusArea = .tabs
+        }
+    }
+
+    private func teardownNavigation() {
+        if navigation?.onMoveFocusToShortcuts != nil {
+            navigation?.onMoveFocusToShortcuts = nil
         }
     }
 }

@@ -130,6 +130,7 @@ final class TableKeyboardNavigation: ObservableObject {
     @Published var selectedEntryIDs = Set<String>()
     @Published var anchorRowIndex: Int?
     var onDeleteRequested: (() -> Void)?
+    var onMoveFocusToShortcuts: (() -> Bool)?
     var measuredTruncatableRowIDs: Set<String>?
     var isPinnedWindow = false
 
@@ -166,6 +167,11 @@ final class TableKeyboardNavigation: ObservableObject {
 
     var currentKeyValueCheatsheet: KeyValueCheatsheet? {
         if case .keyValue(let sheet) = currentSheet { return sheet }
+        return nil
+    }
+
+    var currentShortcutSheet: ShortcutSheet? {
+        if case .shortcuts(let sheet) = currentSheet { return sheet }
         return nil
     }
 
@@ -230,6 +236,9 @@ final class TableKeyboardNavigation: ObservableObject {
             }
             return true
         case .table:
+            if currentSheet?.kind == .shortcuts {
+                return false
+            }
             guard selectedRowIndex < entries.count else { return false }
             let entry = entries[selectedRowIndex]
             guard isRowTruncatable(entry) else { return false }
@@ -250,6 +259,10 @@ final class TableKeyboardNavigation: ObservableObject {
             }
             return true
         case .table:
+            if currentSheet?.kind == .shortcuts {
+                focusArea = isPinnedWindow ? .tabs : .sidebar
+                return true
+            }
             guard selectedRowIndex < entries.count else { return false }
             let entry = entries[selectedRowIndex]
             if isRowTruncatable(entry) && expandedRowIDs.contains(entry.id) {
@@ -270,6 +283,20 @@ final class TableKeyboardNavigation: ObservableObject {
         case .sidebar:
             return false
         case .tabs:
+            if currentSheet?.kind == .shortcuts {
+                if let onMoveFocusToShortcuts {
+                    if onMoveFocusToShortcuts() {
+                        focusArea = .table
+                        return true
+                    }
+                    return false
+                }
+                guard let sheet = currentShortcutSheet, !sheet.shortcuts.isEmpty else {
+                    return false
+                }
+                focusArea = .table
+                return true
+            }
             if entries.isEmpty {
                 return false
             }
@@ -305,6 +332,10 @@ final class TableKeyboardNavigation: ObservableObject {
         case .tabs:
             return false
         case .table:
+            if currentSheet?.kind == .shortcuts {
+                focusArea = .tabs
+                return true
+            }
             if selectedRowIndex > 0 {
                 selectedRowIndex -= 1
                 if extend {

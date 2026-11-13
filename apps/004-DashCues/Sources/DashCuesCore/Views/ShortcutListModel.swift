@@ -59,6 +59,7 @@ final class ShortcutListModel: ObservableObject {
 
     var onError: (String) -> Void = { _ in }
     var onKeyboardCaptureChanged: (Bool) -> Void = { _ in }
+    var onExitToTabs: (() -> Void)?
     weak var listView: NSView?
 
     var isCapturingKeyboard: Bool {
@@ -285,6 +286,16 @@ final class ShortcutListModel: ObservableObject {
             return true
         }
         if (keyCode == 125 || keyCode == 126) && noCommandModifiers {
+            if keyCode == 126, !flags.contains(.shift) {
+                let ids = rows.map(\.id)
+                let current = cursorID.flatMap { ids.firstIndex(of: $0) }
+                    ?? ids.firstIndex { selection.contains($0) }
+                if current == 0 {
+                    leaveList()
+                    onExitToTabs?()
+                    return true
+                }
+            }
             moveCursor(by: keyCode == 125 ? 1 : -1, extend: flags.contains(.shift))
             return true
         }
@@ -543,14 +554,17 @@ final class ShortcutListModel: ObservableObject {
         monitors = []
     }
 
-    // MARK: - Private
+    // MARK: - Key event handling
 
-    private func consumes(keyDown event: NSEvent) -> Bool {
-        guard let window = event.window, window === listView?.window else { return false }
+    func consumes(keyDown event: NSEvent) -> Bool {
+        if let window = event.window, let listWindow = listView?.window, window !== listWindow {
+            return false
+        }
+        let window = event.window ?? listView?.window
         // Let input methods (e.g. Chinese IME) handle Enter/Esc while composing text.
-        if let text = window.firstResponder as? NSTextView, text.hasMarkedText() { return false }
+        if let text = window?.firstResponder as? NSTextView, text.hasMarkedText() { return false }
         if isRecordingSearchKeys { return recordSearchKey(event) }
-        if searchFocused, editingField == nil, window.firstResponder is NSTextView {
+        if searchFocused, editingField == nil, window?.firstResponder is NSTextView {
             return handleSearchKey(keyCode: event.keyCode, flags: event.modifierFlags)
         }
         let plain = event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
@@ -561,7 +575,7 @@ final class ShortcutListModel: ObservableObject {
             }
         }
         guard editingField != nil || isListActive else { return false }
-        if editingField == nil, window.firstResponder is NSTextView { return false }
+        if editingField == nil, window?.firstResponder is NSTextView { return false }
         return handleKey(
             keyCode: event.keyCode,
             flags: event.modifierFlags,
@@ -569,23 +583,22 @@ final class ShortcutListModel: ObservableObject {
         )
     }
 
-    /// Moves keyboard focus from the app sidebar into the shortcut list.
-    private func enterList() -> Bool {
+    /// Moves keyboard focus from the app sidebar or tabs into the shortcut list.
+    @discardableResult
+    func enterList() -> Bool {
         let ids = rows.map(\.id)
-        guard let first = ids.first else { return true }
+        guard let first = ids.first else { return false }
         isListActive = true
         resignTextFocus()
-        if selection.isEmpty {
-            selection = [first]
-            cursorID = first
-            anchorID = first
-        }
-        requestScroll(cursorID ?? first)
+        selection = [first]
+        cursorID = first
+        anchorID = first
+        requestScroll(first)
         return true
     }
 
-    /// Returns keyboard focus to the app sidebar.
-    private func leaveList() {
+    /// Returns keyboard focus to the app sidebar or tabs.
+    func leaveList() {
         isListActive = false
         selection = []
         cursorID = nil
