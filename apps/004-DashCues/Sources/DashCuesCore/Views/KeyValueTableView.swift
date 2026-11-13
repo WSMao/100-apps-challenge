@@ -257,7 +257,7 @@ struct KeyValueTableView: View {
         if session.editingEntryID == entry.id {
             editingRow(id: entry.id, widths: widths)
         } else {
-            let isExpanded = expandedEntryIDs.contains(entry.id)
+            let isExpanded = expandedEntryIDs.contains(entry.id) || (isRowFocused && (navigation?.isRowTruncatable(entry) ?? false))
             let firstCol = columnOrder[0]
             let secondCol = columnOrder[1]
             let firstWidth = firstCol == .key ? widths.key : widths.value
@@ -507,9 +507,9 @@ struct KeyValueTableView: View {
 
         return VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 0) {
-                inlineEditor(for: firstCol, entryID: id, width: firstWidth)
+                inlineEditor(for: firstCol, entryID: id, width: firstWidth, widths: widths)
                 Divider()
-                inlineEditor(for: secondCol, entryID: id, width: secondWidth)
+                inlineEditor(for: secondCol, entryID: id, width: secondWidth, widths: widths)
             }
             if let message = session.validationMessage {
                 Text(message)
@@ -535,8 +535,32 @@ struct KeyValueTableView: View {
         .id(id)
     }
 
+    private func adjustWidthForMultiline(text: String, column: KeyValueColumn, widths: (key: Double, value: Double)) {
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let lines = text.components(separatedBy: "\n")
+        let maxLineWidth = lines.reduce(0.0) { maxWidth, line in
+            let lineW = ceil((line as NSString).size(withAttributes: [.font: font]).width)
+            return max(maxWidth, lineW)
+        }
+        let neededWidth = max(KeyValueTableLayout.minColumnWidth, maxLineWidth + 44)
+        switch column {
+        case .key:
+            if neededWidth > widths.key {
+                dragKeyWidth = neededWidth
+                let other = dragValueWidth ?? widths.value
+                onUpdateLayout(columnOrder, neededWidth, other)
+            }
+        case .value:
+            if neededWidth > widths.value {
+                dragValueWidth = neededWidth
+                let other = dragKeyWidth ?? widths.key
+                onUpdateLayout(columnOrder, other, neededWidth)
+            }
+        }
+    }
+
     @ViewBuilder
-    private func inlineEditor(for column: KeyValueColumn, entryID: String, width: Double) -> some View {
+    private func inlineEditor(for column: KeyValueColumn, entryID: String, width: Double, widths: (key: Double, value: Double)) -> some View {
         switch column {
         case .key:
             InlineTextEditor(
@@ -561,6 +585,9 @@ struct KeyValueTableView: View {
                 onCancel: {
                     session.cancel()
                     NSApp.keyWindow?.makeFirstResponder(nil)
+                },
+                onShiftEnter: { newText in
+                    adjustWidthForMultiline(text: newText, column: .key, widths: widths)
                 }
             )
             .padding(10)
@@ -588,6 +615,9 @@ struct KeyValueTableView: View {
                 onCancel: {
                     session.cancel()
                     NSApp.keyWindow?.makeFirstResponder(nil)
+                },
+                onShiftEnter: { newText in
+                    adjustWidthForMultiline(text: newText, column: .value, widths: widths)
                 }
             )
             .padding(10)
@@ -708,6 +738,7 @@ private struct InlineTextEditor: NSViewRepresentable {
     let onTab: () -> Void
     let onSubmit: () -> Void
     let onCancel: () -> Void
+    var onShiftEnter: ((String) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -837,6 +868,7 @@ private struct InlineTextEditor: NSViewRepresentable {
                     textView.insertText("\n", replacementRange: textView.selectedRange())
                     parent.text = textView.string
                     control.invalidateIntrinsicContentSize()
+                    parent.onShiftEnter?(parent.text)
                 } else {
                     parent.text = textView.string
                     parent.onSubmit()

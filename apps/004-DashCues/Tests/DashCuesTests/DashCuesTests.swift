@@ -258,20 +258,37 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
             "Down arrow from tab must select and outline the first cell in the table"
         )
 
-        // Row 0 ("e-trunc") has multiline value: Right arrow expands, Left arrow collapses, second Left arrow returns to sidebar
-        sendKeyDown(to: window, keyCode: 124, characters: "") // Right arrow -> expand row 0
-        pumpRunLoop(seconds: 0.05)
-        sendKeyDown(to: window, keyCode: 123, characters: "") // Left arrow -> collapse row 0 (stays in table!)
+        // Row 0 ("e-trunc") has multiline value: Row 0 is automatically expanded upon focus.
+        // Right arrow moves between Key and Value cell on same row; Left arrow moves back.
+        sendKeyDown(to: window, keyCode: 124, characters: "") // Right arrow -> moves to Value cell
         pumpRunLoop(seconds: 0.05)
         XCTAssertTrue(
             hasAccessibilityIdentifier(in: window.contentView, identifier: "key-value.cell-focused"),
-            "First Left arrow on expanded row must collapse it and remain in table"
+            "Right arrow in table must switch focus to Value cell and remain in table"
         )
-        sendKeyDown(to: window, keyCode: 123, characters: "") // Second Left arrow on collapsed row -> returns to sidebar
+        sendKeyDown(to: window, keyCode: 123, characters: "") // Left arrow -> moves to Key cell
+        pumpRunLoop(seconds: 0.05)
+        XCTAssertTrue(
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "key-value.cell-focused"),
+            "Left arrow in table must switch focus to Key cell and remain in table"
+        )
+        sendKeyDown(to: window, keyCode: 123, characters: "") // Left arrow on Key cell remains in table (Esc returns to tabs)
+        pumpRunLoop(seconds: 0.05)
+        XCTAssertTrue(
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "key-value.cell-focused"),
+            "Left arrow on Key cell must remain in table"
+        )
+        sendKeyDown(to: window, keyCode: 53, characters: "") // Esc -> returns to tabs
+        pumpRunLoop(seconds: 0.05)
+        XCTAssertTrue(
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "dashboard.tab-focused"),
+            "Esc in table must return focus to tab bar"
+        )
+        sendKeyDown(to: window, keyCode: 53, characters: "") // Esc on tabs -> returns to sidebar
         pumpRunLoop(seconds: 0.05)
         XCTAssertFalse(
-            hasAccessibilityIdentifier(in: window.contentView, identifier: "key-value.cell-focused"),
-            "Left arrow on collapsed row must leave table and return to sidebar"
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "dashboard.tab-focused"),
+            "Esc on tab bar must return focus to sidebar"
         )
 
         // Re-enter table: Right arrow -> tabs, Down arrow -> table
@@ -330,8 +347,10 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
         pumpRunLoop(seconds: 0.08)
         XCTAssertFalse(editSession.isEditing)
 
-        // 5. Row 1 ("PORT" / "8080") is non-truncated: Left arrow returns directly to sidebar, and Down arrow selects next app
-        sendKeyDown(to: window, keyCode: 123, characters: "") // Left arrow -> sidebar
+        // 5. Esc from table returns to tab bar, second Esc returns to sidebar, then Down arrow in sidebar selects next app
+        sendKeyDown(to: window, keyCode: 53, characters: "") // Esc -> tab bar
+        pumpRunLoop(seconds: 0.08)
+        sendKeyDown(to: window, keyCode: 53, characters: "") // Esc -> sidebar
         pumpRunLoop(seconds: 0.08)
         sendKeyDown(to: window, keyCode: 125, characters: "") // Down arrow in sidebar -> selects next app
         pumpRunLoop(seconds: 0.1)

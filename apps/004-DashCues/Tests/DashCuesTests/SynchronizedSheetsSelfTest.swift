@@ -65,9 +65,12 @@ enum SynchronizedSheetsSelfTest {
         try check(pinnedNav.handleEnter(), "Enter again should toggle expansion.")
         try check(!pinnedNav.expandedRowIDs.contains("e1"), "Enter again must collapse row.")
 
-        // Left arrow from a collapsed row in pinned window returns to tabs (not sidebar)
-        try check(pinnedNav.handleLeftArrow(), "Left arrow should be handled.")
-        try check(pinnedNav.focusArea == .tabs, "In pinned window, left from collapsed row must return to tabs.")
+        // Left arrow moves between Value and Key cells; Esc returns to tabs
+        pinnedNav.selectedColumn = .value
+        try check(pinnedNav.handleLeftArrow(), "Left arrow should move to Key.")
+        try check(pinnedNav.selectedColumn == .key, "Left arrow should be on Key.")
+        try check(pinnedNav.handleEscape(), "Esc should return to tabs.")
+        try check(pinnedNav.focusArea == .tabs, "In pinned window, Esc must return to tabs.")
 
         // Cmd-C in read-only navigation copies selected field
         pinnedNav.focusArea = .table

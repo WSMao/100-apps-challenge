@@ -276,9 +276,8 @@ final class ShortcutListModel: ObservableObject {
 
         guard !selection.isEmpty else { return false }
         if isEscape && flags.isEmpty {
-            selection = []
-            cursorID = nil
-            anchorID = nil
+            leaveList()
+            onExitToTabs?()
             return true
         }
         if isReturn && flags.isEmpty {

@@ -121,9 +121,17 @@ final class TableKeyboardNavigation: ObservableObject {
         case table
     }
 
-    @Published var focusArea: FocusArea = .sidebar
+    @Published var focusArea: FocusArea = .sidebar {
+        didSet {
+            updateAutoExpansion()
+        }
+    }
     @Published var selectedSheetID: String?
-    @Published var selectedRowIndex: Int = 0
+    @Published var selectedRowIndex: Int = 0 {
+        didSet {
+            updateAutoExpansion()
+        }
+    }
     @Published var selectedColumn: KeyValueColumn = .key
     @Published var isTextEditing: Bool = false
     @Published var expandedRowIDs = Set<String>()
@@ -223,6 +231,25 @@ final class TableKeyboardNavigation: ObservableObject {
         return entry.key.count > 24 || entry.value.count > 24
     }
 
+    func updateAutoExpansion() {
+        guard focusArea == .table, selectedRowIndex < entries.count else {
+            if !expandedRowIDs.isEmpty {
+                expandedRowIDs.removeAll()
+            }
+            return
+        }
+        let current = entries[selectedRowIndex]
+        if isRowTruncatable(current) {
+            if expandedRowIDs != [current.id] {
+                expandedRowIDs = [current.id]
+            }
+        } else {
+            if !expandedRowIDs.isEmpty {
+                expandedRowIDs.removeAll()
+            }
+        }
+    }
+
     // Right Arrow
     func handleRightArrow() -> Bool {
         guard !isTextEditing else { return false }
@@ -239,10 +266,12 @@ final class TableKeyboardNavigation: ObservableObject {
             if currentSheet?.kind == .shortcuts {
                 return false
             }
-            guard selectedRowIndex < entries.count else { return false }
-            let entry = entries[selectedRowIndex]
-            guard isRowTruncatable(entry) else { return false }
-            expandedRowIDs.insert(entry.id)
+            let order = columnOrder
+            guard order.count >= 2 else { return false }
+            if selectedColumn == order[0] {
+                selectedColumn = order[1]
+                return true
+            }
             return true
         }
     }
@@ -265,16 +294,32 @@ final class TableKeyboardNavigation: ObservableObject {
                 focusArea = isPinnedWindow ? .tabs : .sidebar
                 return true
             }
-            guard selectedRowIndex < entries.count else { return false }
-            let entry = entries[selectedRowIndex]
-            if isRowTruncatable(entry) && expandedRowIDs.contains(entry.id) {
-                expandedRowIDs.remove(entry.id)
-                return true
-            } else {
-                expandedRowIDs.remove(entry.id)
-                focusArea = isPinnedWindow ? .tabs : .sidebar
+            let order = columnOrder
+            guard order.count >= 2 else { return false }
+            if selectedColumn == order[1] {
+                selectedColumn = order[0]
                 return true
             }
+            return true
+        }
+    }
+
+    // Esc
+    func handleEscape() -> Bool {
+        guard !isFieldEditorFocused else { return false }
+        switch focusArea {
+        case .table:
+            focusArea = .tabs
+            selectedEntryIDs = []
+            anchorRowIndex = nil
+            return true
+        case .tabs:
+            if !isPinnedWindow {
+                focusArea = .sidebar
+            }
+            return true
+        case .sidebar:
+            return false
         }
     }
 
@@ -480,6 +525,8 @@ final class TableKeyboardNavigation: ObservableObject {
         }
 
         switch event.keyCode {
+        case 53:  // Esc
+            return handleEscape()
         case 123: // Left Arrow
             return handleLeftArrow()
         case 124: // Right Arrow

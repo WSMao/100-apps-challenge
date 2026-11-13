@@ -161,22 +161,37 @@ enum TableNavigationSelfTest {
         session.cancel()
         try check(!nav.isFieldEditorFocused, "Cancelling edit session should clear field editor focus state.")
 
-        // Truncation expansion with Right Arrow, collapse with Left Arrow, return to sidebar when collapsed
-        nav.expandedRowIDs.removeAll()
-        try check(nav.handleRightArrow(), "Right arrow on table row should expand.")
-        try check(nav.expandedRowIDs.contains("e1"), "Row was not expanded.")
-        try check(nav.handleLeftArrow(), "Left arrow should collapse.")
-        try check(!nav.expandedRowIDs.contains("e1"), "Row was not collapsed.")
-        try check(nav.handleLeftArrow(), "Left arrow on collapsed row should return to sidebar.")
-        try check(nav.focusArea == .sidebar, "Focus did not return to sidebar.")
-
-        // Non-truncated row (e2: "Key2" / "Val2"): Right arrow does not expand it, and Left arrow returns directly to sidebar
+        // User Story 48, 52, 53: Auto-expansion on row focus, Right/Left arrow column switching, and Esc navigation
         nav.focusArea = .table
-        nav.selectedRowIndex = 1
-        _ = nav.handleRightArrow()
-        try check(!nav.expandedRowIDs.contains("e2"), "Right arrow must not expand a non-truncated row.")
-        try check(nav.handleLeftArrow(), "Left arrow on non-truncated row should be handled.")
-        try check(nav.focusArea == .sidebar, "Left arrow from a non-truncated row must return directly to sidebar.")
+        nav.selectedRowIndex = 0
+        nav.selectedColumn = .key
+        try check(nav.expandedRowIDs.contains("e1"), "Selecting truncated row e1 must automatically expand it.")
+
+        // Right arrow moves from Key to Value on same row
+        try check(nav.handleRightArrow(), "Right arrow on table row should be handled.")
+        try check(nav.selectedColumn == .value, "Right arrow must switch focus to Value column.")
+
+        // Left arrow moves from Value to Key on same row
+        try check(nav.handleLeftArrow(), "Left arrow on table row should be handled.")
+        try check(nav.selectedColumn == .key, "Left arrow must switch focus back to Key column.")
+
+        // Left arrow on Key cell remains in table (does not exit to sidebar)
+        try check(nav.handleLeftArrow(), "Left arrow on Key cell should be handled.")
+        try check(nav.focusArea == .table, "Left arrow on Key cell must remain in table.")
+
+        // Moving down to non-truncated row e2 collapses e1 and does not expand e2
+        try check(nav.handleDownArrow(), "Down arrow should move to row 1.")
+        try check(nav.selectedRowIndex == 1, "Selected row index should be 1.")
+        try check(!nav.expandedRowIDs.contains("e1"), "Leaving row e1 must collapse it.")
+        try check(!nav.expandedRowIDs.contains("e2"), "Non-truncated row e2 must not be expanded.")
+
+        // Esc from table returns to tabs
+        try check(nav.handleEscape(), "Esc from table should be handled.")
+        try check(nav.focusArea == .tabs, "Esc from table must return to tabs.")
+
+        // Esc from tabs returns to sidebar
+        try check(nav.handleEscape(), "Esc from tabs should be handled.")
+        try check(nav.focusArea == .sidebar, "Esc from tabs must return to sidebar.")
 
         // Multi-selection and batch deletion test
         let e3 = KeyValueEntry(id: "e3", key: "Key3", value: "Val3")
