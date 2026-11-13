@@ -8,6 +8,7 @@ struct ShortcutImportSheet: View {
     var initialSheetID: String? = nil
     var onSuccess: ((String) -> Void)? = nil
     var onError: ((String) -> Void)? = nil
+    var onDismiss: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
 
@@ -44,7 +45,8 @@ struct ShortcutImportSheet: View {
         clipboardWriter: @escaping (String) -> Bool,
         initialSheetID: String? = nil,
         onSuccess: ((String) -> Void)? = nil,
-        onError: ((String) -> Void)? = nil
+        onError: ((String) -> Void)? = nil,
+        onDismiss: (() -> Void)? = nil
     ) {
         self.application = application
         self.store = store
@@ -52,6 +54,7 @@ struct ShortcutImportSheet: View {
         self.initialSheetID = initialSheetID
         self.onSuccess = onSuccess
         self.onError = onError
+        self.onDismiss = onDismiss
 
         let appSheets = application.sheets.compactMap { sheet -> ShortcutSheet? in
             if case .shortcuts(let s) = sheet { return s }
@@ -93,11 +96,11 @@ struct ShortcutImportSheet: View {
                     .frame(minWidth: 420, maxWidth: .infinity)
             }
         }
-        .frame(minWidth: 800, idealWidth: 880, minHeight: 520, idealHeight: 580)
+        .frame(minWidth: 800, idealWidth: 880, maxWidth: .infinity, minHeight: 520, idealHeight: 580, maxHeight: .infinity)
         .alert("有內容尚未匯入，確定關閉？", isPresented: $showingUnsavedCloseAlert) {
             Button("取消", role: .cancel) {}
             Button("確認", role: .destructive) {
-                dismiss()
+                doDismiss()
             }
             .accessibilityIdentifier("import.confirm-close")
         }
@@ -145,11 +148,19 @@ struct ShortcutImportSheet: View {
         .testAnchor("import.close-button")
     }
 
+    private func doDismiss() {
+        if let onDismiss {
+            onDismiss()
+        } else {
+            dismiss()
+        }
+    }
+
     private func handleClose() {
         if !previewShortcuts.isEmpty {
             showingUnsavedCloseAlert = true
         } else {
-            dismiss()
+            doDismiss()
         }
     }
 
@@ -300,17 +311,18 @@ struct ShortcutImportSheet: View {
 
             Divider()
 
-            // Bottom controls: Dropdown at left, Import button at left
+            // Bottom controls: Dropdown at left, Import button at right
             HStack(spacing: 12) {
                 targetSheetMenu
+
+                Spacer()
+
                 Button("匯入") {
                     confirmImport()
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(previewShortcuts.isEmpty || selectedTargetSheetID == nil)
                 .testAnchor("import.confirm-button")
-
-                Spacer()
             }
         }
         .padding(16)
@@ -374,7 +386,7 @@ struct ShortcutImportSheet: View {
                 try store.saveShortcut(item, applicationID: application.id, sheetID: targetID)
             }
             onSuccess?("已成功匯入 \(count) 個快捷鍵至「\(sheetName)」")
-            dismiss()
+            doDismiss()
         } catch {
             onError?("匯入失敗：\(error.localizedDescription)")
         }

@@ -26,7 +26,7 @@ struct DashboardView: View {
     @State private var navigationChangeToken = 0
     @State private var shortcutListCapturingKeys = false
     @State private var searchResultsFocused = false
-    @State private var showingImportShortcuts = false
+    @StateObject private var importWindowManager = ShortcutImportWindowManager()
 
     private enum AppEditorRequest: Identifiable {
         case add
@@ -271,20 +271,16 @@ struct DashboardView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingImportShortcuts) {
-            if let application = selectedApplication {
-                ShortcutImportSheet(
-                    application: application,
-                    store: store,
-                    clipboardWriter: clipboardWriter,
-                    initialSheetID: currentSheetID,
-                    onSuccess: { message in
-                        successMessage = message
-                    },
-                    onError: { error in
-                        errorMessage = error
+        .overlay {
+            if importWindowManager.isPresented {
+                Color.black.opacity(0.18)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        NSSound.beep()
+                        importWindowManager.bringToFront()
                     }
-                )
+                    .accessibilityIdentifier("dashboard.modal-barrier")
             }
         }
         .alert("無法完成操作", isPresented: Binding(
@@ -687,7 +683,7 @@ struct DashboardView: View {
         return Menu {
             if isShortcutsSheet {
                 Button("匯入快捷鍵…") {
-                    showingImportShortcuts = true
+                    openImportDialog(application)
                 }
                 .accessibilityIdentifier("dashboard.import-shortcuts")
                 Divider()
@@ -707,6 +703,23 @@ struct DashboardView: View {
         .menuStyle(.borderlessButton)
         .fixedSize()
         .accessibilityIdentifier("dashboard.add-sheet")
+    }
+
+    private func openImportDialog(_ application: ShortcutApplication) {
+        let parentWin = NSApp.windows.first(where: { $0.title == "DashCues" }) ?? NSApp.keyWindow
+        importWindowManager.show(
+            application: application,
+            store: store,
+            clipboardWriter: clipboardWriter,
+            initialSheetID: currentSheetID,
+            parentWindow: parentWin,
+            onSuccess: { msg in
+                successMessage = msg
+            },
+            onError: { err in
+                errorMessage = err
+            }
+        )
     }
 
     private func deleteApplication(_ application: ShortcutApplication) {

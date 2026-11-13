@@ -852,6 +852,47 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    func testShortcutImportWindowManagerModalBehavior() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("dashcues-modal-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = try ShortcutStore(storageURL: directory.appendingPathComponent("shortcuts.json"))
+        let appID = try store.addApplication(name: "ImportModalApp", bundleIdentifier: "com.example.modal", symbolName: "gear")
+        let app = try XCTUnwrap(store.application(id: appID))
+
+        let parentWindow = NSWindow(
+            contentRect: NSRect(x: 100, y: 100, width: 800, height: 600),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        parentWindow.title = "DashCues"
+        parentWindow.makeKeyAndOrderFront(nil)
+        defer { parentWindow.orderOut(nil) }
+
+        let manager = ShortcutImportWindowManager()
+        XCTAssertFalse(manager.isPresented)
+
+        manager.show(
+            application: app,
+            store: store,
+            clipboardWriter: { _ in true },
+            initialSheetID: app.sheets.first?.id,
+            parentWindow: parentWindow,
+            onSuccess: { _ in },
+            onError: { _ in }
+        )
+
+        XCTAssertTrue(manager.isPresented)
+        pumpRunLoop(seconds: 0.1)
+
+        // Close manager
+        manager.close()
+        XCTAssertFalse(manager.isPresented)
+    }
+
+    @MainActor
     private func findTextField(in root: NSView?, identifier: String) -> NSTextField? {
         guard let root else { return nil }
         if let field = root as? NSTextField, field.accessibilityIdentifier() == identifier {
