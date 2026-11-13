@@ -62,9 +62,9 @@ final class SheetSearchSession: ObservableObject {
                     let clickPoint = event.locationInWindow
                     let extendedFrame = NSRect(
                         x: frameInWindow.origin.x,
-                        y: frameInWindow.origin.y - (self.isShowingHistory ? 200 : 0),
+                        y: frameInWindow.origin.y - (self.isShowingHistory ? 220 : 0),
                         width: max(frameInWindow.width, 320),
-                        height: frameInWindow.height + (self.isShowingHistory ? 200 : 0)
+                        height: frameInWindow.height + (self.isShowingHistory ? 220 : 0)
                     )
                     if !extendedFrame.contains(clickPoint) {
                         self.isShowingHistory = false
@@ -221,11 +221,21 @@ struct SheetSearchBar: View {
         session.onEscNonEditing = onEscNonEditing
     }
 
+    private var itemRowHeight: CGFloat { 28 }
+    private var itemSpacing: CGFloat { 2 }
+    private var verticalPadding: CGFloat { 8 }
+
+    private var historyDropdownHeight: CGFloat {
+        let count = min(historyItems.count, 5)
+        guard count > 0 else { return 0 }
+        return CGFloat(count) * itemRowHeight + CGFloat(max(0, count - 1)) * itemSpacing + verticalPadding
+    }
+
     private var historyDropdownView: some View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 2) {
+                ScrollView(.vertical, showsIndicators: historyItems.count > 5) {
+                    VStack(spacing: itemSpacing) {
                         ForEach(Array(historyItems.enumerated()), id: \.offset) { index, item in
                             Button {
                                 selectHistoryItem(item)
@@ -241,7 +251,7 @@ struct SheetSearchBar: View {
                                     Spacer()
                                 }
                                 .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
+                                .frame(height: itemRowHeight)
                                 .background(
                                     index == session.historyIndex ? Color.accentColor.opacity(0.15) : Color.clear,
                                     in: RoundedRectangle(cornerRadius: 5)
@@ -262,7 +272,7 @@ struct SheetSearchBar: View {
                     }
                     .padding(4)
                 }
-                .frame(maxHeight: min(CGFloat(historyItems.count), 5) * 30 + 8)
+                .frame(height: historyDropdownHeight)
                 .onChange(of: session.historyIndex) { newIndex in
                     withAnimation {
                         proxy.scrollTo(newIndex, anchor: .center)
@@ -270,7 +280,7 @@ struct SheetSearchBar: View {
                 }
             }
         }
-        .frame(width: 320)
+        .frame(width: 320, height: historyDropdownHeight)
         .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)

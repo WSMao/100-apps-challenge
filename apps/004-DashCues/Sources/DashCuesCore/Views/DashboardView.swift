@@ -536,6 +536,10 @@ struct DashboardView: View {
     }
 
     private func jumpToKeyValue(cheatsheet: KeyValueCheatsheet, entry: KeyValueEntry, in application: ShortcutApplication) {
+        let trimmed = sheetSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            RecentSearchStore.shared.record(query: trimmed, for: application.id)
+        }
         let idx = cheatsheet.entries.firstIndex(where: { $0.id == entry.id }) ?? 0
         contentNavigation.selectSheet(.keyValue(cheatsheet), for: application.id)
         tableNav?.selectSheet(id: cheatsheet.id, entryID: entry.id, rowIndex: idx)
@@ -553,6 +557,10 @@ struct DashboardView: View {
     }
 
     private func jumpToShortcut(sheet: ShortcutSheet, item: ShortcutItem, in application: ShortcutApplication) {
+        let trimmed = sheetSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            RecentSearchStore.shared.record(query: trimmed, for: application.id)
+        }
         contentNavigation.selectSheet(.shortcuts(sheet), for: application.id)
         tableNav?.selectSheet(id: sheet.id, entryID: item.id)
         tableNav?.focusArea = .table

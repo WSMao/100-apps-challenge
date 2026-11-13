@@ -548,6 +548,10 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
         XCTAssertTrue(hasJumpHighlight, "Jumped item must be visibly highlighted")
 
         // 6. Test History Dropdown:
+        for q in ["query-1", "query-2", "query-3", "query-4", "query-5"] {
+            RecentSearchStore.shared.record(query: q, for: appID)
+        }
+
         // Press Cmd-F to focus search bar into editing state
         sendKeyDown(to: window, keyCode: 3, characters: "f", modifiers: .command)
         pumpRunLoop(seconds: 0.1)
@@ -567,15 +571,17 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
         XCTAssertTrue(handledDownInEditing, "Down arrow in editing state must be handled by search history")
         pumpRunLoop(seconds: 0.1)
 
-        // History dropdown must be visible with recent search items!
+        // History dropdown must be visible with 5 recent search items!
         XCTAssertTrue(
             hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-history-dropdown"),
             "Down arrow in editing state must open search history dropdown"
         )
-        XCTAssertTrue(
-            hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-history-item.0"),
-            "History dropdown must show recent items"
-        )
+        for idx in 0..<5 {
+            XCTAssertTrue(
+                hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-history-item.\(idx)"),
+                "History dropdown must show item \(idx)"
+            )
+        }
 
         // Press Enter to confirm history selection
         let handledEnterHistory = searchInput.delegate?.control?(
