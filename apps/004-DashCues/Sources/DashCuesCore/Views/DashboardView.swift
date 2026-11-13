@@ -12,9 +12,8 @@ struct DashboardView: View {
 
     @State private var selectedApplicationID: String?
     @State private var searchText = ""
-    @State private var showingApplicationEditor = false
+    @State private var appEditorRequest: AppEditorRequest?
     @State private var showingSettings = false
-    @State private var applicationToEdit: ShortcutApplication?
     @State private var applicationPendingDelete: ShortcutApplication?
     @State private var sheetCreateRequest: SheetCreateRequest?
     @State private var sheetCreateApplicationID: String?
@@ -24,6 +23,41 @@ struct DashboardView: View {
     @State private var keyMonitor: Any?
     @State private var navigationChangeToken = 0
     @State private var shortcutListCapturingKeys = false
+
+    private enum AppEditorRequest: Identifiable {
+        case add
+        case edit(ShortcutApplication)
+
+        var id: String {
+            switch self {
+            case .add: return "add"
+            case .edit(let app): return "edit-\(app.id)"
+            }
+        }
+
+        var application: ShortcutApplication? {
+            switch self {
+            case .add: return nil
+            case .edit(let app): return app
+            }
+        }
+    }
+
+    init(
+        store: ShortcutStore,
+        contentNavigation: SharedContentNavigation,
+        editSession: KeyValueEditSession,
+        onHotKeyChanged: @escaping @MainActor (HotKeyConfiguration) throws -> Void,
+        clipboardWriter: @escaping (String) -> Bool = SystemClipboardWriter.write
+    ) {
+        self.store = store
+        self.contentNavigation = contentNavigation
+        self.editSession = editSession
+        self.onHotKeyChanged = onHotKeyChanged
+        self.clipboardWriter = clipboardWriter
+        let initialAppID = store.applications.first?.id
+        _selectedApplicationID = State(initialValue: initialAppID)
+    }
 
     private var navigationPublisher: AnyPublisher<Void, Never> {
         if let tableNav {
@@ -71,8 +105,7 @@ struct DashboardView: View {
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(nsColor: .separatorColor)))
 
             Button {
-                applicationToEdit = nil
-                showingApplicationEditor = true
+                appEditorRequest = .add
             } label: {
                 Image(systemName: "plus")
             }
@@ -155,16 +188,16 @@ struct DashboardView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingApplicationEditor) {
+        .sheet(item: $appEditorRequest) { request in
             ApplicationEditorSheet(
-                existingApplication: applicationToEdit,
+                existingApplication: request.application,
                 onSave: { name, bundleIdentifier, symbolName, iconData, tagEdits, sheetEdits in
                     performStoreAction {
-                        if let applicationToEdit {
-                            let oldSheets = applicationToEdit.sheets
-                            let selectedID = contentNavigation.selectedSheet(for: applicationToEdit.id, in: oldSheets)?.id
+                        if let targetApp = request.application {
+                            let oldSheets = targetApp.sheets
+                            let selectedID = contentNavigation.selectedSheet(for: targetApp.id, in: oldSheets)?.id
                             try store.updateApplicationDetails(
-                                id: applicationToEdit.id,
+                                id: targetApp.id,
                                 name: name,
                                 bundleIdentifier: bundleIdentifier,
                                 symbolName: symbolName,
@@ -173,7 +206,7 @@ struct DashboardView: View {
                                 sheetEdits: sheetEdits
                             )
                             if let sheetEdits {
-                                let remaining = store.application(id: applicationToEdit.id)?.sheets ?? []
+                                let remaining = store.application(id: targetApp.id)?.sheets ?? []
                                 let newID = SheetSelection.afterDeleting(
                                     selected: selectedID,
                                     from: oldSheets.map(\.id),
@@ -181,7 +214,7 @@ struct DashboardView: View {
                                 )
                                 if sheetEdits.count != oldSheets.count || newID != selectedID {
                                     let targetSheet = remaining.first { $0.id == newID }
-                                    contentNavigation.selectSheet(targetSheet, for: applicationToEdit.id)
+                                    contentNavigation.selectSheet(targetSheet, for: targetApp.id)
                                     if let id = targetSheet?.id {
                                         tableNav?.selectSheet(id: id)
                                     }
@@ -198,7 +231,7 @@ struct DashboardView: View {
                     }
                 },
                 onDelete: {
-                    if let app = applicationToEdit {
+                    if let app = request.application {
                         deleteApplication(app)
                     }
                 }
@@ -276,7 +309,7 @@ struct DashboardView: View {
                           !(window is NSPanel),
                           window.attachedSheet == nil,
                           window.sheetParent == nil,
-                          !showingApplicationEditor,
+                          appEditorRequest == nil,
                           !showingSettings,
                           sheetCreateRequest == nil,
                           applicationPendingDelete == nil,
@@ -446,8 +479,7 @@ struct DashboardView: View {
                 .accessibilityIdentifier("dashboard.add-key-value-sheet")
             Divider()
             Button("編輯 App…") {
-                applicationToEdit = application
-                showingApplicationEditor = true
+                appEditorRequest = .edit(application)
             }
             .accessibilityIdentifier("dashboard.edit-app")
         } label: {
