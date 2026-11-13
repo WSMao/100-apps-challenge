@@ -182,6 +182,9 @@ struct ShortcutListView: View {
             guard let model else { return false }
             return model.enterList()
         }
+        navigation.onLeaveShortcuts = { [weak model] in
+            model?.leaveList()
+        }
         model.onExitToTabs = { [weak navigation] in
             navigation?.focusArea = .tabs
         }

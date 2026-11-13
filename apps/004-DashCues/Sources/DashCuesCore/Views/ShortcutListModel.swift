@@ -275,12 +275,12 @@ final class ShortcutListModel: ObservableObject {
             return false
         }
 
-        guard !selection.isEmpty else { return false }
         if isEscape && flags.isEmpty {
             leaveList()
             onExitToTabs?()
             return true
         }
+        guard !selection.isEmpty else { return false }
         if isReturn && flags.isEmpty {
             guard selection.count == 1, let item = rows.first(where: { selection.contains($0.id) }) else {
                 return true
@@ -580,8 +580,7 @@ final class ShortcutListModel: ObservableObject {
         }
         let plain = event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
         if plain, editingField == nil {
-            if event.keyCode == 123, isListActive {
-                leaveList()
+            if (event.keyCode == 123 || event.keyCode == 124), isListActive {
                 return true
             }
         }
@@ -627,9 +626,7 @@ final class ShortcutListModel: ObservableObject {
         selection = []
         cursorID = nil
         anchorID = nil
-        guard let content = listView?.window?.contentView,
-              let table = Self.firstTableView(in: content) else { return }
-        listView?.window?.makeFirstResponder(table)
+        listView?.window?.makeFirstResponder(nil)
     }
 
     private static func firstTableView(in view: NSView) -> NSTableView? {

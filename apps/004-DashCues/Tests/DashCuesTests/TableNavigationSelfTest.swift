@@ -337,6 +337,73 @@ enum TableNavigationSelfTest {
             try check(soloModel.consumes(keyDown: downArrowEvent), "Down arrow in shortcut list should move selection.")
             try check(soloModel.selection == ["s2"], "Second shortcut item should be selected.")
         }
+
+        // Left arrow on shortcut item must NOT jump back to sidebar/apps list; it stays in table
+        let leftArrowEvent = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: 123
+        )
+        if let leftArrowEvent {
+            try check(soloModel.consumes(keyDown: leftArrowEvent), "Left arrow on shortcut item should be consumed.")
+            try check(soloNav.focusArea == .table, "Left arrow on shortcut item must not leave table.")
+            try check(soloModel.selection == ["s2"], "Left arrow on shortcut item must preserve row selection.")
+        }
+
+        // Right arrow on shortcut item also stays in table
+        let rightArrowEvent = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: 124
+        )
+        if let rightArrowEvent {
+            try check(soloModel.consumes(keyDown: rightArrowEvent), "Right arrow on shortcut item should be consumed.")
+            try check(soloNav.focusArea == .table, "Right arrow on shortcut item must not leave table.")
+        }
+
+        try check(soloNav.handleLeftArrow(), "TableKeyboardNavigation handleLeftArrow on shortcuts should return true.")
+        try check(soloNav.focusArea == .table, "handleLeftArrow on shortcuts must remain in table.")
+
+        // First Esc on shortcut item returns focus to tabs (like Key-Value table)
+        let escEvent = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: 53
+        )
+        if let escEvent {
+            try check(soloModel.consumes(keyDown: escEvent), "Esc on shortcut item should be consumed.")
+            try check(soloNav.focusArea == .tabs, "First Esc on shortcut item must return focus to tabs.")
+            try check(soloModel.selection.isEmpty, "First Esc should clear shortcut selection.")
+        }
+
+        // Second Esc from tabs returns focus to sidebar (like Key-Value table)
+        try check(soloNav.handleEscape(), "Esc on tabs should return to sidebar.")
+        try check(soloNav.focusArea == .sidebar, "Second Esc from tabs must return focus to sidebar.")
+
+        // Esc in sidebar does not escape further
+        try check(!soloNav.handleEscape(), "Esc in sidebar should return false.")
+        try check(soloNav.focusArea == .sidebar, "Esc in sidebar should retain focus in sidebar.")
     }
 
     private static func check(_ condition: Bool, _ message: String) throws {

@@ -139,6 +139,7 @@ final class TableKeyboardNavigation: ObservableObject {
     @Published var anchorRowIndex: Int?
     var onDeleteRequested: (() -> Void)?
     var onMoveFocusToShortcuts: (() -> Bool)?
+    var onLeaveShortcuts: (() -> Void)?
     var onFocusSearch: (() -> Void)?
     var measuredTruncatableRowIDs: Set<String>?
     var isPinnedWindow = false
@@ -277,7 +278,7 @@ final class TableKeyboardNavigation: ObservableObject {
             return true
         case .table:
             if currentSheet?.kind == .shortcuts {
-                return false
+                return true
             }
             let order = columnOrder
             guard order.count >= 2 else { return false }
@@ -304,7 +305,6 @@ final class TableKeyboardNavigation: ObservableObject {
             return true
         case .table:
             if currentSheet?.kind == .shortcuts {
-                focusArea = isPinnedWindow ? .tabs : .sidebar
                 return true
             }
             let order = columnOrder
@@ -325,6 +325,7 @@ final class TableKeyboardNavigation: ObservableObject {
             focusArea = .tabs
             selectedEntryIDs = []
             anchorRowIndex = nil
+            onLeaveShortcuts?()
             return true
         case .tabs:
             if !isPinnedWindow {
