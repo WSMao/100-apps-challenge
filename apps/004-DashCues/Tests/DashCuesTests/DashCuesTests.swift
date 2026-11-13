@@ -7,6 +7,7 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
     @MainActor
     func testAllCoreSubsystemsAndSelfTests() throws {
         try ShortcutStoreSelfTest.run()
+        try ShortcutMappingParserSelfTest.run()
     }
 
     @MainActor
@@ -694,6 +695,98 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
             hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-history-dropdown"),
             "Selecting history item must dismiss dropdown"
         )
+    }
+
+    @MainActor
+    func testHostedShortcutImportSheetWorkflow() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("dashcues-import-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = try ShortcutStore(storageURL: directory.appendingPathComponent("shortcuts.json"))
+        let appID = try store.addApplication(name: "ImportTestApp", bundleIdentifier: "com.example.import", symbolName: "gear")
+        let app = try XCTUnwrap(store.application(id: appID))
+        let initialSheetID = try XCTUnwrap(app.sheets.first?.id)
+
+        var copiedText: String?
+        var successMsg: String?
+        let importSheet = ShortcutImportSheet(
+            application: app,
+            store: store,
+            clipboardWriter: { text in
+                copiedText = text
+                return true
+            },
+            initialSheetID: initialSheetID,
+            onSuccess: { successMsg = $0 }
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 840, height: 560),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = NSHostingController(rootView: importSheet)
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        pumpRunLoop(seconds: 0.15)
+
+        // 1. Initial UI Elements
+        XCTAssertTrue(hasAccessibilityIdentifier(in: window.contentView, identifier: "import.close-button"))
+        XCTAssertTrue(hasAccessibilityIdentifier(in: window.contentView, identifier: "import.placeholder"))
+        XCTAssertTrue(hasAccessibilityIdentifier(in: window.contentView, identifier: "import.copy-template"))
+        XCTAssertTrue(hasAccessibilityIdentifier(in: window.contentView, identifier: "import.empty-preview"))
+        XCTAssertTrue(hasAccessibilityIdentifier(in: window.contentView, identifier: "import.location-menu"))
+        XCTAssertTrue(hasAccessibilityIdentifier(in: window.contentView, identifier: "import.confirm-button"))
+
+        // 2. Click "複製製作格式"
+        XCTAssertTrue(ShortcutMappingParser.templatePrompt.contains("請照這個 JSON 格式製作快捷鍵映射檔案"))
+        _ = importSheet.clipboardWriter(ShortcutMappingParser.templatePrompt)
+        XCTAssertEqual(copiedText, ShortcutMappingParser.templatePrompt)
+        importSheet.onSuccess?("已匯入 2 筆快捷鍵至 快捷鍵")
+        XCTAssertEqual(successMsg, "已匯入 2 筆快捷鍵至 快捷鍵")
+
+        // 3. Test parsing JSON content and generating preview
+        let testJSON = """
+        [
+          {
+            "title": "單元測試快捷鍵 1",
+            "keys": ["⌘", "T"],
+            "tags": ["測試"]
+          },
+          {
+            "title": "單元測試快捷鍵 2",
+            "keys": ["⌘", "⇧", "K"],
+            "tags": ["除錯"]
+          }
+        ]
+        """
+        let parsed = try ShortcutMappingParser.parse(testJSON)
+        XCTAssertEqual(parsed.count, 2)
+        XCTAssertEqual(parsed[0].title, "單元測試快捷鍵 1")
+        XCTAssertEqual(parsed[1].title, "單元測試快捷鍵 2")
+
+        // 4. Save parsed items into store (simulating Import button execution)
+        for item in parsed {
+            try store.saveShortcut(item, applicationID: appID, sheetID: initialSheetID)
+        }
+
+        // Verify items were persisted into store
+        let updatedApp = try XCTUnwrap(store.application(id: appID))
+        let sheet = try XCTUnwrap(updatedApp.sheets.first)
+        if case .shortcuts(let scSheet) = sheet {
+            XCTAssertTrue(scSheet.shortcuts.contains(where: { $0.title == "單元測試快捷鍵 1" }))
+            XCTAssertTrue(scSheet.shortcuts.contains(where: { $0.title == "單元測試快捷鍵 2" }))
+        } else {
+            XCTFail("Target sheet should be shortcuts sheet")
+        }
+
+        // 5. Test creating a new shortcuts sheet via store
+        let newSheetID = try store.createSheet(kind: .shortcuts, name: "測試新建工作表", applicationID: appID)
+        let appWithNewSheet = try XCTUnwrap(store.application(id: appID))
+        XCTAssertTrue(appWithNewSheet.sheets.contains(where: { $0.id == newSheetID && $0.name == "測試新建工作表" }))
     }
 
     @MainActor

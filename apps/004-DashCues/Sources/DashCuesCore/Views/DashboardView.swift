@@ -26,6 +26,7 @@ struct DashboardView: View {
     @State private var navigationChangeToken = 0
     @State private var shortcutListCapturingKeys = false
     @State private var searchResultsFocused = false
+    @State private var showingImportShortcuts = false
 
     private enum AppEditorRequest: Identifiable {
         case add
@@ -268,6 +269,22 @@ struct DashboardView: View {
                 } catch {
                     return error.localizedDescription
                 }
+            }
+        }
+        .sheet(isPresented: $showingImportShortcuts) {
+            if let application = selectedApplication {
+                ShortcutImportSheet(
+                    application: application,
+                    store: store,
+                    clipboardWriter: clipboardWriter,
+                    initialSheetID: currentSheetID,
+                    onSuccess: { message in
+                        successMessage = message
+                    },
+                    onError: { error in
+                        errorMessage = error
+                    }
+                )
             }
         }
         .alert("無法完成操作", isPresented: Binding(
@@ -627,7 +644,17 @@ struct DashboardView: View {
     }
 
     private func appActionsMenu(for application: ShortcutApplication) -> some View {
-        Menu {
+        let currentSheet = contentNavigation.selectedSheet(for: application.id, in: application.sheets)
+        let isShortcutsSheet = (currentSheet?.kind ?? application.sheets.first?.kind ?? .shortcuts) == .shortcuts
+
+        return Menu {
+            if isShortcutsSheet {
+                Button("匯入快捷鍵…") {
+                    showingImportShortcuts = true
+                }
+                .accessibilityIdentifier("dashboard.import-shortcuts")
+                Divider()
+            }
             Button("新增快捷鍵工作表…") { requestSheet(.shortcuts, in: application) }
                 .accessibilityIdentifier("dashboard.add-shortcuts-sheet")
             Button("新增 Key-Value 工作表…") { requestSheet(.keyValue, in: application) }
