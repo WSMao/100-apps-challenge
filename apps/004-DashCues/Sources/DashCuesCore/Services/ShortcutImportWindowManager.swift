@@ -9,6 +9,7 @@ final class ShortcutImportWindowManager: NSObject, ObservableObject, NSWindowDel
 
     private weak var parentWindow: NSWindow?
     private var didBecomeKeyObserver: Any?
+    private var didBecomeActiveObserver: Any?
 
     override init() {
         super.init()
@@ -23,14 +24,29 @@ final class ShortcutImportWindowManager: NSObject, ObservableObject, NSWindowDel
                    activatedWin === self.parentWindow,
                    activatedWin !== win {
                     NSSound.beep()
+                    win.order(.above, relativeTo: self.parentWindow?.windowNumber ?? 0)
                     win.makeKeyAndOrderFront(nil)
                 }
+            }
+        }
+        didBecomeActiveObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isPresented, let win = self.window else { return }
+                win.order(.above, relativeTo: self.parentWindow?.windowNumber ?? 0)
+                win.makeKeyAndOrderFront(nil)
             }
         }
     }
 
     deinit {
         if let observer = didBecomeKeyObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = didBecomeActiveObserver {
             NotificationCenter.default.removeObserver(observer)
         }
     }
@@ -78,7 +94,7 @@ final class ShortcutImportWindowManager: NSObject, ObservableObject, NSWindowDel
         newWindow.titlebarAppearsTransparent = true
         newWindow.isMovableByWindowBackground = true
         newWindow.minSize = NSSize(width: 800, height: 520)
-        newWindow.level = .floating
+        newWindow.level = .normal
         newWindow.isReleasedWhenClosed = false
         newWindow.delegate = self
 
@@ -92,11 +108,17 @@ final class ShortcutImportWindowManager: NSObject, ObservableObject, NSWindowDel
         self.window = newWindow
         self.isPresented = true
 
+        if let parentWindow {
+            newWindow.order(.above, relativeTo: parentWindow.windowNumber)
+        }
         newWindow.makeKeyAndOrderFront(nil)
     }
 
     func bringToFront() {
         guard let window, window.isVisible else { return }
+        if let parentWindow {
+            window.order(.above, relativeTo: parentWindow.windowNumber)
+        }
         window.makeKeyAndOrderFront(nil)
     }
 

@@ -73,14 +73,13 @@ struct ShortcutImportSheet: View {
                 closeButton
                 Spacer()
                 Text("匯入快捷鍵")
-                    .font(.headline)
+                    .font(.system(size: 13, weight: .semibold))
                 Spacer()
                 // Balance spacer for title centering
-                Color.clear.frame(width: 14, height: 14)
+                Color.clear.frame(width: 13, height: 13)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 14)
-            .padding(.bottom, 12)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
             .background(Color(nsColor: .windowBackgroundColor))
 
             Divider()
