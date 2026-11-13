@@ -21,6 +21,8 @@ enum ShortcutMappingParser {
 - ⇧ : Shift
 - ⌥ : Option / Alt
 - ⌃ : Control
+- ⇪ : Caps Lock
+- Fn 或 🌐 : Function / 地球儀鍵
 - ↩ : Return / Enter
 - ⌫ : Delete / Backspace
 - ⌦ : Forward Delete
@@ -28,6 +30,8 @@ enum ShortcutMappingParser {
 - ⎋ 或 Esc : Escape
 - Space : 空白鍵
 - ↑ / ↓ / ← / → : 方向鍵（上、下、左、右）
+- ↖ 或 Home : Home（行首 / 頁首）
+- ↘ 或 End : End（行尾 / 頁尾）
 - ⇞ / ⇟ : Page Up / Page Down
 - F1～F12 : 功能鍵
 
@@ -125,7 +129,10 @@ enum ShortcutMappingParser {
         case "ctrl", "control", "⌃": return "⌃"
         case "opt", "option", "alt", "⌥": return "⌥"
         case "shift", "⇧": return "⇧"
-        case "esc", "escape": return "⎋"
+        case "capslock", "caps", "⇪": return "⇪"
+        case "fn": return "Fn"
+        case "globe", "🌐": return "🌐"
+        case "esc", "escape", "⎋": return "Esc"
         case "enter", "return": return "↩"
         case "tab": return "⇥"
         case "space": return "Space"
@@ -137,9 +144,12 @@ enum ShortcutMappingParser {
         case "right", "rightarrow", "→": return "→"
         case "pageup", "pgup", "⇞": return "⇞"
         case "pagedown", "pgdn", "⇟": return "⇟"
-        case "home": return "Home"
-        case "end": return "End"
+        case "home", "↖": return "Home"
+        case "end", "↘": return "End"
         default:
+            if lower.hasPrefix("f"), let num = Int(lower.dropFirst()), num >= 1 && num <= 24 {
+                return "F\(num)"
+            }
             return trimmed.count == 1 ? trimmed.uppercased() : trimmed
         }
     }

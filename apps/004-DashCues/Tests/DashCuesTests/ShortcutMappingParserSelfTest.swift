@@ -88,6 +88,28 @@ enum ShortcutMappingParserSelfTest {
         try check(stringKeyItems[1].keys == ["⌃", "`"], "Ctrl should normalize to ⌃.")
         try check(stringKeyItems[1].tags == ["系統", "開發"], "Comma-separated tags should parse into array.")
 
+        // 4b. Special keys normalization: Caps Lock, Fn, Home (↖), End (↘)
+        let specialKeysJSON = """
+        [
+          {
+            "title": "大寫鎖定測試",
+            "keys": ["capslock", "a"]
+          },
+          {
+            "title": "功能鍵測試",
+            "keys": ["fn", "f1"]
+          },
+          {
+            "title": "行首行尾測試",
+            "keys": ["↖", "↘"]
+          }
+        ]
+        """
+        let specialItems = try ShortcutMappingParser.parse(specialKeysJSON)
+        try check(specialItems[0].keys == ["⇪", "A"], "capslock should normalize to ⇪.")
+        try check(specialItems[1].keys == ["Fn", "F1"], "fn should normalize to Fn.")
+        try check(specialItems[2].keys == ["Home", "End"], "↖ and ↘ should normalize to Home and End.")
+
         // 5. Object wrapper {"shortcuts": [...]}
         let wrapperJSON = """
         {
