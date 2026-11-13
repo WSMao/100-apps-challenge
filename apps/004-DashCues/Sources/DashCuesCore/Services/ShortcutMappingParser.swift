@@ -2,23 +2,38 @@ import Foundation
 
 enum ShortcutMappingParser {
     static let templatePrompt: String = """
-請照這個 JSON 格式製作快捷鍵映射檔案，將製作好的 JSON 內容提供給我：
+請照以下的 JSON 格式製作快捷鍵映射檔案，將製作好的內容提供給我：
 ```json
 [
   {
     "title": "複製",
-    "keys": ["⌘", "C"],
-    "tags": ["編輯"],
-    "notes": "選填備註"
+    "keys": ["⌘", "C"]
   },
   {
     "title": "貼上",
-    "keys": ["⌘", "V"],
-    "tags": ["編輯"],
-    "notes": ""
+    "keys": ["⌘", "V"]
   }
 ]
 ```
+
+【macOS 常用快捷鍵符號對照表】
+- ⌘ : Command
+- ⇧ : Shift
+- ⌥ : Option / Alt
+- ⌃ : Control
+- ↩ : Return / Enter
+- ⌫ : Delete / Backspace
+- ⌦ : Forward Delete
+- ⇥ : Tab
+- ⎋ 或 Esc : Escape
+- Space : 空白鍵
+- ↑ / ↓ / ← / → : 方向鍵（上、下、左、右）
+- ⇞ / ⇟ : Page Up / Page Down
+- F1～F12 : 功能鍵
+
+注意事項：
+- `keys` 陣列請填寫按鍵符號或大寫英文字母／數字（例如 `["⌘", "C"]` 或 `["⌘", "⇧", "P"]`）。
+- 修飾鍵請依照 `⌃`、`⌥`、`⇧`、`⌘` 之順序排列。
 """
 
     static func parse(_ rawText: String) throws -> [ShortcutItem] {
@@ -114,6 +129,16 @@ enum ShortcutMappingParser {
         case "enter", "return": return "↩"
         case "tab": return "⇥"
         case "space": return "Space"
+        case "backspace", "delete", "⌫": return "⌫"
+        case "forwarddelete", "del", "⌦": return "⌦"
+        case "up", "uparrow", "↑": return "↑"
+        case "down", "downarrow", "↓": return "↓"
+        case "left", "leftarrow", "←": return "←"
+        case "right", "rightarrow", "→": return "→"
+        case "pageup", "pgup", "⇞": return "⇞"
+        case "pagedown", "pgdn", "⇟": return "⇟"
+        case "home": return "Home"
+        case "end": return "End"
         default:
             return trimmed.count == 1 ? trimmed.uppercased() : trimmed
         }

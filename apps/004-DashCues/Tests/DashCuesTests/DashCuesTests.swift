@@ -772,7 +772,8 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
         XCTAssertTrue(hasAccessibilityIdentifier(in: window.contentView, identifier: "import.confirm-button"))
 
         // 2. Click "複製製作格式"
-        XCTAssertTrue(ShortcutMappingParser.templatePrompt.contains("請照這個 JSON 格式製作快捷鍵映射檔案"))
+        XCTAssertTrue(ShortcutMappingParser.templatePrompt.contains("請照以下的 JSON 格式製作快捷鍵映射檔案，將製作好的內容提供給我"))
+        XCTAssertTrue(ShortcutMappingParser.templatePrompt.contains("【macOS 常用快捷鍵符號對照表】"))
         _ = importSheet.clipboardWriter(ShortcutMappingParser.templatePrompt)
         XCTAssertEqual(copiedText, ShortcutMappingParser.templatePrompt)
         importSheet.onSuccess?("已匯入 2 筆快捷鍵至 快捷鍵")

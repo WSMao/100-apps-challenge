@@ -486,6 +486,18 @@ private struct PreviewShortcutRow: View {
                     .accessibilityIdentifier("import.row-add-tag.\(item.id)")
                 }
             }
+
+            // Notes Row
+            HStack(spacing: 4) {
+                Image(systemName: "note.text")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary.opacity(0.6))
+                TextField("備註（選填）", text: $item.notes)
+                    .textFieldStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("import.row-notes.\(item.id)")
+            }
         }
         .padding(8)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))

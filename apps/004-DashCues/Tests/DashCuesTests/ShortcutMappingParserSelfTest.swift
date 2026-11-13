@@ -5,17 +5,41 @@ enum ShortcutMappingParserSelfTest {
     static func run() throws {
         // 1. Template Prompt Verification
         try check(
-            ShortcutMappingParser.templatePrompt.contains("請照這個 JSON 格式製作快捷鍵映射檔案，將製作好的 JSON 內容提供給我"),
+            ShortcutMappingParser.templatePrompt.contains("請照以下的 JSON 格式製作快捷鍵映射檔案，將製作好的內容提供給我"),
             "Template prompt must contain the required prompt string."
         )
         try check(
             ShortcutMappingParser.templatePrompt.contains("```json"),
             "Template prompt must contain json code block."
         )
+        try check(
+            ShortcutMappingParser.templatePrompt.contains("【macOS 常用快捷鍵符號對照表】"),
+            "Template prompt must contain macOS shortcut symbols table."
+        )
 
         // 2. Empty string
         let emptyResult = try ShortcutMappingParser.parse("")
         try check(emptyResult.isEmpty, "Empty string should return empty array.")
+
+        // 2b. Minimal format without tags and notes
+        let minimalJSON = """
+        [
+          {
+            "title": "複製",
+            "keys": ["⌘", "C"]
+          },
+          {
+            "title": "貼上",
+            "keys": ["⌘", "V"]
+          }
+        ]
+        """
+        let minimalItems = try ShortcutMappingParser.parse(minimalJSON)
+        try check(minimalItems.count == 2, "Expected 2 shortcuts from minimal JSON.")
+        try check(minimalItems[0].title == "複製", "Title should match.")
+        try check(minimalItems[0].keys == ["⌘", "C"], "Keys should match.")
+        try check(minimalItems[0].tags.isEmpty, "Tags should be empty.")
+        try check(minimalItems[0].notes.isEmpty, "Notes should be empty.")
 
         // 3. Standard JSON array
         let standardJSON = """
