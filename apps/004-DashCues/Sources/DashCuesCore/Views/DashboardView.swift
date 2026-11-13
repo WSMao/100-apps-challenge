@@ -98,17 +98,14 @@ struct DashboardView: View {
             }
         )) {
                 ForEach(filteredApplications) { application in
-                    HStack(spacing: 8) {
-                        ApplicationIconView(application: application, size: 18)
-                        Text(application.name)
-                        Spacer()
-                        if application.isPinned {
-                            Image(systemName: "pin.fill")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .help("已釘選")
+                    ApplicationRowView(
+                        application: application,
+                        onTogglePin: {
+                            performStoreAction {
+                                try store.setPinned(!application.isPinned, applicationID: application.id)
+                            }
                         }
-                    }
+                    )
                     .tag(application.id)
                     .accessibilityIdentifier("dashboard.application.\(application.id)")
                 }
@@ -159,45 +156,53 @@ struct DashboardView: View {
             }
         }
         .sheet(isPresented: $showingApplicationEditor) {
-            ApplicationEditorSheet(existingApplication: applicationToEdit) { name, bundleIdentifier, symbolName, iconData, tagEdits, sheetEdits in
-                performStoreAction {
-                    if let applicationToEdit {
-                        let oldSheets = applicationToEdit.sheets
-                        let selectedID = contentNavigation.selectedSheet(for: applicationToEdit.id, in: oldSheets)?.id
-                        try store.updateApplicationDetails(
-                            id: applicationToEdit.id,
-                            name: name,
-                            bundleIdentifier: bundleIdentifier,
-                            symbolName: symbolName,
-                            customIconData: .some(iconData),
-                            tagEdits: tagEdits,
-                            sheetEdits: sheetEdits
-                        )
-                        if let sheetEdits {
-                            let remaining = store.application(id: applicationToEdit.id)?.sheets ?? []
-                            let newID = SheetSelection.afterDeleting(
-                                selected: selectedID,
-                                from: oldSheets.map(\.id),
-                                remaining: remaining.map(\.id)
+            ApplicationEditorSheet(
+                existingApplication: applicationToEdit,
+                onSave: { name, bundleIdentifier, symbolName, iconData, tagEdits, sheetEdits in
+                    performStoreAction {
+                        if let applicationToEdit {
+                            let oldSheets = applicationToEdit.sheets
+                            let selectedID = contentNavigation.selectedSheet(for: applicationToEdit.id, in: oldSheets)?.id
+                            try store.updateApplicationDetails(
+                                id: applicationToEdit.id,
+                                name: name,
+                                bundleIdentifier: bundleIdentifier,
+                                symbolName: symbolName,
+                                customIconData: .some(iconData),
+                                tagEdits: tagEdits,
+                                sheetEdits: sheetEdits
                             )
-                            if sheetEdits.count != oldSheets.count || newID != selectedID {
-                                let targetSheet = remaining.first { $0.id == newID }
-                                contentNavigation.selectSheet(targetSheet, for: applicationToEdit.id)
-                                if let id = targetSheet?.id {
-                                    tableNav?.selectSheet(id: id)
+                            if let sheetEdits {
+                                let remaining = store.application(id: applicationToEdit.id)?.sheets ?? []
+                                let newID = SheetSelection.afterDeleting(
+                                    selected: selectedID,
+                                    from: oldSheets.map(\.id),
+                                    remaining: remaining.map(\.id)
+                                )
+                                if sheetEdits.count != oldSheets.count || newID != selectedID {
+                                    let targetSheet = remaining.first { $0.id == newID }
+                                    contentNavigation.selectSheet(targetSheet, for: applicationToEdit.id)
+                                    if let id = targetSheet?.id {
+                                        tableNav?.selectSheet(id: id)
+                                    }
                                 }
                             }
+                        } else {
+                            selectedApplicationID = try store.addApplication(
+                                name: name,
+                                bundleIdentifier: bundleIdentifier,
+                                symbolName: symbolName,
+                                customIconData: iconData
+                            )
                         }
-                    } else {
-                        selectedApplicationID = try store.addApplication(
-                            name: name,
-                            bundleIdentifier: bundleIdentifier,
-                            symbolName: symbolName,
-                            customIconData: iconData
-                        )
+                    }
+                },
+                onDelete: {
+                    if let app = applicationToEdit {
+                        deleteApplication(app)
                     }
                 }
-            }
+            )
         }
         .sheet(item: $sheetCreateRequest) { request in
             SheetNameEditor(kind: request.kind) { name in
@@ -390,31 +395,7 @@ struct DashboardView: View {
                     .frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
 
-                HStack(spacing: 8) {
-                    Button {
-                        performStoreAction { try store.setPinned(!application.isPinned, applicationID: application.id) }
-                    } label: {
-                        Label(
-                            application.isPinned ? "取消釘選" : "釘選",
-                            systemImage: application.isPinned ? "pin.slash" : "pin"
-                        )
-                    }
-                    addSheetMenu(for: application)
-                    Menu {
-                        Button("編輯 App…") {
-                            applicationToEdit = application
-                            showingApplicationEditor = true
-                        }
-                        Button("刪除 App", role: .destructive) {
-                            applicationPendingDelete = application
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                }
-                .fixedSize()
+                appActionsMenu(for: application)
             }
 
             if application.sheets.isEmpty {
@@ -457,18 +438,31 @@ struct DashboardView: View {
         selectedApplicationID = jump.applicationID
     }
 
-    private func addSheetMenu(for application: ShortcutApplication) -> some View {
+    private func appActionsMenu(for application: ShortcutApplication) -> some View {
         Menu {
-            Button("快捷鍵工作表…") { requestSheet(.shortcuts, in: application) }
+            Button("新增快捷鍵工作表…") { requestSheet(.shortcuts, in: application) }
                 .accessibilityIdentifier("dashboard.add-shortcuts-sheet")
-            Button("Key-Value 工作表…") { requestSheet(.keyValue, in: application) }
+            Button("新增 Key-Value 工作表…") { requestSheet(.keyValue, in: application) }
                 .accessibilityIdentifier("dashboard.add-key-value-sheet")
+            Divider()
+            Button("編輯 App…") {
+                applicationToEdit = application
+                showingApplicationEditor = true
+            }
+            .accessibilityIdentifier("dashboard.edit-app")
         } label: {
-            Label("新增工作表", systemImage: "plus")
+            Image(systemName: "ellipsis.circle")
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
         .accessibilityIdentifier("dashboard.add-sheet")
+    }
+
+    private func deleteApplication(_ application: ShortcutApplication) {
+        performStoreAction {
+            try store.deleteApplication(id: application.id)
+            selectedApplicationID = store.applications.first?.id
+        }
     }
 
     private func requestSheet(_ kind: SheetKind, in application: ShortcutApplication) {
@@ -720,5 +714,31 @@ struct DashboardView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+}
+
+private struct ApplicationRowView: View {
+    let application: ShortcutApplication
+    let onTogglePin: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ApplicationIconView(application: application, size: 18)
+            Text(application.name)
+                .lineLimit(1)
+            Spacer()
+            Button(action: onTogglePin) {
+                Image(systemName: application.isPinned ? "pin.fill" : "pin")
+                    .font(.caption)
+                    .foregroundStyle(application.isPinned ? Color.accentColor : Color.secondary)
+                    .opacity(application.isPinned ? 1.0 : (isHovering ? 0.5 : 0.0))
+            }
+            .buttonStyle(.plain)
+            .help(application.isPinned ? "取消釘選" : "釘選此 App")
+            .accessibilityIdentifier("dashboard.app-pin-button.\(application.id)")
+        }
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
     }
 }

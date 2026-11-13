@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct ApplicationEditorSheet: View {
     let existingApplication: ShortcutApplication?
     let onSave: (String, String, String, Data?, [TagEdit]?, [SheetEdit]?) -> Void
+    var onDelete: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
@@ -17,6 +18,7 @@ struct ApplicationEditorSheet: View {
     @State private var draftSheetName = ""
     @State private var sheetNameError: String?
     @State private var sheetPendingDelete: SheetRow?
+    @State private var showingDeleteAppConfirmation = false
     @FocusState private var focusedSheetID: String?
 
     private struct SheetRow: Identifiable, Equatable {
@@ -33,10 +35,12 @@ struct ApplicationEditorSheet: View {
 
     init(
         existingApplication: ShortcutApplication?,
-        onSave: @escaping (String, String, String, Data?, [TagEdit]?, [SheetEdit]?) -> Void
+        onSave: @escaping (String, String, String, Data?, [TagEdit]?, [SheetEdit]?) -> Void,
+        onDelete: (() -> Void)? = nil
     ) {
         self.existingApplication = existingApplication
         self.onSave = onSave
+        self.onDelete = onDelete
         _name = State(initialValue: existingApplication?.name ?? "")
         _bundleIdentifier = State(initialValue: existingApplication?.bundleIdentifier ?? "")
         symbolName = existingApplication?.symbolName ?? "app"
@@ -82,6 +86,14 @@ struct ApplicationEditorSheet: View {
         .padding()
         .frame(width: 440)
         .toolbar {
+            if existingApplication != nil, onDelete != nil {
+                ToolbarItem(placement: .destructiveAction) {
+                    Button("刪除 App", role: .destructive) {
+                        showingDeleteAppConfirmation = true
+                    }
+                    .accessibilityIdentifier("app-editor.delete-app")
+                }
+            }
             ToolbarItem(placement: .cancellationAction) {
                 Button("取消") { dismiss() }
                     .accessibilityIdentifier("app-editor.cancel")
@@ -100,6 +112,21 @@ struct ApplicationEditorSheet: View {
                 .accessibilityIdentifier("app-editor.save")
                 .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !tagsAreValid)
             }
+        }
+        .confirmationDialog(
+            "刪除「\(existingApplication?.name ?? "")」？",
+            isPresented: $showingDeleteAppConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("刪除 App", role: .destructive) {
+                dismiss()
+                onDelete?()
+            }
+            Button("取消", role: .cancel) {
+                showingDeleteAppConfirmation = false
+            }
+        } message: {
+            Text("此 App 及其所有快捷鍵與 Key-Value 清單都會被永久刪除。")
         }
     }
 
