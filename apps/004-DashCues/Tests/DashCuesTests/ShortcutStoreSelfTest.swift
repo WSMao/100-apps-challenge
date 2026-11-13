@@ -162,15 +162,23 @@ enum ShortcutStoreSelfTest {
         )
         try check(
             store.hasDuplicateKey(
-                "hello",
+                "Hello",
                 cheatsheetID: commandsID,
                 applicationID: applicationID
             ),
-            "Duplicate Key detection did not trim whitespace and ignore case."
+            "Duplicate Key detection did not trim whitespace while matching case."
         )
         try check(
             !store.hasDuplicateKey(
                 "hello",
+                cheatsheetID: commandsID,
+                applicationID: applicationID
+            ),
+            "Duplicate Key detection should be case-sensitive."
+        )
+        try check(
+            !store.hasDuplicateKey(
+                "Hello",
                 cheatsheetID: promptsID,
                 applicationID: applicationID
             ),

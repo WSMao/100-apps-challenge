@@ -1,6 +1,17 @@
 import AppKit
 import Combine
 import SwiftUI
+import UniformTypeIdentifiers
+
+enum DropInsertionEdge: Equatable, Sendable {
+    case top
+    case bottom
+}
+
+struct DropInsertionTarget: Equatable {
+    let entryID: String
+    let edge: DropInsertionEdge
+}
 
 /// Two-column Key-Value table with single-click expansion, per-cell copy, column reordering, resizing, and inline editing.
 struct KeyValueTableView: View {
@@ -11,11 +22,18 @@ struct KeyValueTableView: View {
     @ObservedObject var session: KeyValueEditSession
     @Binding var expandedEntryIDs: Set<String>
     let onCopy: (String, String) -> Bool
-    let onDelete: (KeyValueEntry) -> Void
-    let onMove: (String, String) -> Void
+    var onDelete: ((KeyValueEntry) -> Void)? = nil
+    var onDeleteEntries: ((Set<String>) -> Void)? = nil
+    let onMove: (String, String, DropInsertionEdge) -> Void
     var onUpdateLayout: ([KeyValueColumn]?, Double?, Double?) -> Void = { _, _, _ in }
     var navigation: TableKeyboardNavigation? = nil
+    var isReadOnly: Bool = false
 
+    @State private var selection = Set<String>()
+    @State private var anchorIndex: Int?
+    @State private var requestsDeleteConfirmation = false
+    @State private var dropTarget: DropInsertionTarget?
+    @State private var draggedEntryID: String?
     @State private var copiedCell: CopiedCell?
     @State private var dragKeyWidth: Double?
     @State private var dragValueWidth: Double?
@@ -45,7 +63,7 @@ struct KeyValueTableView: View {
     var body: some View {
         let _ = navigationChangeToken
         GeometryReader { geometry in
-            let availableWidth = max(geometry.size.width - 46, KeyValueTableLayout.minColumnWidth * 2)
+            let availableWidth = max(geometry.size.width - 2, KeyValueTableLayout.minColumnWidth * 2)
             let activeLayout = KeyValueTableLayout(
                 columnOrder: layout.columnOrder,
                 keyWidth: dragKeyWidth ?? layout.keyWidth,
@@ -54,38 +72,89 @@ struct KeyValueTableView: View {
             let widths = activeLayout.resolvedWidths(containerWidth: availableWidth)
             let truncatableIDs = computeTruncatableEntryIDs(widths: widths)
             let _ = syncTruncatableIDs(truncatableIDs)
-            let totalTableWidth = widths.key + widths.value + 46
+            let totalTableWidth = widths.key + widths.value + 1
             let scrollAxes: Axis.Set = totalTableWidth > geometry.size.width + 1 ? [.horizontal, .vertical] : .vertical
 
-            ScrollView(scrollAxes) {
-                VStack(alignment: .leading, spacing: 0) {
-                    header(widths: widths)
-                    Divider()
+            VStack(spacing: 0) {
+                ScrollView(scrollAxes) {
                     VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                            row(entry, widths: widths, index: index)
-                            Divider()
-                        }
-                        if showsNewRow, let id = session.editingEntryID {
-                            editingRow(id: id, widths: widths)
-                            Divider()
+                        header(widths: widths)
+                        Divider()
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                                row(entry, widths: widths, index: index)
+                                Divider()
+                            }
+                            if showsNewRow, let id = session.editingEntryID {
+                                editingRow(id: id, widths: widths)
+                                Divider()
+                            }
                         }
                     }
+                    .frame(width: max(totalTableWidth, geometry.size.width), alignment: .leading)
+                    .coordinateSpace(name: "key-value-table")
                 }
-                .frame(width: max(totalTableWidth, geometry.size.width), alignment: .leading)
-                .coordinateSpace(name: "key-value-table")
+
+                if !selection.isEmpty && !isReadOnly {
+                    Divider()
+                    HStack {
+                        Spacer()
+                        Button {
+                            requestsDeleteConfirmation = true
+                        } label: {
+                            Image(systemName: "trash")
+                                .foregroundStyle(.red)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("刪除選取的項目")
+                        .accessibilityLabel("刪除選取的項目")
+                        .accessibilityIdentifier("key-value.delete-selected")
+                    }
+                    .padding(8)
+                }
             }
             .accessibilityIdentifier("key-value.entries")
+            .onAppear {
+                if let nav = navigation {
+                    nav.onDeleteRequested = {
+                        if !selection.isEmpty {
+                            requestsDeleteConfirmation = true
+                        }
+                    }
+                    if !nav.selectedEntryIDs.isEmpty {
+                        selection = nav.selectedEntryIDs
+                    }
+                }
+            }
             .onReceive(navigationPublisher) { _ in
                 navigationChangeToken &+= 1
                 if let expanded = navigation?.expandedRowIDs, expanded != expandedEntryIDs {
                     expandedEntryIDs = expanded
+                }
+                if let nav = navigation, nav.selectedEntryIDs != selection {
+                    selection = nav.selectedEntryIDs
                 }
             }
             .onChange(of: navigation?.expandedRowIDs) { expanded in
                 if let expanded, expanded != expandedEntryIDs {
                     expandedEntryIDs = expanded
                 }
+            }
+            .onChange(of: navigation?.selectedEntryIDs) { newSelection in
+                if let newSelection, newSelection != selection {
+                    selection = newSelection
+                }
+            }
+            .alert(
+                selection.count > 1 ? "刪除 \(selection.count) 個項目？" : "刪除這個項目？",
+                isPresented: $requestsDeleteConfirmation
+            ) {
+                Button("刪除", role: .destructive) {
+                    confirmDelete()
+                }
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("此操作無法復原。")
             }
         }
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
@@ -103,8 +172,6 @@ struct KeyValueTableView: View {
             headerCell(for: firstCol, width: firstWidth)
             separatorView(widths: widths)
             headerCell(for: secondCol, width: secondWidth)
-            Divider()
-            Color.clear.frame(width: 44)
         }
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
@@ -186,6 +253,7 @@ struct KeyValueTableView: View {
     @ViewBuilder
     private func row(_ entry: KeyValueEntry, widths: (key: Double, value: Double), index: Int) -> some View {
         let isRowFocused = navigation?.focusArea == .table && navigation?.selectedRowIndex == index
+        let isRowSelected = selection.contains(entry.id)
         if session.editingEntryID == entry.id {
             editingRow(id: entry.id, widths: widths)
         } else {
@@ -199,26 +267,45 @@ struct KeyValueTableView: View {
                 cell(entry, column: firstCol == .key ? .key : .value, isExpanded: isExpanded, width: firstWidth, index: index, isRowFocused: isRowFocused)
                 Divider()
                 cell(entry, column: secondCol == .key ? .key : .value, isExpanded: isExpanded, width: secondWidth, index: index, isRowFocused: isRowFocused)
-                Divider()
-                Button(role: .destructive) { onDelete(entry) } label: {
-                    Image(systemName: "trash")
+            }
+            .background(
+                isRowSelected
+                    ? Color.accentColor.opacity(0.14)
+                    : (isRowFocused ? Color.accentColor.opacity(0.08) : Color.clear)
+            )
+            .accessibilityValue(isRowSelected || isRowFocused ? "已選取" : "")
+            .overlay(alignment: .top) {
+                if dropTarget?.entryID == entry.id && dropTarget?.edge == .top {
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(height: 2)
+                        .shadow(color: Color.accentColor.opacity(0.4), radius: 2)
+                        .accessibilityIdentifier("key-value.drop-indicator-top")
                 }
-                .buttonStyle(.borderless)
-                .help("刪除項目")
-                .accessibilityLabel("刪除項目")
-                .accessibilityIdentifier("key-value.delete-entry.\(entry.id)")
-                .frame(width: 44)
-                .padding(.top, 10)
             }
-            .background(isRowFocused ? Color.accentColor.opacity(0.08) : Color.clear)
-            .accessibilityValue(isRowFocused ? "已選取" : "")
-            .draggable(entry.id)
-            .dropDestination(for: String.self) { draggedIDs, _ in
-                guard let dragged = draggedIDs.first,
-                      KeyValueColumn(rawValue: dragged) == nil else { return false }
-                onMove(dragged, entry.id)
-                return true
+            .overlay(alignment: .bottom) {
+                if dropTarget?.entryID == entry.id && dropTarget?.edge == .bottom {
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(height: 2)
+                        .shadow(color: Color.accentColor.opacity(0.4), radius: 2)
+                        .accessibilityIdentifier("key-value.drop-indicator-bottom")
+                }
             }
+            .onDrag {
+                self.draggedEntryID = entry.id
+                return NSItemProvider(object: entry.id as NSString)
+            }
+            .onDrop(
+                of: [.plainText, .utf8PlainText, .text],
+                delegate: KeyValueRowDropDelegate(
+                    targetEntry: entry,
+                    entries: entries,
+                    draggedEntryID: $draggedEntryID,
+                    dropTarget: $dropTarget,
+                    onMove: onMove
+                )
+            )
             .id(entry.id)
         }
     }
@@ -265,17 +352,18 @@ struct KeyValueTableView: View {
                 session.begin(entry: entry, column: column, cheatsheetID: cheatsheetID, applicationID: applicationID)
             }
             .onTapGesture {
+                let flags = NSEvent.modifierFlags
                 if session.isEditing, session.editingEntryID != entry.id {
                     if session.hasUnsavedChanges {
                         session.requestLeave {
-                            toggleExpansion(for: entry, column: column, index: index)
+                            handleRowClick(entry: entry, index: index, column: column, flags: flags)
                         }
                     } else {
                         session.cancel()
-                        toggleExpansion(for: entry, column: column, index: index)
+                        handleRowClick(entry: entry, index: index, column: column, flags: flags)
                     }
                 } else {
-                    toggleExpansion(for: entry, column: column, index: index)
+                    handleRowClick(entry: entry, index: index, column: column, flags: flags)
                 }
             }
 
@@ -341,6 +429,62 @@ struct KeyValueTableView: View {
         }
     }
 
+    private func handleRowClick(
+        entry: KeyValueEntry,
+        index: Int,
+        column: KeyValueEditSession.Column,
+        flags: NSEvent.ModifierFlags
+    ) {
+        NSApp.keyWindow?.makeFirstResponder(nil)
+        navigation?.focusArea = .table
+        navigation?.selectedColumn = (column == .key ? .key : .value)
+
+        if flags.contains(.shift) {
+            let anchor = navigation?.anchorRowIndex ?? anchorIndex ?? navigation?.selectedRowIndex ?? index
+            anchorIndex = anchor
+            navigation?.anchorRowIndex = anchor
+            navigation?.selectedRowIndex = index
+            let low = min(anchor, index)
+            let high = max(anchor, index)
+            let newSelection = Set(entries[low...high].map(\.id))
+            selection = newSelection
+            navigation?.selectedEntryIDs = newSelection
+        } else if flags.contains(.command) {
+            if selection.contains(entry.id) {
+                selection.remove(entry.id)
+            } else {
+                selection.insert(entry.id)
+            }
+            anchorIndex = index
+            navigation?.anchorRowIndex = index
+            navigation?.selectedRowIndex = index
+            navigation?.selectedEntryIDs = selection
+        } else {
+            selection = [entry.id]
+            anchorIndex = index
+            navigation?.anchorRowIndex = index
+            navigation?.selectedRowIndex = index
+            navigation?.selectedEntryIDs = [entry.id]
+            toggleExpansion(for: entry, column: column, index: index)
+        }
+    }
+
+    private func confirmDelete() {
+        let toDelete = selection
+        selection.removeAll()
+        navigation?.selectedEntryIDs.removeAll()
+        if let editingID = session.editingEntryID, toDelete.contains(editingID) {
+            session.cancel()
+        }
+        if let onDeleteEntries {
+            onDeleteEntries(toDelete)
+        } else if let onDelete {
+            for entry in entries where toDelete.contains(entry.id) {
+                onDelete(entry)
+            }
+        }
+    }
+
     private func toggleExpansion(for entry: KeyValueEntry, column: KeyValueEditSession.Column, index: Int) {
         NSApp.keyWindow?.makeFirstResponder(nil)
         navigation?.focusArea = .table
@@ -366,19 +510,6 @@ struct KeyValueTableView: View {
                 inlineEditor(for: firstCol, entryID: id, width: firstWidth)
                 Divider()
                 inlineEditor(for: secondCol, entryID: id, width: secondWidth)
-                Divider()
-                Button {
-                    _ = session.save()
-                } label: {
-                    Image(systemName: "checkmark")
-                        .foregroundStyle(Color.accentColor)
-                }
-                .buttonStyle(.borderless)
-                .help("儲存項目")
-                .accessibilityLabel("儲存項目")
-                .accessibilityIdentifier("key-value.save-entry")
-                .frame(width: 44)
-                .padding(.top, 10)
             }
             if let message = session.validationMessage {
                 Text(message)
@@ -722,5 +853,65 @@ private struct InlineTextEditor: NSViewRepresentable {
             }
             return false
         }
+    }
+}
+
+private struct KeyValueRowDropDelegate: DropDelegate {
+    let targetEntry: KeyValueEntry
+    let entries: [KeyValueEntry]
+    @Binding var draggedEntryID: String?
+    @Binding var dropTarget: DropInsertionTarget?
+    let onMove: (String, String, DropInsertionEdge) -> Void
+
+    func dropEntered(info: DropInfo) {}
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        if let dragged = draggedEntryID, dragged == targetEntry.id {
+            return DropProposal(operation: .cancel)
+        }
+        let edge: DropInsertionEdge = info.location.y < 20 ? .top : .bottom
+        dropTarget = DropInsertionTarget(entryID: targetEntry.id, edge: edge)
+        return DropProposal(operation: .move)
+    }
+
+    func dropExited(info: DropInfo) {
+        if dropTarget?.entryID == targetEntry.id {
+            dropTarget = nil
+        }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let edge = dropTarget?.edge ?? .bottom
+        dropTarget = nil
+        if let dragged = draggedEntryID {
+            draggedEntryID = nil
+            if dragged != targetEntry.id && entries.contains(where: { $0.id == dragged }) {
+                onMove(dragged, targetEntry.id, edge)
+                return true
+            }
+            return false
+        }
+        guard let provider = info.itemProviders(for: [.plainText, .utf8PlainText, .text]).first else {
+            return false
+        }
+        provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { item, _ in
+            let id: String?
+            if let data = item as? Data {
+                id = String(data: data, encoding: .utf8)
+            } else if let str = item as? String {
+                id = str
+            } else {
+                id = nil
+            }
+            if let id = id?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !id.isEmpty,
+               id != targetEntry.id,
+               entries.contains(where: { $0.id == id }) {
+                DispatchQueue.main.async {
+                    onMove(id, targetEntry.id, edge)
+                }
+            }
+        }
+        return true
     }
 }

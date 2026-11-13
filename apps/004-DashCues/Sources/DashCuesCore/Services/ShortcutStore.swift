@@ -283,8 +283,13 @@ final class ShortcutStore: ObservableObject {
     }
 
     func deleteKeyValueEntry(id: String, cheatsheetID: String, applicationID: String) throws {
+        try deleteKeyValueEntries(ids: [id], cheatsheetID: cheatsheetID, applicationID: applicationID)
+    }
+
+    func deleteKeyValueEntries(ids: Set<String>, cheatsheetID: String, applicationID: String) throws {
+        guard !ids.isEmpty else { return }
         try updateKeyValueCheatsheet(cheatsheetID, applicationID: applicationID) { cheatsheet in
-            cheatsheet.entries.removeAll { $0.id == id }
+            cheatsheet.entries.removeAll { ids.contains($0.id) }
         }
     }
 
@@ -325,7 +330,7 @@ final class ShortcutStore: ObservableObject {
         applicationID: String,
         excludingEntryID: String? = nil
     ) -> Bool {
-        let normalizedKey = key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedKey.isEmpty,
               let cheatsheet = application(id: applicationID)?.keyValueCheatsheets.first(where: { $0.id == cheatsheetID })
         else {
@@ -334,7 +339,7 @@ final class ShortcutStore: ObservableObject {
         return cheatsheet.entries.contains { entry in
             entry.id != excludingEntryID
                 && !entry.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                && entry.key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedKey
+                && entry.key.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedKey
         }
     }
 

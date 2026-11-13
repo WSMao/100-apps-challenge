@@ -127,6 +127,9 @@ final class TableKeyboardNavigation: ObservableObject {
     @Published var selectedColumn: KeyValueColumn = .key
     @Published var isTextEditing: Bool = false
     @Published var expandedRowIDs = Set<String>()
+    @Published var selectedEntryIDs = Set<String>()
+    @Published var anchorRowIndex: Int?
+    var onDeleteRequested: (() -> Void)?
     var measuredTruncatableRowIDs: Set<String>?
     var isPinnedWindow = false
 
@@ -183,6 +186,8 @@ final class TableKeyboardNavigation: ObservableObject {
         selectedSheetID = id
         selectedRowIndex = 0
         selectedColumn = columnOrder.first ?? .key
+        selectedEntryIDs = []
+        anchorRowIndex = nil
         if focusArea == .table && entries.isEmpty {
             focusArea = .tabs
         }
@@ -259,7 +264,7 @@ final class TableKeyboardNavigation: ObservableObject {
     }
 
     // Down Arrow
-    func handleDownArrow() -> Bool {
+    func handleDownArrow(extend: Bool = false) -> Bool {
         guard !isTextEditing else { return false }
         switch focusArea {
         case .sidebar:
@@ -270,18 +275,29 @@ final class TableKeyboardNavigation: ObservableObject {
             }
             focusArea = .table
             selectedRowIndex = 0
+            anchorRowIndex = 0
             selectedColumn = columnOrder.first ?? .key
+            selectedEntryIDs = entries.first.map { [$0.id] } ?? []
             return true
         case .table:
-            if selectedRowIndex + 1 < entries.count {
-                selectedRowIndex += 1
+            guard selectedRowIndex + 1 < entries.count else { return true }
+            selectedRowIndex += 1
+            if extend {
+                let anchor = anchorRowIndex ?? (selectedRowIndex - 1)
+                anchorRowIndex = anchor
+                let low = min(anchor, selectedRowIndex)
+                let high = max(anchor, selectedRowIndex)
+                selectedEntryIDs = Set(entries[low...high].map(\.id))
+            } else {
+                anchorRowIndex = selectedRowIndex
+                selectedEntryIDs = [entries[selectedRowIndex].id]
             }
             return true
         }
     }
 
     // Up Arrow
-    func handleUpArrow() -> Bool {
+    func handleUpArrow(extend: Bool = false) -> Bool {
         guard !isTextEditing else { return false }
         switch focusArea {
         case .sidebar:
@@ -291,9 +307,23 @@ final class TableKeyboardNavigation: ObservableObject {
         case .table:
             if selectedRowIndex > 0 {
                 selectedRowIndex -= 1
+                if extend {
+                    let anchor = anchorRowIndex ?? (selectedRowIndex + 1)
+                    anchorRowIndex = anchor
+                    let low = min(anchor, selectedRowIndex)
+                    let high = max(anchor, selectedRowIndex)
+                    selectedEntryIDs = Set(entries[low...high].map(\.id))
+                } else {
+                    anchorRowIndex = selectedRowIndex
+                    selectedEntryIDs = [entries[selectedRowIndex].id]
+                }
                 return true
             } else {
-                focusArea = .tabs
+                if !extend {
+                    focusArea = .tabs
+                    selectedEntryIDs = []
+                    anchorRowIndex = nil
+                }
                 return true
             }
         }
@@ -374,6 +404,14 @@ final class TableKeyboardNavigation: ObservableObject {
             return handleCopy()
         }
 
+        // Cmd-A (Select All rows in table)
+        if flags == .command && event.charactersIgnoringModifiers?.lowercased() == "a" {
+            if focusArea == .table && !entries.isEmpty && editSession?.isEditing != true {
+                selectedEntryIDs = Set(entries.map(\.id))
+                return true
+            }
+        }
+
         // Ctrl-Tab / Ctrl-Shift-Tab
         if (flags == .control || flags == [.control, .shift]) && event.keyCode == 48 {
             return handleTab(shift: flags.contains(.shift), control: true)
@@ -382,6 +420,21 @@ final class TableKeyboardNavigation: ObservableObject {
         // Tab / Shift-Tab
         if (flags == [] || flags == .shift) && event.keyCode == 48 {
             return handleTab(shift: flags.contains(.shift), control: false)
+        }
+
+        // Down / Up Arrow (support Shift for multi-select range)
+        if (flags == [] || flags == .shift) && (event.keyCode == 125 || event.keyCode == 126) {
+            let extend = flags.contains(.shift)
+            return event.keyCode == 125 ? handleDownArrow(extend: extend) : handleUpArrow(extend: extend)
+        }
+
+        // Delete / Backspace (keyCode 51, 117)
+        if flags == [] && (event.keyCode == 51 || event.keyCode == 117) {
+            if focusArea == .table && !selectedEntryIDs.isEmpty && editSession?.isEditing != true {
+                onDeleteRequested?()
+                return true
+            }
+            return false
         }
 
         // Unmodified keys:
@@ -398,10 +451,6 @@ final class TableKeyboardNavigation: ObservableObject {
             return handleLeftArrow()
         case 124: // Right Arrow
             return handleRightArrow()
-        case 125: // Down Arrow
-            return handleDownArrow()
-        case 126: // Up Arrow
-            return handleUpArrow()
         case 36:  // Enter
             return handleEnter()
         default:

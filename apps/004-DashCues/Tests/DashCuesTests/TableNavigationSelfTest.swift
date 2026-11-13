@@ -177,6 +177,65 @@ enum TableNavigationSelfTest {
         try check(!nav.expandedRowIDs.contains("e2"), "Right arrow must not expand a non-truncated row.")
         try check(nav.handleLeftArrow(), "Left arrow on non-truncated row should be handled.")
         try check(nav.focusArea == .sidebar, "Left arrow from a non-truncated row must return directly to sidebar.")
+
+        // Multi-selection and batch deletion test
+        let e3 = KeyValueEntry(id: "e3", key: "Key3", value: "Val3")
+        try store.saveKeyValueEntry(e3, cheatsheetID: sheetIDs[0], applicationID: appID)
+
+        nav.selectSheet(id: sheetIDs[0])
+        nav.focusArea = .table
+        nav.selectedRowIndex = 0
+        try check(nav.handleDownArrow(extend: false), "Down arrow should move to row 1.")
+        try check(nav.selectedEntryIDs == ["e2"], "Down arrow without shift should select single row.")
+
+        try check(nav.handleDownArrow(extend: true), "Shift-Down arrow should extend selection to row 2.")
+        try check(nav.selectedEntryIDs == ["e2", "e3"], "Shift-Down arrow must multi-select rows e2 and e3.")
+
+        try check(nav.handleUpArrow(extend: true), "Shift-Up arrow should adjust range selection.")
+        try check(nav.selectedEntryIDs == ["e2"], "Shift-Up arrow should contract range back to anchor.")
+
+        // Test delete request callback on Delete key
+        var deleteRequested = false
+        nav.onDeleteRequested = { deleteRequested = true }
+        let deleteEvent = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{7f}",
+            charactersIgnoringModifiers: "\u{7f}",
+            isARepeat: false,
+            keyCode: 51
+        )
+        if let deleteEvent {
+            try check(nav.consumes(keyDown: deleteEvent), "Delete key should be consumed when table rows are selected.")
+            try check(deleteRequested, "onDeleteRequested should be called when Delete key is pressed with selection.")
+        }
+
+        // Test store batch delete
+        try store.deleteKeyValueEntries(ids: ["e2", "e3"], cheatsheetID: sheetIDs[0], applicationID: appID)
+        let remainingEntries = store.application(id: appID)?.keyValueCheatsheets.first(where: { $0.id == sheetIDs[0] })?.entries ?? []
+        try check(remainingEntries.count == 1 && remainingEntries[0].id == "e1", "Batch delete failed to remove all selected entries.")
+
+        // Test move with DropInsertionEdge
+        let itemA = KeyValueEntry(id: "mA", key: "A", value: "1")
+        let itemB = KeyValueEntry(id: "mB", key: "B", value: "2")
+        let itemC = KeyValueEntry(id: "mC", key: "C", value: "3")
+        try store.saveKeyValueEntry(itemA, cheatsheetID: sheetIDs[1], applicationID: appID)
+        try store.saveKeyValueEntry(itemB, cheatsheetID: sheetIDs[1], applicationID: appID)
+        try store.saveKeyValueEntry(itemC, cheatsheetID: sheetIDs[1], applicationID: appID)
+
+        // Move itemA (0) to below itemB (1) with edge .bottom -> destination 2
+        try store.moveKeyValueEntries(fromOffsets: IndexSet(integer: 0), toOffset: 2, cheatsheetID: sheetIDs[1], applicationID: appID)
+        let moved1 = store.application(id: appID)?.keyValueCheatsheets.first(where: { $0.id == sheetIDs[1] })?.entries.map(\.id) ?? []
+        try check(moved1 == ["mB", "mA", "mC"], "Moving itemA below itemB failed.")
+
+        // Move itemC (2) to above itemA (1) with edge .top -> destination 1
+        try store.moveKeyValueEntries(fromOffsets: IndexSet(integer: 2), toOffset: 1, cheatsheetID: sheetIDs[1], applicationID: appID)
+        let moved2 = store.application(id: appID)?.keyValueCheatsheets.first(where: { $0.id == sheetIDs[1] })?.entries.map(\.id) ?? []
+        try check(moved2 == ["mB", "mC", "mA"], "Moving itemC above itemA failed.")
     }
 
     private static func check(_ condition: Bool, _ message: String) throws {

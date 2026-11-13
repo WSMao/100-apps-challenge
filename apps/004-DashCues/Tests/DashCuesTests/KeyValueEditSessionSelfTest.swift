@@ -53,10 +53,12 @@ enum KeyValueEditSessionSelfTest {
         session.draftValue = "only value"
         try check(session.save() && entries()[1].key.isEmpty, "Blank Key with Value was rejected.")
 
-        // Duplicate keys warn (trimmed, case-insensitive) but never block saving.
+        // Duplicate keys warn (trimmed, case-sensitive) but never block saving.
         session.begin(entry: entries()[1], column: .key, cheatsheetID: sheetID, applicationID: appID)
-        session.draftKey = " build "
+        session.draftKey = " Build "
         try check(session.hasDuplicateKeyWarning, "Duplicate key did not warn.")
+        session.draftKey = " build "
+        try check(!session.hasDuplicateKeyWarning, "Different case should not trigger duplicate warning.")
         session.draftKey = "Unique"
         try check(!session.hasDuplicateKeyWarning, "Unique key warned.")
         session.draftKey = "BUILD"

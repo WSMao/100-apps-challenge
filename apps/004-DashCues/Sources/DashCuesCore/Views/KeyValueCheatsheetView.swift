@@ -345,11 +345,23 @@ struct KeyValueCheatsheetView: View {
                         expandedEntryIDs: $expandedEntryIDs,
                         onCopy: copy,
                         onDelete: { entryPendingDelete = $0 },
-                        onMove: { dragged, target in moveEntry(dragged, to: target, in: cheatsheet) },
+                        onDeleteEntries: { ids in
+                            performStoreAction {
+                                try store.deleteKeyValueEntries(
+                                    ids: ids,
+                                    cheatsheetID: cheatsheet.id,
+                                    applicationID: applicationID
+                                )
+                            }
+                        },
+                        onMove: { dragged, target, edge in
+                            moveEntry(dragged, to: target, edge: edge, in: cheatsheet)
+                        },
                         onUpdateLayout: { newOrder, keyWidth, valueWidth in
                             updateLayout(newOrder: newOrder, keyWidth: keyWidth, valueWidth: valueWidth, in: cheatsheet)
                         },
-                        navigation: navigation
+                        navigation: navigation,
+                        isReadOnly: isReadOnly
                     )
                     .onAppear { scrollToPendingEntry(using: proxy) }
                     .onChange(of: pendingScrollEntryID) { _ in scrollToPendingEntry(using: proxy) }
@@ -480,15 +492,30 @@ struct KeyValueCheatsheetView: View {
         return true
     }
 
-    private func moveEntry(_ draggedEntryID: String, to targetEntryID: String, in cheatsheet: KeyValueCheatsheet) {
+    private func moveEntry(
+        _ draggedEntryID: String,
+        to targetEntryID: String,
+        edge: DropInsertionEdge = .bottom,
+        in cheatsheet: KeyValueCheatsheet
+    ) {
         guard let source = cheatsheet.entries.firstIndex(where: { $0.id == draggedEntryID }),
-              let target = cheatsheet.entries.firstIndex(where: { $0.id == targetEntryID }),
-              source != target
+              let target = cheatsheet.entries.firstIndex(where: { $0.id == targetEntryID })
         else {
             return
         }
 
-        let destination = source < target ? target + 1 : target
+        let destination: Int
+        switch edge {
+        case .top:
+            destination = target
+        case .bottom:
+            destination = target + 1
+        }
+
+        if source == destination || source + 1 == destination {
+            return
+        }
+
         performStoreAction {
             try store.moveKeyValueEntries(
                 fromOffsets: IndexSet(integer: source),
