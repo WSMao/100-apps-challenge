@@ -174,6 +174,7 @@ struct SheetSearchResultsView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("sheet.search-no-results")
+                .background(identifiableView(identifier: "sheet.search-no-results"))
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {

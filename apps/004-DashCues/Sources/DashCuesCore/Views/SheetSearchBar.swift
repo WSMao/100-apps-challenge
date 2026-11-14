@@ -14,7 +14,7 @@ final class SheetSearchSession: ObservableObject {
 
     var getState: () -> SearchBarFocusState = { .inactive }
     var setState: (SearchBarFocusState) -> Void = { _ in }
-    var onDownArrow: (() -> Void)?
+    var onDownArrow: (() -> Bool)?
     var onUpArrow: (() -> Void)?
     var onEscNonEditing: (() -> Void)?
     var onSelectSheetIndex: ((Int) -> Void)?
@@ -42,8 +42,13 @@ final class SheetSearchSession: ObservableObject {
                         self.setState(.focusedEditing)
                         return nil
                     } else if event.keyCode == 125 { // Down Arrow
-                        self.setState(.inactive)
-                        self.onDownArrow?()
+                        if let onDownArrow = self.onDownArrow {
+                            if onDownArrow() {
+                                self.setState(.inactive)
+                            }
+                        } else {
+                            self.setState(.inactive)
+                        }
                         return nil
                     } else if event.keyCode == 126 { // Up Arrow
                         self.setState(.inactive)
@@ -108,7 +113,7 @@ struct SheetSearchBar: View {
     var placeholder: String = "搜尋目前 App 的所有工作表…"
     var applicationID: String? = nil
     @ObservedObject var recentSearchStore: RecentSearchStore = .shared
-    var onDownArrow: (() -> Void)? = nil
+    var onDownArrow: (() -> Bool)? = nil
     var onUpArrow: (() -> Void)? = nil
     var onEscNonEditing: (() -> Void)? = nil
     var onSelectSheetIndex: ((Int) -> Void)? = nil

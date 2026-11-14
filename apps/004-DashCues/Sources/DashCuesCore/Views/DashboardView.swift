@@ -640,24 +640,33 @@ struct DashboardView: View {
         tableNav?.focusArea = .tabs
     }
 
-    private func handleSearchDownArrow(application: ShortcutApplication) {
+    @discardableResult
+    private func handleSearchDownArrow(application: ShortcutApplication) -> Bool {
         let trimmed = sheetSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
             let sections = store.searchAllSheets(query: trimmed, in: application)
             let hasResults = sections.contains { !$0.keyValueEntries.isEmpty || !$0.shortcuts.isEmpty }
             if hasResults {
                 searchResultsFocused = true
+                return true
+            } else {
+                return false
             }
         } else {
-            searchResultsFocused = false
             let currentSheet = contentNavigation.selectedSheet(for: application.id, in: application.sheets)
             if let currentSheet {
                 tableNav?.selectedSheetID = currentSheet.id
             }
-            if currentSheet?.kind == .shortcuts {
+            switch currentSheet {
+            case .shortcuts(let sheet):
+                guard !sheet.shortcuts.isEmpty else { return false }
+                searchResultsFocused = false
                 tableNav?.focusArea = .table
                 _ = tableNav?.onMoveFocusToShortcuts?()
-            } else if currentSheet?.kind == .keyValue {
+                return true
+            case .keyValue(let sheet):
+                guard !sheet.entries.isEmpty else { return false }
+                searchResultsFocused = false
                 tableNav?.focusArea = .table
                 tableNav?.selectedRowIndex = 0
                 tableNav?.anchorRowIndex = 0
@@ -665,6 +674,9 @@ struct DashboardView: View {
                 if let first = tableNav?.entries.first {
                     tableNav?.selectedEntryIDs = [first.id]
                 }
+                return true
+            case .none:
+                return false
             }
         }
     }

@@ -732,6 +732,53 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
             )
             XCTAssertEqual(searchInput.stringValue, "", "Search input text must be cleared when focus arrives at tab bar")
         }
+
+        // 8. Test Down Arrow when search yields NO results:
+        // Focus search bar and type a query with no matching items
+        sendKeyDown(to: window, keyCode: 3, characters: "f", modifiers: .command)
+        pumpRunLoop(seconds: 0.1)
+        if searchInput.currentEditor() == nil {
+            window.makeFirstResponder(searchInput)
+            pumpRunLoop(seconds: 0.05)
+        }
+        let editor4 = try XCTUnwrap(searchInput.currentEditor() as? NSTextView)
+        editor4.string = "xyz_nonexistent_token"
+        searchInput.delegate?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: searchInput))
+        pumpRunLoop(seconds: 0.1)
+
+        XCTAssertTrue(
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-no-results"),
+            "Search for non-existent query must display empty state (no results)"
+        )
+
+        // Confirm query with Enter to enter focusedNonEditing state
+        _ = searchInput.delegate?.control?(
+            searchInput,
+            textView: editor4,
+            doCommandBy: #selector(NSResponder.insertNewline(_:))
+        )
+        pumpRunLoop(seconds: 0.1)
+
+        XCTAssertEqual(
+            findAccessibilityValue(in: window.contentView, identifier: "sheet.search-bar"),
+            "focusedNonEditing",
+            "Search bar should be in focusedNonEditing state"
+        )
+
+        // Press Down Arrow in focusedNonEditing state when there are NO results:
+        // Must maintain focus on the search bar!
+        sendKeyDown(to: window, keyCode: 125, characters: "")
+        pumpRunLoop(seconds: 0.1)
+
+        XCTAssertEqual(
+            findAccessibilityValue(in: window.contentView, identifier: "sheet.search-bar"),
+            "focusedNonEditing",
+            "Down arrow when there are no search results must maintain focus on the search bar"
+        )
+        XCTAssertFalse(
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-result.focused"),
+            "Down arrow when there are no results must not move focus to results list"
+        )
     }
 
     @MainActor
