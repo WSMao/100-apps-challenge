@@ -11,6 +11,7 @@ enum SearchBarFocusState: String, Equatable {
 final class SheetSearchSession: ObservableObject {
     @Published var isShowingHistory: Bool = false
     @Published var historyIndex: Int = 0
+    @Published var focusEditingRequestToken: Int = 0
 
     var getState: () -> SearchBarFocusState = { .inactive }
     var setState: (SearchBarFocusState) -> Void = { _ in }
@@ -28,10 +29,11 @@ final class SheetSearchSession: ObservableObject {
                 guard let self else { return event }
                 let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
 
-                // Cmd-F anywhere: open/focus search bar into editing state
+                // Cmd-F anywhere: open/focus search bar into editing state with cursor at end
                 if flags == .command && event.charactersIgnoringModifiers?.lowercased() == "f" {
                     self.isShowingHistory = false
                     self.setState(.focusedEditing)
+                    self.focusEditingRequestToken &+= 1
                     return nil
                 }
 
@@ -40,6 +42,7 @@ final class SheetSearchSession: ObservableObject {
                     guard flags.isEmpty else { return event }
                     if event.keyCode == 36 || event.keyCode == 76 { // Enter
                         self.setState(.focusedEditing)
+                        self.focusEditingRequestToken &+= 1
                         return nil
                     } else if event.keyCode == 125 { // Down Arrow
                         if let onDownArrow = self.onDownArrow {
@@ -337,6 +340,19 @@ private final class CustomSearchNSTextField: NSTextField {
     override var canBecomeKeyView: Bool {
         isEditingActive
     }
+
+    override func selectText(_ sender: Any?) {
+        super.selectText(sender)
+        moveCursorToEnd()
+    }
+
+    func moveCursorToEnd() {
+        if let editor = currentEditor() as? NSTextView {
+            let len = (editor.string as NSString).length
+            editor.setSelectedRange(NSRange(location: len, length: 0))
+            editor.scrollRangeToVisible(NSRange(location: len, length: 0))
+        }
+    }
 }
 
 private struct SearchInputTextField: NSViewRepresentable {
@@ -376,10 +392,21 @@ private struct SearchInputTextField: NSViewRepresentable {
         let shouldEdit = (state == .focusedEditing)
         nsView.isEditingActive = shouldEdit
 
+        let stateChangedToEditing = (context.coordinator.lastState != .focusedEditing && state == .focusedEditing)
+        let tokenChanged = context.coordinator.lastFocusToken != session.focusEditingRequestToken
+        context.coordinator.lastState = state
+        context.coordinator.lastFocusToken = session.focusEditingRequestToken
+
         if shouldEdit {
+            let needsCursorAtEnd = stateChangedToEditing || tokenChanged
             DispatchQueue.main.async {
-                if let window = nsView.window, window.firstResponder != nsView.currentEditor() {
-                    window.makeFirstResponder(nsView)
+                if let window = nsView.window {
+                    if window.firstResponder != nsView.currentEditor() {
+                        window.makeFirstResponder(nsView)
+                    }
+                    if needsCursorAtEnd {
+                        nsView.moveCursorToEnd()
+                    }
                 }
             }
         } else {
@@ -394,9 +421,15 @@ private struct SearchInputTextField: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: SearchInputTextField
         weak var textField: CustomSearchNSTextField?
+        var lastState: SearchBarFocusState = .inactive
+        var lastFocusToken: Int = -1
 
         init(_ parent: SearchInputTextField) {
             self.parent = parent
+        }
+
+        func controlTextDidBeginEditing(_ obj: Notification) {
+            textField?.moveCursorToEnd()
         }
 
         func controlTextDidChange(_ obj: Notification) {

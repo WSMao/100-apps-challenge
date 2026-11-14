@@ -514,6 +514,7 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
             pumpRunLoop(seconds: 0.05)
         }
         let editor = try XCTUnwrap(searchInput.currentEditor() as? NSTextView, "Search input should have active editor")
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: 0), "Cmd-F on empty search bar must place cursor at index 0 without selection")
 
         // 2. Type "prod" into search bar
         editor.string = "prod"
@@ -535,6 +536,20 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
 
         let recentSearches = RecentSearchStore.shared.recentSearches(for: appID)
         XCTAssertTrue(recentSearches.contains("prod"), "Enter in search input must record query in RecentSearchStore")
+
+        // Test Cmd-F when search bar has content ("prod"):
+        // Must enter focusedEditing state and place cursor at the end of the text (location: 4, length: 0)
+        sendKeyDown(to: window, keyCode: 3, characters: "f", modifiers: .command)
+        pumpRunLoop(seconds: 0.1)
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 4, length: 0), "Cmd-F when text has content must place cursor at end of text without selection")
+
+        // Press Enter to return to focusedNonEditing state for step 4
+        _ = searchInput.delegate?.control?(
+            searchInput,
+            textView: editor,
+            doCommandBy: #selector(NSResponder.insertNewline(_:))
+        )
+        pumpRunLoop(seconds: 0.1)
 
         // 4. In focusedNonEditing state, press Down Arrow:
         // Focus must cleanly move to the search results list with visual focus indicator!
