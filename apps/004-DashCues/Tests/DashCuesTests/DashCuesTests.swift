@@ -794,6 +794,32 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
             hasAccessibilityIdentifier(in: window.contentView, identifier: "sheet.search-result.focused"),
             "Down arrow when there are no results must not move focus to results list"
         )
+
+        // 9. Verify digit keys (1-9) in input mode with cursor are NOT intercepted to switch tabs:
+        sendKeyDown(to: window, keyCode: 3, characters: "f", modifiers: .command)
+        pumpRunLoop(seconds: 0.1)
+        if searchInput.currentEditor() == nil {
+            window.makeFirstResponder(searchInput)
+            pumpRunLoop(seconds: 0.05)
+        }
+        _ = try XCTUnwrap(searchInput.currentEditor() as? NSTextView)
+        XCTAssertTrue(isTextInputActive(in: window), "Text input must be active when search input has focus")
+
+        let currentTabBefore = contentNav.selectedSheet(for: appID, in: store.application(id: appID)?.sheets ?? [])?.id
+        // Send digit '2' key event
+        sendKeyDown(to: window, keyCode: 19, characters: "2")
+        pumpRunLoop(seconds: 0.1)
+
+        let currentTabAfter = contentNav.selectedSheet(for: appID, in: store.application(id: appID)?.sheets ?? [])?.id
+        XCTAssertEqual(
+            currentTabBefore,
+            currentTabAfter,
+            "Digit key pressed in input mode must never switch tabs"
+        )
+        XCTAssertFalse(
+            hasAccessibilityIdentifier(in: window.contentView, identifier: "dashboard.tab-focused"),
+            "Tab bar must not be focused when typing numbers in input box"
+        )
     }
 
     @MainActor

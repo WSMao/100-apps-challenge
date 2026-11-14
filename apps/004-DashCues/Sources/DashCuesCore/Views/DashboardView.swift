@@ -341,7 +341,8 @@ struct DashboardView: View {
             syncSidebarFocus(for: tableNav?.focusArea)
             if keyMonitor == nil {
                 keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                    guard let window = event.window,
+                    let window = event.window ?? NSApplication.shared.keyWindow
+                    guard let window,
                           !(window is NSPanel),
                           window.attachedSheet == nil,
                           window.sheetParent == nil,
@@ -353,6 +354,9 @@ struct DashboardView: View {
                           !editSession.isPromptingToLeave,
                           sheetSearchState == .inactive,
                           !searchResultsFocused else {
+                        return event
+                    }
+                    if isTextInputActive(in: window) {
                         return event
                     }
                     if editSession.isEditing {
@@ -767,7 +771,7 @@ struct DashboardView: View {
 
     private func contentTabs(for application: ShortcutApplication) -> some View {
         let selectedID = contentNavigation.selectedSheet(for: application.id, in: application.sheets)?.id
-        let isTabBarFocused = tableNav?.focusArea == .tabs
+        let isTabBarFocused = tableNav?.focusArea == .tabs && sheetSearchState == .inactive && !searchResultsFocused
         return GeometryReader { geometry in
             let overflow = TabOverflowLayout(
                 sheets: application.sheets,
@@ -825,8 +829,9 @@ struct DashboardView: View {
     }
 
     private func configureTableNavCallbacks(_ nav: TableKeyboardNavigation) {
-        nav.onFocusSearch = {
+        nav.onFocusSearch = { [weak nav] in
             sheetSearchState = .focusedEditing
+            nav?.focusArea = .table
         }
         nav.onMoveFocusToSearch = { [weak nav] in
             guard let app = selectedApplication, !app.sheets.isEmpty else { return false }

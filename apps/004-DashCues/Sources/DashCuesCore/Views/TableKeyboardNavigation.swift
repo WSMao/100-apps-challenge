@@ -229,7 +229,7 @@ final class TableKeyboardNavigation: ObservableObject {
 
     // 1–9 digit handling
     func handleNumberKey(_ digit: Int) -> Bool {
-        guard !isTextEditing, digit >= 1 && digit <= 9 else { return false }
+        guard !isFieldEditorFocused, !isTextInputActive(), digit >= 1 && digit <= 9 else { return false }
         let index = digit - 1
         guard index < sheets.count else { return false }
         selectSheet(at: index)
@@ -475,6 +475,7 @@ final class TableKeyboardNavigation: ObservableObject {
     var isFieldEditorFocused: Bool {
         if isTextEditing { return true }
         if editSession?.isEditing == true { return true }
+        if isTextInputActive() { return true }
         if let responder = NSApplication.shared.keyWindow?.firstResponder, responder is NSTextView {
             return true
         }
@@ -483,12 +484,13 @@ final class TableKeyboardNavigation: ObservableObject {
 
     // Unified key handler for NSEvent
     func consumes(keyDown event: NSEvent) -> Bool {
-        guard !isFieldEditorFocused else { return false }
-        if let window = event.window {
+        if isFieldEditorFocused || isTextInputActive(in: event.window) { return false }
+        let window = event.window ?? NSApplication.shared.keyWindow
+        if let window {
             if window.attachedSheet != nil || window.sheetParent != nil {
                 return false
             }
-            if window.firstResponder is NSTextView {
+            if window.firstResponder is NSTextView || window.firstResponder is NSTextField {
                 return false
             }
         }

@@ -37,6 +37,10 @@ final class SheetSearchSession: ObservableObject {
                     return nil
                 }
 
+                if isTextInputActive(in: event.window) {
+                    return event
+                }
+
                 let currentState = self.getState()
                 if currentState == .focusedNonEditing {
                     guard flags.isEmpty else { return event }
@@ -332,6 +336,7 @@ struct SheetSearchBar: View {
 
 private final class CustomSearchNSTextField: NSTextField {
     var isEditingActive: Bool = false
+    var onFocusAcquired: (() -> Void)?
 
     override var acceptsFirstResponder: Bool {
         true
@@ -339,6 +344,14 @@ private final class CustomSearchNSTextField: NSTextField {
 
     override var canBecomeKeyView: Bool {
         isEditingActive
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became {
+            onFocusAcquired?()
+        }
+        return became
     }
 
     override func selectText(_ sender: Any?) {
@@ -379,6 +392,13 @@ private struct SearchInputTextField: NSViewRepresentable {
         textField.delegate = context.coordinator
         context.coordinator.textField = textField
         textField.setAccessibilityIdentifier("sheet.search-input")
+        textField.onFocusAcquired = { [weak coordinator = context.coordinator] in
+            guard let coordinator else { return }
+            if coordinator.parent.state != .focusedEditing {
+                coordinator.parent.state = .focusedEditing
+            }
+            coordinator.parent.session.setState(.focusedEditing)
+        }
         return textField
     }
 
@@ -429,6 +449,10 @@ private struct SearchInputTextField: NSViewRepresentable {
         }
 
         func controlTextDidBeginEditing(_ obj: Notification) {
+            if parent.state != .focusedEditing {
+                parent.state = .focusedEditing
+            }
+            parent.session.setState(.focusedEditing)
             textField?.moveCursorToEnd()
         }
 

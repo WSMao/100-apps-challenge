@@ -591,6 +591,7 @@ final class ShortcutListModel: ObservableObject {
         let window = event.window ?? listView?.window
         // Let input methods (e.g. Chinese IME) handle Enter/Esc while composing text.
         if let text = window?.firstResponder as? NSTextView, text.hasMarkedText() { return false }
+        if isTextInputActive(in: window) && editingField == nil { return false }
         let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
         if flags == .command && event.charactersIgnoringModifiers?.lowercased() == "f" {
             if let onFocusSearch {
