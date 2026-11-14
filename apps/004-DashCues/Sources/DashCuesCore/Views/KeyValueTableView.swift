@@ -593,18 +593,20 @@ struct KeyValueTableView: View {
             let lineW = ceil((line as NSString).size(withAttributes: [.font: font]).width)
             return max(maxWidth, lineW)
         }
-        let neededWidth = max(KeyValueTableLayout.minColumnWidth, maxLineWidth + 44)
+        let neededWidth = max(KeyValueTableLayout.minColumnWidth, maxLineWidth + 48)
         switch column {
         case .key:
             if neededWidth > widths.key {
-                dragKeyWidth = neededWidth
                 let other = dragValueWidth ?? widths.value
+                dragKeyWidth = neededWidth
+                dragValueWidth = other
                 onUpdateLayout(columnOrder, neededWidth, other)
             }
         case .value:
             if neededWidth > widths.value {
-                dragValueWidth = neededWidth
                 let other = dragKeyWidth ?? widths.key
+                dragValueWidth = neededWidth
+                dragKeyWidth = other
                 onUpdateLayout(columnOrder, other, neededWidth)
             }
         }
@@ -757,6 +759,16 @@ private final class InlineEditTextField: NSTextField {
     var shouldFocusOnMoveToWindow = false
     var onFocusAcquired: (() -> Void)?
 
+    override func layout() {
+        super.layout()
+        if let editor = currentEditor() as? NSTextView {
+            let rect = cell?.drawingRect(forBounds: bounds) ?? bounds
+            editor.frame = rect
+            editor.textContainer?.containerSize = NSSize(width: rect.width, height: .greatestFiniteMagnitude)
+            editor.textContainer?.widthTracksTextView = true
+        }
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if shouldFocusOnMoveToWindow, let window {
@@ -795,6 +807,7 @@ private struct InlineTextEditor: NSViewRepresentable {
 
     func makeNSView(context: Context) -> InlineEditTextField {
         let field = InlineEditTextField(string: text)
+        field.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
         field.delegate = context.coordinator
         field.isEditable = true
         field.isBezeled = true
@@ -834,6 +847,14 @@ private struct InlineTextEditor: NSViewRepresentable {
         if field.stringValue != text, field.currentEditor() == nil {
             field.stringValue = text
             field.invalidateIntrinsicContentSize()
+        }
+        if let editor = field.currentEditor() as? NSTextView {
+            let rect = field.cell?.drawingRect(forBounds: field.bounds) ?? field.bounds
+            if editor.frame.size != rect.size {
+                editor.frame = rect
+                editor.textContainer?.containerSize = NSSize(width: rect.width, height: .greatestFiniteMagnitude)
+                editor.textContainer?.widthTracksTextView = true
+            }
         }
         let tokenChanged = context.coordinator.lastFocusRequestToken != focusRequestToken
         context.coordinator.lastFocusRequestToken = focusRequestToken
@@ -891,6 +912,9 @@ private struct InlineTextEditor: NSViewRepresentable {
             let currentText = (field.currentEditor() as? NSTextView)?.string ?? field.stringValue
             if parent.text != currentText {
                 parent.text = currentText
+            }
+            if currentText.contains("\n") {
+                parent.onShiftEnter?(currentText)
             }
             field.invalidateIntrinsicContentSize()
         }

@@ -102,9 +102,10 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
         }
         let valueEditor = try XCTUnwrap(valueField.currentEditor() as? NSTextView, "valueField should have active field editor after Tab")
 
+        let singleLineWidth = valueField.frame.width
         let singleLineHeight = valueField.frame.height
 
-        // 3. Type multiline value using Shift-Enter (insertNewlineIgnoringFieldEditor:) and verify no recursion + height growth
+        // 3. Type multiline value using Shift-Enter (insertNewlineIgnoringFieldEditor:) and verify no recursion + height & width growth
         valueEditor.string = "https://one.example.com"
         valueEditor.setSelectedRange(NSRange(location: valueEditor.string.count, length: 0))
         valueField.delegate?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: valueField))
@@ -115,15 +116,21 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
             doCommandBy: #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:))
         ) ?? false
         XCTAssertTrue(handledShiftEnter, "Shift-Enter should insert newline without ending editing")
-        valueEditor.insertText("https://two.example.com", replacementRange: valueEditor.selectedRange())
+        let longSecondLine = "https://two.example.com/a/very/long/path/that/exceeds/the/normal/column/width/by/a/large/margin/to/verify/expansion"
+        valueEditor.insertText(longSecondLine, replacementRange: valueEditor.selectedRange())
         valueField.delegate?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: valueField))
         pumpRunLoop()
 
-        XCTAssertEqual(editSession.draftValue, "https://one.example.com\nhttps://two.example.com")
+        XCTAssertEqual(editSession.draftValue, "https://one.example.com\n\(longSecondLine)")
         XCTAssertGreaterThan(
             valueField.frame.height,
             singleLineHeight,
             "Multiline InlineTextEditor should grow vertically when newline is inserted"
+        )
+        XCTAssertGreaterThan(
+            valueField.frame.width,
+            singleLineWidth,
+            "Multiline InlineTextEditor should grow horizontally to fit long line without clipping"
         )
 
         // 4. Press Enter (insertNewline:) to save and verify entry is persisted and edit session closes cleanly
@@ -142,7 +149,7 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
         let savedEntries = store.application(id: appID)?.keyValueCheatsheets.first(where: { $0.id == sheetID })?.entries ?? []
         XCTAssertEqual(savedEntries.count, 1)
         XCTAssertEqual(savedEntries.first?.key, "API_URL")
-        XCTAssertEqual(savedEntries.first?.value, "https://one.example.com\nhttps://two.example.com")
+        XCTAssertEqual(savedEntries.first?.value, "https://one.example.com\n\(longSecondLine)")
     }
 
     @MainActor
