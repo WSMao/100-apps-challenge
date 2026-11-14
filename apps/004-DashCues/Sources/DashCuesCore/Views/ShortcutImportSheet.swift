@@ -79,7 +79,7 @@ struct ShortcutImportSheet: View {
                 Color.clear.frame(width: 13, height: 13)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 7)
+            .frame(height: 30)
             .background(Color(nsColor: .windowBackgroundColor))
 
             Divider()
@@ -95,6 +95,7 @@ struct ShortcutImportSheet: View {
                     .frame(minWidth: 420, maxWidth: .infinity)
             }
         }
+        .ignoresSafeArea(.all, edges: .top)
         .frame(minWidth: 800, idealWidth: 880, maxWidth: .infinity, minHeight: 520, idealHeight: 580, maxHeight: .infinity)
         .alert("有內容尚未匯入，確定關閉？", isPresented: $showingUnsavedCloseAlert) {
             Button("取消", role: .cancel) {}
