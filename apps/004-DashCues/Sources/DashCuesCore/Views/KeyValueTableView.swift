@@ -603,20 +603,20 @@ struct KeyValueTableView: View {
             return max(maxWidth, lineW)
         }
         let neededWidth = max(KeyValueTableLayout.minColumnWidth, maxLineWidth + 48)
+        let currentKeyWidth = dragKeyWidth ?? widths.key
+        let currentValueWidth = dragValueWidth ?? widths.value
         switch column {
         case .key:
-            if neededWidth > widths.key {
-                let other = dragValueWidth ?? widths.value
+            if neededWidth > currentKeyWidth {
                 dragKeyWidth = neededWidth
-                dragValueWidth = other
-                onUpdateLayout(columnOrder, neededWidth, other)
+                dragValueWidth = currentValueWidth
+                onUpdateLayout(columnOrder, neededWidth, currentValueWidth)
             }
         case .value:
-            if neededWidth > widths.value {
-                let other = dragKeyWidth ?? widths.key
+            if neededWidth > currentValueWidth {
                 dragValueWidth = neededWidth
-                dragKeyWidth = other
-                onUpdateLayout(columnOrder, other, neededWidth)
+                dragKeyWidth = currentKeyWidth
+                onUpdateLayout(columnOrder, currentKeyWidth, neededWidth)
             }
         }
     }
@@ -768,6 +768,14 @@ private final class InlineEditTextField: NSTextField {
     var shouldFocusOnMoveToWindow = false
     var onFocusAcquired: (() -> Void)?
 
+    override var intrinsicContentSize: NSSize {
+        let text = (currentEditor() as? NSTextView)?.string ?? stringValue
+        let font = self.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let w = bounds.width > 20 ? bounds.width : 200
+        let h = InlineTextEditor.calculateContentHeight(text: text, font: font, width: w)
+        return NSSize(width: NSView.noIntrinsicMetric, height: h)
+    }
+
     override func layout() {
         super.layout()
         if let editor = currentEditor() as? NSTextView {
@@ -810,6 +818,21 @@ private struct InlineTextEditor: NSViewRepresentable {
     let onSubmit: () -> Void
     let onCancel: () -> Void
     var onShiftEnter: ((String) -> Void)? = nil
+
+    static func calculateContentHeight(text: String, font: NSFont, width: CGFloat) -> CGFloat {
+        let measuredText = text.hasSuffix("\n") ? text + " " : (text.isEmpty ? " " : text)
+        let contentWidth = max(width - 8, 20)
+        let textStorage = NSTextStorage(string: measuredText, attributes: [.font: font])
+        let textContainer = NSTextContainer(containerSize: NSSize(width: contentWidth, height: CGFloat.greatestFiniteMagnitude))
+        textContainer.lineFragmentPadding = 2
+        let layoutManager = NSLayoutManager()
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.glyphRange(for: textContainer)
+        let usedRect = layoutManager.usedRect(for: textContainer)
+        let textHeight = ceil(usedRect.height)
+        return max(textHeight + 8, 24)
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -883,29 +906,14 @@ private struct InlineTextEditor: NSViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, nsView field: InlineEditTextField, context: Context) -> CGSize? {
         let width = max(proposal.width ?? 200, 40)
         let liveText = (field.currentEditor() as? NSTextView)?.string ?? text
-        let measuredText = liveText.hasSuffix("\n") ? liveText + " " : (liveText.isEmpty ? " " : liveText)
-        let measuringCell = context.coordinator.measuringCell
-        measuringCell.font = field.font
-        measuringCell.stringValue = measuredText
-        let contentWidth = max(width - 16, 20)
-        let size = measuringCell.cellSize(forBounds: NSRect(x: 0, y: 0, width: contentWidth, height: .greatestFiniteMagnitude))
-        return CGSize(width: width, height: max(ceil(size.height), 24))
+        let font = field.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let h = Self.calculateContentHeight(text: liveText, font: font, width: width)
+        return CGSize(width: width, height: h)
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: InlineTextEditor
         var lastFocusRequestToken: Int = -1
-        let measuringCell: NSTextFieldCell = {
-            let cell = NSTextFieldCell(textCell: " ")
-            cell.isEditable = true
-            cell.isBezeled = true
-            cell.bezelStyle = .roundedBezel
-            cell.usesSingleLineMode = false
-            cell.wraps = true
-            cell.isScrollable = false
-            cell.lineBreakMode = .byWordWrapping
-            return cell
-        }()
 
         init(_ parent: InlineTextEditor) { self.parent = parent }
 

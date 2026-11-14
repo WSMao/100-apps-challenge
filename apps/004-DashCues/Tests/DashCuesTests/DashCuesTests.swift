@@ -62,6 +62,21 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
         let heightAfter = valField.frame.height
         print("TEST_MULTILINE: Height after newline = \(heightAfter), width = \(valField.frame.width)")
         XCTAssertGreaterThan(heightAfter, heightBefore, "Input field height MUST grow when Shift-Enter adds a line even if width did not change!")
+
+        // Add a 3rd line with Shift-Enter
+        _ = valField.delegate?.control?(
+            valField,
+            textView: editor,
+            doCommandBy: #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:))
+        )
+        editor.insertText("Short line 3", replacementRange: editor.selectedRange())
+        valField.delegate?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: valField))
+
+        for _ in 0..<5 { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+
+        let heightThirdLine = valField.frame.height
+        print("TEST_MULTILINE: Height after 3rd line = \(heightThirdLine)")
+        XCTAssertGreaterThan(heightThirdLine, heightAfter, "Input field height MUST grow further when a 3rd line is added!")
     }
 
     @MainActor
