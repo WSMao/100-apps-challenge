@@ -5,6 +5,66 @@ import XCTest
 
 final class DashCuesUnitAndIntegrationTests: XCTestCase {
     @MainActor
+    func testMultilineHeightWithoutWidthChange() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("dashcues-multiline-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = try ShortcutStore(storageURL: directory.appendingPathComponent("shortcuts.json"))
+        let editSession = KeyValueEditSession(store: store)
+        let appID = try store.addApplication(name: "TestApp", bundleIdentifier: "com.test", symbolName: "star")
+        let sheetID = try store.createSheet(kind: .keyValue, name: "Sheet", applicationID: appID)
+        let entry = KeyValueEntry(key: "MyKey", value: "First line")
+        try store.saveKeyValueEntry(entry, cheatsheetID: sheetID, applicationID: appID)
+
+        editSession.begin(entry: entry, column: .value, cheatsheetID: sheetID, applicationID: appID)
+
+        var expanded = Set<String>()
+        let table = KeyValueTableView(
+            cheatsheetID: sheetID,
+            applicationID: appID,
+            entries: [entry],
+            layout: KeyValueTableLayout(keyWidth: 200, valueWidth: 300),
+            session: editSession,
+            expandedEntryIDs: Binding(get: { expanded }, set: { expanded = $0 }),
+            onCopy: { _, _ in true },
+            onMove: { _, _, _ in }
+        )
+
+        let host = NSHostingController(rootView: table.frame(width: 600, height: 400))
+        let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        win.contentViewController = host
+        win.makeKeyAndOrderFront(nil)
+        defer { win.orderOut(nil) }
+
+        for _ in 0..<5 { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+
+        let valField = try XCTUnwrap(findTextField(in: win.contentView, identifier: "key-value.entry-value"))
+        if valField.currentEditor() == nil {
+            win.makeFirstResponder(valField)
+            for _ in 0..<3 { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        }
+        let editor = try XCTUnwrap(valField.currentEditor() as? NSTextView)
+        let heightBefore = valField.frame.height
+        print("TEST_MULTILINE: Height before newline = \(heightBefore), width = \(valField.frame.width)")
+
+        // Type Shift-Enter and short second line (less than 300pt)
+        _ = valField.delegate?.control?(
+            valField,
+            textView: editor,
+            doCommandBy: #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:))
+        )
+        editor.insertText("Short line 2", replacementRange: editor.selectedRange())
+        valField.delegate?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: valField))
+
+        for _ in 0..<5 { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+
+        let heightAfter = valField.frame.height
+        print("TEST_MULTILINE: Height after newline = \(heightAfter), width = \(valField.frame.width)")
+        XCTAssertGreaterThan(heightAfter, heightBefore, "Input field height MUST grow when Shift-Enter adds a line even if width did not change!")
+    }
+
+    @MainActor
     func testAllCoreSubsystemsAndSelfTests() throws {
         try ShortcutStoreSelfTest.run()
         try ShortcutMappingParserSelfTest.run()

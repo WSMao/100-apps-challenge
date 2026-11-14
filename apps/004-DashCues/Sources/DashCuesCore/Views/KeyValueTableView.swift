@@ -75,7 +75,7 @@ struct KeyValueTableView: View {
             let truncatableIDs = computeTruncatableEntryIDs(widths: widths)
             let _ = syncTruncatableIDs(truncatableIDs)
             let totalTableWidth = widths.key + widths.value + 1
-            let scrollAxes: Axis.Set = totalTableWidth > geometry.size.width + 1 ? [.horizontal, .vertical] : .vertical
+            let scrollAxes: Axis.Set = [.horizontal, .vertical]
 
             VStack(spacing: 0) {
                 ScrollViewReader { proxy in
@@ -582,7 +582,16 @@ struct KeyValueTableView: View {
                 .padding(.horizontal, 10)
                 .padding(.bottom, 6)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.accentColor.opacity(0.06))
+        .onAppear {
+            if session.draftKey.contains("\n") || !session.draftKey.isEmpty {
+                adjustWidthForMultiline(text: session.draftKey, column: .key, widths: widths)
+            }
+            if session.draftValue.contains("\n") || !session.draftValue.isEmpty {
+                adjustWidthForMultiline(text: session.draftValue, column: .value, widths: widths)
+            }
+        }
         .id(id)
     }
 
@@ -762,9 +771,8 @@ private final class InlineEditTextField: NSTextField {
     override func layout() {
         super.layout()
         if let editor = currentEditor() as? NSTextView {
-            let rect = cell?.drawingRect(forBounds: bounds) ?? bounds
-            editor.frame = rect
-            editor.textContainer?.containerSize = NSSize(width: rect.width, height: .greatestFiniteMagnitude)
+            let contentWidth = max(bounds.width - 8, 20)
+            editor.textContainer?.containerSize = NSSize(width: contentWidth, height: .greatestFiniteMagnitude)
             editor.textContainer?.widthTracksTextView = true
         }
     }
@@ -849,12 +857,10 @@ private struct InlineTextEditor: NSViewRepresentable {
             field.invalidateIntrinsicContentSize()
         }
         if let editor = field.currentEditor() as? NSTextView {
-            let rect = field.cell?.drawingRect(forBounds: field.bounds) ?? field.bounds
-            if editor.frame.size != rect.size {
-                editor.frame = rect
-                editor.textContainer?.containerSize = NSSize(width: rect.width, height: .greatestFiniteMagnitude)
-                editor.textContainer?.widthTracksTextView = true
-            }
+            let contentWidth = max(field.bounds.width - 8, 20)
+            editor.textContainer?.containerSize = NSSize(width: contentWidth, height: .greatestFiniteMagnitude)
+            editor.textContainer?.widthTracksTextView = true
+            editor.scrollRangeToVisible(editor.selectedRange())
         }
         let tokenChanged = context.coordinator.lastFocusRequestToken != focusRequestToken
         context.coordinator.lastFocusRequestToken = focusRequestToken
@@ -881,7 +887,8 @@ private struct InlineTextEditor: NSViewRepresentable {
         let measuringCell = context.coordinator.measuringCell
         measuringCell.font = field.font
         measuringCell.stringValue = measuredText
-        let size = measuringCell.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude))
+        let contentWidth = max(width - 16, 20)
+        let size = measuringCell.cellSize(forBounds: NSRect(x: 0, y: 0, width: contentWidth, height: .greatestFiniteMagnitude))
         return CGSize(width: width, height: max(ceil(size.height), 24))
     }
 
@@ -913,9 +920,7 @@ private struct InlineTextEditor: NSViewRepresentable {
             if parent.text != currentText {
                 parent.text = currentText
             }
-            if currentText.contains("\n") {
-                parent.onShiftEnter?(currentText)
-            }
+            parent.onShiftEnter?(currentText)
             field.invalidateIntrinsicContentSize()
         }
 
@@ -941,6 +946,7 @@ private struct InlineTextEditor: NSViewRepresentable {
                     || selector == #selector(NSResponder.insertLineBreak(_:))
                 if isShift {
                     textView.insertText("\n", replacementRange: textView.selectedRange())
+                    textView.scrollRangeToVisible(textView.selectedRange())
                     parent.text = textView.string
                     control.invalidateIntrinsicContentSize()
                     parent.onShiftEnter?(parent.text)
