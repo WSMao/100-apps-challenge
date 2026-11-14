@@ -764,9 +764,50 @@ struct LucideIcon: View {
     }
 }
 
+private final class MultilineInlineTextFieldCell: NSTextFieldCell {
+    override func drawingRect(forBounds theRect: NSRect) -> NSRect {
+        return theRect.insetBy(dx: 6, dy: 4)
+    }
+
+    override func titleRect(forBounds theRect: NSRect) -> NSRect {
+        return theRect.insetBy(dx: 6, dy: 4)
+    }
+
+    override func edit(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, event: NSEvent?) {
+        super.edit(withFrame: titleRect(forBounds: rect), in: controlView, editor: textObj, delegate: delegate, event: event)
+    }
+
+    override func select(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
+        super.select(withFrame: titleRect(forBounds: rect), in: controlView, editor: textObj, delegate: delegate, start: selStart, length: selLength)
+    }
+}
+
 private final class InlineEditTextField: NSTextField {
     var shouldFocusOnMoveToWindow = false
     var onFocusAcquired: (() -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        commonInit()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        commonInit()
+    }
+
+    private func commonInit() {
+        self.cell = MultilineInlineTextFieldCell(textCell: "")
+        self.isEditable = true
+        self.isSelectable = true
+        self.isBezeled = false
+        self.isBordered = false
+        self.drawsBackground = false
+        self.usesSingleLineMode = false
+        self.cell?.wraps = true
+        self.cell?.isScrollable = false
+        self.lineBreakMode = .byWordWrapping
+    }
 
     override var intrinsicContentSize: NSSize {
         let text = (currentEditor() as? NSTextView)?.string ?? stringValue
@@ -776,11 +817,30 @@ private final class InlineEditTextField: NSTextField {
         return NSSize(width: NSView.noIntrinsicMetric, height: h)
     }
 
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 5, yRadius: 5)
+        NSColor.textBackgroundColor.setFill()
+        path.fill()
+
+        let isFocused = (window?.firstResponder == currentEditor() || window?.firstResponder == self)
+        let strokeColor = isFocused ? NSColor.keyboardFocusIndicatorColor : NSColor.separatorColor
+        strokeColor.setStroke()
+        path.lineWidth = isFocused ? 2 : 1
+        path.stroke()
+
+        super.draw(dirtyRect)
+    }
+
     override func layout() {
         super.layout()
         if let editor = currentEditor() as? NSTextView {
-            let contentWidth = max(bounds.width - 8, 20)
-            editor.textContainer?.containerSize = NSSize(width: contentWidth, height: .greatestFiniteMagnitude)
+            let insetRect = bounds.insetBy(dx: 6, dy: 4)
+            editor.frame = insetRect
+            editor.drawsBackground = false
+            editor.backgroundColor = .clear
+            editor.textContainerInset = .zero
+            editor.textContainer?.lineFragmentPadding = 0
+            editor.textContainer?.containerSize = NSSize(width: insetRect.width, height: CGFloat.greatestFiniteMagnitude)
             editor.textContainer?.widthTracksTextView = true
         }
     }
@@ -821,10 +881,10 @@ private struct InlineTextEditor: NSViewRepresentable {
 
     static func calculateContentHeight(text: String, font: NSFont, width: CGFloat) -> CGFloat {
         let measuredText = text.hasSuffix("\n") ? text + " " : (text.isEmpty ? " " : text)
-        let contentWidth = max(width - 8, 20)
+        let contentWidth = max(width - 12, 20)
         let textStorage = NSTextStorage(string: measuredText, attributes: [.font: font])
         let textContainer = NSTextContainer(containerSize: NSSize(width: contentWidth, height: CGFloat.greatestFiniteMagnitude))
-        textContainer.lineFragmentPadding = 2
+        textContainer.lineFragmentPadding = 0
         let layoutManager = NSLayoutManager()
         layoutManager.addTextContainer(textContainer)
         textStorage.addLayoutManager(layoutManager)
@@ -837,16 +897,10 @@ private struct InlineTextEditor: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> InlineEditTextField {
-        let field = InlineEditTextField(string: text)
+        let field = InlineEditTextField(frame: .zero)
+        field.stringValue = text
         field.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
         field.delegate = context.coordinator
-        field.isEditable = true
-        field.isBezeled = true
-        field.bezelStyle = .roundedBezel
-        field.usesSingleLineMode = false
-        field.cell?.wraps = true
-        field.cell?.isScrollable = false
-        field.lineBreakMode = .byWordWrapping
         field.isAutomaticTextCompletionEnabled = false
         field.setAccessibilityIdentifier(identifier)
         field.onFocusAcquired = { [weak coordinator = context.coordinator] in
@@ -880,11 +934,17 @@ private struct InlineTextEditor: NSViewRepresentable {
             field.invalidateIntrinsicContentSize()
         }
         if let editor = field.currentEditor() as? NSTextView {
-            let contentWidth = max(field.bounds.width - 8, 20)
-            editor.textContainer?.containerSize = NSSize(width: contentWidth, height: .greatestFiniteMagnitude)
+            let insetRect = field.bounds.insetBy(dx: 6, dy: 4)
+            editor.frame = insetRect
+            editor.drawsBackground = false
+            editor.backgroundColor = .clear
+            editor.textContainerInset = .zero
+            editor.textContainer?.lineFragmentPadding = 0
+            editor.textContainer?.containerSize = NSSize(width: insetRect.width, height: .greatestFiniteMagnitude)
             editor.textContainer?.widthTracksTextView = true
             editor.scrollRangeToVisible(editor.selectedRange())
         }
+        field.needsDisplay = true
         let tokenChanged = context.coordinator.lastFocusRequestToken != focusRequestToken
         context.coordinator.lastFocusRequestToken = focusRequestToken
         if wantsFocus && tokenChanged {
@@ -930,6 +990,8 @@ private struct InlineTextEditor: NSViewRepresentable {
             }
             parent.onShiftEnter?(currentText)
             field.invalidateIntrinsicContentSize()
+            field.needsLayout = true
+            field.layoutSubtreeIfNeeded()
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {
@@ -957,6 +1019,8 @@ private struct InlineTextEditor: NSViewRepresentable {
                     textView.scrollRangeToVisible(textView.selectedRange())
                     parent.text = textView.string
                     control.invalidateIntrinsicContentSize()
+                    control.needsLayout = true
+                    control.layoutSubtreeIfNeeded()
                     parent.onShiftEnter?(parent.text)
                 } else {
                     parent.text = textView.string

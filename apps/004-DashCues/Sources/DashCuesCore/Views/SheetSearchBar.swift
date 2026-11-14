@@ -37,10 +37,6 @@ final class SheetSearchSession: ObservableObject {
                     return nil
                 }
 
-                if isTextInputActive(in: event.window) {
-                    return event
-                }
-
                 let currentState = self.getState()
                 if currentState == .focusedNonEditing {
                     guard flags.isEmpty else { return event }
@@ -71,6 +67,10 @@ final class SheetSearchSession: ObservableObject {
                         self.onSelectSheetIndex?(digit - 1)
                         return nil
                     }
+                }
+
+                if isTextInputActive(in: event.window) {
+                    return event
                 }
 
                 return event

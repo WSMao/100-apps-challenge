@@ -1,9 +1,65 @@
 import AppKit
+import ObjectiveC
 import SwiftUI
 import XCTest
 @testable import DashCuesCore
 
+private final class MockPasteboardProxy: NSObject {
+    static let shared = MockPasteboardProxy()
+    var storage: [String: String] = [:]
+
+    @objc func clearContents() -> Int {
+        storage.removeAll()
+        return 1
+    }
+
+    @objc func setString(_ string: String, forType dataType: NSPasteboard.PasteboardType) -> Bool {
+        storage[dataType.rawValue] = string
+        return true
+    }
+
+    @objc func stringForType(_ dataType: NSPasteboard.PasteboardType) -> String? {
+        return storage[dataType.rawValue]
+    }
+
+    @objc func _cfPasteboard() -> Any? {
+        return nil
+    }
+
+    override func responds(to aSelector: Selector!) -> Bool {
+        if NSStringFromSelector(aSelector).contains("Pasteboard") {
+            return true
+        }
+        return super.responds(to: aSelector)
+    }
+}
+
+extension NSPasteboard {
+    private static var isHeadlessSwizzled = false
+
+    @objc class func headless_swizzled_general() -> NSPasteboard {
+        let orig = headless_swizzled_general()
+        let ptr = unsafeBitCast(orig, to: Optional<UnsafeRawPointer>.self)
+        if ptr != nil && orig.clearContents() > 0 {
+            return orig
+        }
+        return unsafeBitCast(MockPasteboardProxy.shared, to: NSPasteboard.self)
+    }
+
+    static func installHeadlessPasteboardFallbackIfNeeded() {
+        guard !isHeadlessSwizzled else { return }
+        isHeadlessSwizzled = true
+        let orig = class_getClassMethod(NSPasteboard.self, #selector(getter: NSPasteboard.general))!
+        let swiz = class_getClassMethod(NSPasteboard.self, #selector(NSPasteboard.headless_swizzled_general))!
+        method_exchangeImplementations(orig, swiz)
+    }
+}
+
 final class DashCuesUnitAndIntegrationTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        NSPasteboard.installHeadlessPasteboardFallbackIfNeeded()
+    }
     @MainActor
     func testMultilineHeightWithoutWidthChange() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("dashcues-multiline-test-\(UUID().uuidString)")

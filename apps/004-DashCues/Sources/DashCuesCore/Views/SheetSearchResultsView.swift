@@ -32,7 +32,6 @@ final class SearchResultsCoordinator: ObservableObject {
         if keyMonitor == nil {
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, self.getIsFocused() else { return event }
-                if isTextInputActive(in: event.window) { return event }
                 let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
 
                 // Handle Cmd-C
