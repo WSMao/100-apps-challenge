@@ -1,65 +1,9 @@
 import AppKit
-import ObjectiveC
 import SwiftUI
 import XCTest
 @testable import DashCuesCore
 
-private final class MockPasteboardProxy: NSObject {
-    static let shared = MockPasteboardProxy()
-    var storage: [String: String] = [:]
-
-    @objc func clearContents() -> Int {
-        storage.removeAll()
-        return 1
-    }
-
-    @objc func setString(_ string: String, forType dataType: NSPasteboard.PasteboardType) -> Bool {
-        storage[dataType.rawValue] = string
-        return true
-    }
-
-    @objc func stringForType(_ dataType: NSPasteboard.PasteboardType) -> String? {
-        return storage[dataType.rawValue]
-    }
-
-    @objc func _cfPasteboard() -> Any? {
-        return nil
-    }
-
-    override func responds(to aSelector: Selector!) -> Bool {
-        if NSStringFromSelector(aSelector).contains("Pasteboard") {
-            return true
-        }
-        return super.responds(to: aSelector)
-    }
-}
-
-extension NSPasteboard {
-    private static var isHeadlessSwizzled = false
-
-    @objc class func headless_swizzled_general() -> NSPasteboard {
-        let orig = headless_swizzled_general()
-        let ptr = unsafeBitCast(orig, to: Optional<UnsafeRawPointer>.self)
-        if ptr != nil && orig.clearContents() > 0 {
-            return orig
-        }
-        return unsafeBitCast(MockPasteboardProxy.shared, to: NSPasteboard.self)
-    }
-
-    static func installHeadlessPasteboardFallbackIfNeeded() {
-        guard !isHeadlessSwizzled else { return }
-        isHeadlessSwizzled = true
-        let orig = class_getClassMethod(NSPasteboard.self, #selector(getter: NSPasteboard.general))!
-        let swiz = class_getClassMethod(NSPasteboard.self, #selector(NSPasteboard.headless_swizzled_general))!
-        method_exchangeImplementations(orig, swiz)
-    }
-}
-
 final class DashCuesUnitAndIntegrationTests: XCTestCase {
-    override func setUp() {
-        super.setUp()
-        NSPasteboard.installHeadlessPasteboardFallbackIfNeeded()
-    }
     @MainActor
     func testMultilineHeightWithoutWidthChange() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("dashcues-multiline-test-\(UUID().uuidString)")
@@ -101,6 +45,7 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
             for _ in 0..<3 { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
         }
         let editor = try XCTUnwrap(valField.currentEditor() as? NSTextView)
+        editor.setSelectedRange(NSRange(location: editor.string.count, length: 0))
         let heightBefore = valField.frame.height
         print("TEST_MULTILINE: Height before newline = \(heightBefore), width = \(valField.frame.width)")
 
@@ -133,6 +78,40 @@ final class DashCuesUnitAndIntegrationTests: XCTestCase {
         let heightThirdLine = valField.frame.height
         print("TEST_MULTILINE: Height after 3rd line = \(heightThirdLine)")
         XCTAssertGreaterThan(heightThirdLine, heightAfter, "Input field height MUST grow further when a 3rd line is added!")
+
+        // Capture screenshot of the window demonstrating all 3 lines simultaneously visible
+        let contentView = try XCTUnwrap(win.contentView)
+        contentView.layoutSubtreeIfNeeded()
+        for _ in 0..<5 { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        if let rep = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) {
+            contentView.cacheDisplay(in: contentView.bounds, to: rep)
+            if let pngData = rep.representation(using: .png, properties: [:]) {
+                let packageDir = URL(fileURLWithPath: #file)
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                    .deletingLastPathComponent()
+                let targetURLs = [
+                    packageDir.appendingPathComponent("multiline_edit_screenshot.png"),
+                    URL(fileURLWithPath: "/Users/wsmao/.gemini/antigravity/brain/23283f04-8b1c-464e-99e7-6b2e044bed55/multiline_edit_screenshot.png"),
+                    URL(fileURLWithPath: "/Users/wsmao/.gemini/antigravity/brain/ad122faa-5480-4dd1-a2f7-46b51998dcb0/multiline_edit_screenshot.png")
+                ]
+                for targetURL in targetURLs {
+                    try? FileManager.default.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try? pngData.write(to: targetURL)
+                }
+            }
+        }
+
+        // Test adaptive shrinking when a line is removed
+        let rangeToDelete = (editor.string as NSString).range(of: "\nShort line 3")
+        if rangeToDelete.location != NSNotFound {
+            editor.insertText("", replacementRange: rangeToDelete)
+            valField.delegate?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: valField))
+            for _ in 0..<5 { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+            let heightShrunk = valField.frame.height
+            print("TEST_MULTILINE: Height after deleting 3rd line = \(heightShrunk)")
+            XCTAssertEqual(heightShrunk, heightAfter, "Input field height MUST adaptively shrink when a line is removed!")
+        }
     }
 
     @MainActor

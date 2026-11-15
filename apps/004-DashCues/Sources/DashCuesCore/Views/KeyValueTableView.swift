@@ -766,11 +766,16 @@ struct LucideIcon: View {
 
 private final class MultilineInlineTextFieldCell: NSTextFieldCell {
     override func drawingRect(forBounds theRect: NSRect) -> NSRect {
-        return theRect.insetBy(dx: 6, dy: 4)
+        return NSRect(
+            x: theRect.origin.x + 6,
+            y: theRect.origin.y + 4,
+            width: max(theRect.width - 12, 0),
+            height: max(theRect.height - 8, 0)
+        )
     }
 
     override func titleRect(forBounds theRect: NSRect) -> NSRect {
-        return theRect.insetBy(dx: 6, dy: 4)
+        return drawingRect(forBounds: theRect)
     }
 
     override func edit(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, event: NSEvent?) {
@@ -834,8 +839,14 @@ private final class InlineEditTextField: NSTextField {
     override func layout() {
         super.layout()
         if let editor = currentEditor() as? NSTextView {
-            let insetRect = bounds.insetBy(dx: 6, dy: 4)
+            let insetRect = NSRect(
+                x: bounds.origin.x + 6,
+                y: bounds.origin.y + 4,
+                width: max(bounds.width - 12, 10),
+                height: max(bounds.height - 8, 16)
+            )
             editor.frame = insetRect
+            editor.isHorizontallyResizable = false
             editor.drawsBackground = false
             editor.backgroundColor = .clear
             editor.textContainerInset = .zero
@@ -934,8 +945,14 @@ private struct InlineTextEditor: NSViewRepresentable {
             field.invalidateIntrinsicContentSize()
         }
         if let editor = field.currentEditor() as? NSTextView {
-            let insetRect = field.bounds.insetBy(dx: 6, dy: 4)
+            let insetRect = NSRect(
+                x: field.bounds.origin.x + 6,
+                y: field.bounds.origin.y + 4,
+                width: max(field.bounds.width - 12, 10),
+                height: max(field.bounds.height - 8, 16)
+            )
             editor.frame = insetRect
+            editor.isHorizontallyResizable = false
             editor.drawsBackground = false
             editor.backgroundColor = .clear
             editor.textContainerInset = .zero
