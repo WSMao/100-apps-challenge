@@ -20,7 +20,9 @@ struct ScrollRequest: Equatable {
 final class ShortcutListModel: ObservableObject {
     @Published private(set) var selection: Set<String> = []
     @Published private(set) var editingID: String?
-    @Published private(set) var editingField: ShortcutField?
+    @Published private(set) var editingField: ShortcutField? {
+        didSet { onKeyboardCaptureChanged(isCapturingKeyboard) }
+    }
     @Published var workingItem: ShortcutItem?
     @Published private(set) var pendingItem: ShortcutItem?
     @Published private(set) var recordingPreview: String?
@@ -42,28 +44,56 @@ final class ShortcutListModel: ObservableObject {
     }
     @Published private(set) var searchTags: [String] = [] { didSet { searchChanged() } }
     @Published private(set) var searchKeys: [String] = [] { didSet { searchChanged() } }
-    @Published private(set) var isRecordingSearchKeys = false
+    @Published private(set) var isRecordingSearchKeys = false {
+        didSet { onKeyboardCaptureChanged(isCapturingKeyboard) }
+    }
     @Published private(set) var searchSuggestionIndex: Int?
     @Published private(set) var searchFocusToken = 0
-    @Published var searchFocused = false
+    @Published var searchFocused = false {
+        didSet {
+            if !searchFocused && oldValue {
+                recentSearchStore.record(query: searchText, for: applicationID)
+            }
+        }
+    }
 
     var onError: (String) -> Void = { _ in }
+    var onKeyboardCaptureChanged: (Bool) -> Void = { _ in }
+    var onExitToTabs: (() -> Void)?
+    var onEnterTable: (() -> Void)?
+    var onFocusSearch: (() -> Void)?
     weak var listView: NSView?
+
+    var isCapturingKeyboard: Bool {
+        isRecordingSearchKeys || editingField != nil || isListActive
+    }
     weak var editingRowView: NSView?
     weak var searchBarView: NSView?
 
     private let store: ShortcutStore
     private(set) var applicationID: String
+    let sheetID: String?
+    let recentSearchStore: RecentSearchStore
+    private(set) lazy var historySession = SearchHistorySession(applicationID: applicationID, recentStore: recentSearchStore)
     private var cursorID: String?
     private var anchorID: String?
     private var fieldOriginal: ShortcutItem?
-    private var isListActive = false
+    private var isListActive = false {
+        didSet { onKeyboardCaptureChanged(isCapturingKeyboard) }
+    }
     private var scrollToken = 0
     private var monitors: [Any] = []
 
-    init(store: ShortcutStore, applicationID: String) {
+    init(
+        store: ShortcutStore,
+        applicationID: String,
+        sheetID: String? = nil,
+        recentSearchStore: RecentSearchStore? = nil
+    ) {
         self.store = store
         self.applicationID = applicationID
+        self.sheetID = sheetID
+        self.recentSearchStore = recentSearchStore ?? .shared
     }
 
     /// Saved shortcuts, plus the unsaved new row, with the row being edited replaced by its working copy.
@@ -75,7 +105,7 @@ final class ShortcutListModel: ObservableObject {
     }
 
     private var allRows: [ShortcutItem] {
-        var items = store.application(id: applicationID)?.shortcuts ?? []
+        var items = savedShortcuts
         if let pendingItem { items.append(pendingItem) }
         if let editingID, let workingItem, let index = items.firstIndex(where: { $0.id == editingID }) {
             items[index] = workingItem
@@ -83,13 +113,33 @@ final class ShortcutListModel: ObservableObject {
         return items
     }
 
+    private var savedShortcuts: [ShortcutItem] {
+        guard let app = store.application(id: applicationID) else { return [] }
+        if isSearching {
+            return app.allShortcuts
+        }
+        return sheetID.map(app.sheetShortcuts(id:)) ?? app.shortcuts
+    }
+
+    func sheetName(for itemID: String) -> String? {
+        guard let app = store.application(id: applicationID) else { return nil }
+        for case .shortcuts(let sheet) in app.sheets {
+            if sheet.shortcuts.contains(where: { $0.id == itemID }) {
+                return sheet.name
+            }
+        }
+        return nil
+    }
+
     // MARK: - Actions
 
     func setApplication(_ id: String) {
         guard id != applicationID else { return }
+        recentSearchStore.record(query: searchText, for: applicationID)
         finishEditing()
         clearSearch()
         applicationID = id
+        historySession = SearchHistorySession(applicationID: id, recentStore: recentSearchStore)
         selection = []
         cursorID = nil
         anchorID = nil
@@ -100,6 +150,7 @@ final class ShortcutListModel: ObservableObject {
         let item = ShortcutItem(title: "", keys: [], tags: [])
         pendingItem = item
         isListActive = true
+        onEnterTable?()
         selection = [item.id]
         cursorID = item.id
         anchorID = item.id
@@ -110,6 +161,7 @@ final class ShortcutListModel: ObservableObject {
 
     func click(_ id: String, field: ShortcutField?, modifiers: NSEvent.ModifierFlags) {
         isListActive = true
+        onEnterTable?()
         if editingID == id {
             if let field { setField(field) }
             return
@@ -145,7 +197,7 @@ final class ShortcutListModel: ObservableObject {
         let ids = rows.map(\.id)
         let firstIndex = ids.firstIndex { selection.contains($0) } ?? 0
         do {
-            try store.deleteShortcuts(ids: selection, applicationID: applicationID)
+            try store.deleteShortcuts(ids: selection, applicationID: applicationID, sheetID: sheetID)
         } catch {
             onError(error.localizedDescription)
         }
@@ -185,13 +237,37 @@ final class ShortcutListModel: ObservableObject {
         do {
             if item.isBlank {
                 if !wasPending {
-                    try store.deleteShortcut(id: id, applicationID: applicationID)
+                    try store.deleteShortcut(id: id, applicationID: applicationID, sheetID: sheetID)
                 }
                 selection.remove(id)
                 if cursorID == id { cursorID = nil }
-            } else if wasPending || store.application(id: applicationID)?.shortcuts.first(where: { $0.id == id }) != item {
-                try store.saveShortcut(item, applicationID: applicationID)
+            } else if wasPending || savedShortcuts.first(where: { $0.id == id }) != item {
+                try store.saveShortcut(item, applicationID: applicationID, sheetID: sheetID)
             }
+        } catch {
+            onError(error.localizedDescription)
+        }
+    }
+
+    func updateShortcutKeys(id: String, keys: [String]) {
+        if editingID == id {
+            workingItem?.keys = keys
+            finishEditing()
+            return
+        }
+        if pendingItem?.id == id {
+            pendingItem?.keys = keys
+            if !(pendingItem?.isBlank ?? true) {
+                finishEditing()
+            }
+            return
+        }
+        guard let item = savedShortcuts.first(where: { $0.id == id }) else { return }
+        var updated = item
+        updated.keys = keys
+        do {
+            try store.saveShortcut(updated, applicationID: applicationID, sheetID: sheetID)
+            selection = [id]
         } catch {
             onError(error.localizedDescription)
         }
@@ -201,36 +277,35 @@ final class ShortcutListModel: ObservableObject {
 
     /// Returns true when the key was consumed.
     func handleKey(keyCode: UInt16, flags: NSEvent.ModifierFlags, characters: String?) -> Bool {
-        let flags = flags.intersection([.command, .control, .option, .shift])
+        let standardFlags = flags.intersection([.command, .control, .option, .shift])
         let isReturn = keyCode == 36 || keyCode == 76
         let isEscape = keyCode == 53
         let isTab = keyCode == 48
-        let noCommandModifiers = flags.intersection([.command, .control, .option]).isEmpty
+        let noCommandModifiers = standardFlags.intersection([.command, .control, .option]).isEmpty
 
         if let field = editingField {
             if field == .keys {
-                if flags.isEmpty && isEscape { finishEditing(revertCurrentField: true); return true }
-                if flags.isEmpty && isReturn { finishEditing(); return true }
-                if isTab && noCommandModifiers { moveField(backwards: flags.contains(.shift)); return true }
+                if standardFlags.isEmpty && isEscape { finishEditing(revertCurrentField: true); return true }
+                if standardFlags.isEmpty && isReturn { finishEditing(); return true }
+                if isTab && noCommandModifiers { moveField(backwards: standardFlags.contains(.shift)); return true }
                 workingItem?.keys = ShortcutKeyFormatter.keys(keyCode: keyCode, flags: flags, characters: characters)
                 recordingPreview = nil
                 return true
             }
-            if field == .tags { return handleTagKey(keyCode: keyCode, flags: flags) }
-            if isEscape && flags.isEmpty { finishEditing(revertCurrentField: true); return true }
+            if field == .tags { return handleTagKey(keyCode: keyCode, flags: standardFlags) }
+            if isEscape && standardFlags.isEmpty { finishEditing(revertCurrentField: true); return true }
             if isReturn && noCommandModifiers { finishEditing(); return true }
-            if isTab && noCommandModifiers { moveField(backwards: flags.contains(.shift)); return true }
+            if isTab && noCommandModifiers { moveField(backwards: standardFlags.contains(.shift)); return true }
             return false
         }
 
-        guard !selection.isEmpty else { return false }
-        if isEscape && flags.isEmpty {
-            selection = []
-            cursorID = nil
-            anchorID = nil
+        if isEscape && standardFlags.isEmpty {
+            leaveList()
+            onExitToTabs?()
             return true
         }
-        if isReturn && flags.isEmpty {
+        guard !selection.isEmpty else { return false }
+        if isReturn && standardFlags.isEmpty {
             guard selection.count == 1, let item = rows.first(where: { selection.contains($0.id) }) else {
                 return true
             }
@@ -238,7 +313,17 @@ final class ShortcutListModel: ObservableObject {
             return true
         }
         if (keyCode == 125 || keyCode == 126) && noCommandModifiers {
-            moveCursor(by: keyCode == 125 ? 1 : -1, extend: flags.contains(.shift))
+            if keyCode == 126, !standardFlags.contains(.shift) {
+                let ids = rows.map(\.id)
+                let current = cursorID.flatMap { ids.firstIndex(of: $0) }
+                    ?? ids.firstIndex { selection.contains($0) }
+                if current == 0 {
+                    leaveList()
+                    onExitToTabs?()
+                    return true
+                }
+            }
+            moveCursor(by: keyCode == 125 ? 1 : -1, extend: standardFlags.contains(.shift))
             return true
         }
         return false
@@ -247,7 +332,8 @@ final class ShortcutListModel: ObservableObject {
     func updateRecordingPreview(flags: NSEvent.ModifierFlags) {
         guard editingField == .keys || isRecordingSearchKeys else { return }
         let symbols = ShortcutKeyFormatter.modifierSymbols(flags)
-        recordingPreview = symbols.isEmpty ? nil : symbols.joined() + "…"
+        let displaySymbols = symbols.map { ShortcutKeyFormatter.displaySymbol(for: $0) }
+        recordingPreview = displaySymbols.isEmpty ? nil : displaySymbols.joined() + "…"
     }
 
     // MARK: - Search
@@ -311,12 +397,16 @@ final class ShortcutListModel: ObservableObject {
         }
     }
 
-    /// Keys typed into the search field: suggestion navigation, Esc and Backspace-to-remove-chip.
+    /// Keys typed into the search field: suggestion navigation, history preview, Esc and Backspace-to-remove-chip.
     func handleSearchKey(keyCode: UInt16, flags: NSEvent.ModifierFlags) -> Bool {
         let flags = flags.intersection([.command, .control, .option, .shift])
         guard flags.isEmpty else { return false }
         switch keyCode {
         case 53:
+            if let restored = historySession.handleEsc() {
+                searchText = restored
+                return true
+            }
             if searchSuggestionIndex != nil {
                 searchSuggestionIndex = nil
             } else {
@@ -325,20 +415,42 @@ final class ShortcutListModel: ObservableObject {
             }
             return true
         case 36, 76:
-            let items = searchSuggestions
-            guard let index = searchSuggestionIndex, items.indices.contains(index) else { return false }
-            addSearchTag(items[index])
-            return true
-        case 125, 126:
-            let count = searchSuggestions.count
-            guard count > 0 else { return false }
-            let delta = keyCode == 125 ? 1 : -1
-            if let current = searchSuggestionIndex {
-                searchSuggestionIndex = (current + delta + count) % count
-            } else {
-                searchSuggestionIndex = delta > 0 ? 0 : count - 1
+            if let applied = historySession.handleEnter() {
+                searchText = applied
+                return true
             }
-            return true
+            let items = searchSuggestions
+            if let index = searchSuggestionIndex, items.indices.contains(index) {
+                addSearchTag(items[index])
+                return true
+            }
+            recentSearchStore.record(query: searchText, for: applicationID)
+            return false
+        case 125, 126:
+            if searchSuggestions.isEmpty {
+                if keyCode == 126 {
+                    if let preview = historySession.handleUp(currentText: searchText) {
+                        searchText = preview
+                        return true
+                    }
+                } else {
+                    if let preview = historySession.handleDown() {
+                        searchText = preview
+                        return true
+                    }
+                }
+                return false
+            } else {
+                let count = searchSuggestions.count
+                guard count > 0 else { return false }
+                let delta = keyCode == 125 ? 1 : -1
+                if let current = searchSuggestionIndex {
+                    searchSuggestionIndex = (current + delta + count) % count
+                } else {
+                    searchSuggestionIndex = delta > 0 ? 0 : count - 1
+                }
+                return true
+            }
         case 51:
             guard searchText.isEmpty else { return false }
             if !searchKeys.isEmpty {
@@ -470,28 +582,36 @@ final class ShortcutListModel: ObservableObject {
         monitors = []
     }
 
-    // MARK: - Private
+    // MARK: - Key event handling
 
-    private func consumes(keyDown event: NSEvent) -> Bool {
-        guard let window = event.window, window === listView?.window else { return false }
+    func consumes(keyDown event: NSEvent) -> Bool {
+        if let window = event.window, let listWindow = listView?.window, window !== listWindow {
+            return false
+        }
+        let window = event.window ?? listView?.window
         // Let input methods (e.g. Chinese IME) handle Enter/Esc while composing text.
-        if let text = window.firstResponder as? NSTextView, text.hasMarkedText() { return false }
+        if let text = window?.firstResponder as? NSTextView, text.hasMarkedText() { return false }
+        if isTextInputActive(in: window) && editingField == nil { return false }
+        let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if flags == .command && event.charactersIgnoringModifiers?.lowercased() == "f" {
+            if let onFocusSearch {
+                onFocusSearch()
+                return true
+            }
+        }
+
         if isRecordingSearchKeys { return recordSearchKey(event) }
-        if searchFocused, editingField == nil, window.firstResponder is NSTextView {
+        if searchFocused, editingField == nil, window?.firstResponder is NSTextView {
             return handleSearchKey(keyCode: event.keyCode, flags: event.modifierFlags)
         }
         let plain = event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
         if plain, editingField == nil {
-            if event.keyCode == 124, !isListActive, window.firstResponder is NSTableView {
-                return enterList()
-            }
-            if event.keyCode == 123, isListActive {
-                leaveList()
+            if (event.keyCode == 123 || event.keyCode == 124), isListActive {
                 return true
             }
         }
         guard editingField != nil || isListActive else { return false }
-        if editingField == nil, window.firstResponder is NSTextView { return false }
+        if editingField == nil, window?.firstResponder is NSTextView { return false }
         return handleKey(
             keyCode: event.keyCode,
             flags: event.modifierFlags,
@@ -499,30 +619,40 @@ final class ShortcutListModel: ObservableObject {
         )
     }
 
-    /// Moves keyboard focus from the app sidebar into the shortcut list.
-    private func enterList() -> Bool {
+    /// Moves keyboard focus from the app sidebar or tabs into the shortcut list.
+    @discardableResult
+    func enterList() -> Bool {
         let ids = rows.map(\.id)
-        guard let first = ids.first else { return true }
+        guard let first = ids.first else { return false }
         isListActive = true
+        onEnterTable?()
         resignTextFocus()
-        if selection.isEmpty {
-            selection = [first]
-            cursorID = first
-            anchorID = first
-        }
-        requestScroll(cursorID ?? first)
+        selection = [first]
+        cursorID = first
+        anchorID = first
+        requestScroll(first)
         return true
     }
 
-    /// Returns keyboard focus to the app sidebar.
-    private func leaveList() {
+    func selectAndScroll(to id: String) {
+        let ids = rows.map(\.id)
+        guard ids.contains(id) else { return }
+        isListActive = true
+        onEnterTable?()
+        resignTextFocus()
+        selection = [id]
+        cursorID = id
+        anchorID = id
+        requestScroll(id)
+    }
+
+    /// Returns keyboard focus to the app sidebar or tabs.
+    func leaveList() {
         isListActive = false
         selection = []
         cursorID = nil
         anchorID = nil
-        guard let content = listView?.window?.contentView,
-              let table = Self.firstTableView(in: content) else { return }
-        listView?.window?.makeFirstResponder(table)
+        listView?.window?.makeFirstResponder(nil)
     }
 
     private static func firstTableView(in view: NSView) -> NSTableView? {

@@ -4,7 +4,12 @@ struct ShortcutMapView: View {
     let application: ShortcutApplication
     let isPinned: Bool
     let onTogglePin: () -> Void
+    var sheetID: String? = nil
     var highlightedShortcutID: String? = nil
+
+    private var shortcuts: [ShortcutItem] {
+        sheetID.map(application.sheetShortcuts(id:)) ?? application.shortcuts
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -13,7 +18,7 @@ struct ShortcutMapView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(application.name)
                         .font(.title3.weight(.semibold))
-                    Text("\(application.shortcuts.count) 個快捷鍵")
+                    Text("\(shortcuts.count) 個快捷鍵")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -28,7 +33,7 @@ struct ShortcutMapView: View {
 
             Divider()
 
-            if application.shortcuts.isEmpty {
+            if shortcuts.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "keyboard")
                         .font(.largeTitle)
@@ -44,7 +49,7 @@ struct ShortcutMapView: View {
                 ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(application.shortcuts) { shortcut in
+                        ForEach(shortcuts) { shortcut in
                             HStack(alignment: .center, spacing: 12) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(shortcut.title)

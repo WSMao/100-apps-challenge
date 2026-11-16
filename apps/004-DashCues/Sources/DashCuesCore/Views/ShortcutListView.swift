@@ -4,15 +4,39 @@ import SwiftUI
 struct ShortcutListView: View {
     @ObservedObject var store: ShortcutStore
     let applicationID: String
+    var sheetID: String? = nil
+    var navigation: TableKeyboardNavigation? = nil
+    var showsSearchBar: Bool = true
+    var contentNavigation: SharedContentNavigation? = nil
+    var onFocusSearch: (() -> Void)? = nil
+    var onKeyboardCaptureChanged: (Bool) -> Void = { _ in }
     let onError: (String) -> Void
 
     @StateObject private var model: ShortcutListModel
+    @State private var jumpHighlightID: String? = nil
+    @State private var manualInputItem: ShortcutItem? = nil
 
-    init(store: ShortcutStore, applicationID: String, onError: @escaping (String) -> Void) {
+    init(
+        store: ShortcutStore,
+        applicationID: String,
+        sheetID: String? = nil,
+        navigation: TableKeyboardNavigation? = nil,
+        showsSearchBar: Bool = true,
+        contentNavigation: SharedContentNavigation? = nil,
+        onFocusSearch: (() -> Void)? = nil,
+        onKeyboardCaptureChanged: @escaping (Bool) -> Void = { _ in },
+        onError: @escaping (String) -> Void
+    ) {
         self.store = store
         self.applicationID = applicationID
+        self.sheetID = sheetID
+        self.navigation = navigation
+        self.showsSearchBar = showsSearchBar
+        self.contentNavigation = contentNavigation
+        self.onFocusSearch = onFocusSearch
+        self.onKeyboardCaptureChanged = onKeyboardCaptureChanged
         self.onError = onError
-        _model = StateObject(wrappedValue: ShortcutListModel(store: store, applicationID: applicationID))
+        _model = StateObject(wrappedValue: ShortcutListModel(store: store, applicationID: applicationID, sheetID: sheetID))
     }
 
     var body: some View {
@@ -28,21 +52,45 @@ struct ShortcutListView: View {
                 }
             }
 
-            ShortcutSearchBar(model: model)
+            if showsSearchBar {
+                ShortcutSearchBar(model: model)
+            }
 
             VStack(spacing: 0) {
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(spacing: 2) {
                             ForEach(model.rows) { item in
-                                ShortcutRowView(item: item, model: model)
-                                    .id(item.id)
+                                ShortcutRowView(
+                                    item: item,
+                                    model: model,
+                                    isJumpHighlighted: jumpHighlightID == item.id,
+                                    onManualInput: { selected in
+                                        manualInputItem = selected
+                                    }
+                                )
+                                .id(item.id)
                             }
                         }
                         .padding(6)
                     }
                     .onChange(of: model.scrollTarget) { request in
-                        if let request { proxy.scrollTo(request.id) }
+                        if let request {
+                            DispatchQueue.main.async {
+                                withAnimation {
+                                    proxy.scrollTo(request.id, anchor: .center)
+                                }
+                            }
+                        }
+                    }
+                    .onAppear {
+                        if let request = model.scrollTarget {
+                            DispatchQueue.main.async {
+                                withAnimation {
+                                    proxy.scrollTo(request.id, anchor: .center)
+                                }
+                            }
+                        }
                     }
                 }
                 .overlay {
@@ -74,13 +122,51 @@ struct ShortcutListView: View {
         }
         .onAppear {
             model.onError = onError
+            model.onKeyboardCaptureChanged = onKeyboardCaptureChanged
+            onKeyboardCaptureChanged(model.isCapturingKeyboard)
             model.startMonitoring()
+            setupNavigation()
         }
         .onDisappear {
             model.finishEditing()
             model.stopMonitoring()
+            onKeyboardCaptureChanged(false)
         }
-        .onChange(of: applicationID) { model.setApplication($0) }
+        .background {
+            Color.clear.onAppear { setupNavigation() }
+        }
+        .onChange(of: navigation?.focusArea) { area in
+            setupNavigation()
+            if area == .table {
+                if !model.isCapturingKeyboard {
+                    model.enterList()
+                }
+            } else if area == .tabs {
+                if model.isCapturingKeyboard {
+                    model.leaveList()
+                }
+            }
+        }
+        .onChange(of: navigation?.selectedSheetID) { _ in
+            setupNavigation()
+        }
+        .onReceive(model.objectWillChange) { _ in
+            DispatchQueue.main.async {
+                onKeyboardCaptureChanged(model.isCapturingKeyboard)
+            }
+        }
+        .onChange(of: applicationID) { appID in
+            model.setApplication(appID)
+            setupNavigation()
+        }
+        .onChange(of: contentNavigation?.pendingShortcutJump) { jump in
+            followPendingShortcutJump(jump)
+        }
+        .onChange(of: model.selection) { newSel in
+            if let id = jumpHighlightID, !newSel.contains(id) {
+                jumpHighlightID = nil
+            }
+        }
         .alert(
             model.selection.count > 1 ? "刪除 \(model.selection.count) 個快捷鍵？" : "刪除這個快捷鍵？",
             isPresented: $model.requestsDeleteConfirmation
@@ -90,12 +176,48 @@ struct ShortcutListView: View {
         } message: {
             Text("此操作無法復原。")
         }
+        .sheet(item: $manualInputItem) { item in
+            ManualShortcutKeySheet(
+                item: item,
+                onSave: { updatedKeys in
+                    model.updateShortcutKeys(id: item.id, keys: updatedKeys)
+                }
+            )
+        }
+    }
+
+    private func setupNavigation() {
+        model.onFocusSearch = onFocusSearch
+        followPendingShortcutJump(contentNavigation?.pendingShortcutJump)
+        guard let navigation else { return }
+        navigation.onMoveFocusToShortcuts = { [weak model] in
+            guard let model else { return false }
+            return model.enterList()
+        }
+        navigation.onLeaveShortcuts = { [weak model] in
+            model?.leaveList()
+        }
+        model.onExitToTabs = { [weak navigation] in
+            navigation?.focusArea = .tabs
+        }
+        model.onEnterTable = { [weak navigation] in
+            navigation?.focusArea = .table
+        }
+    }
+
+    private func followPendingShortcutJump(_ jump: ShortcutJump?) {
+        guard let jump, jump.applicationID == applicationID, jump.sheetID == (sheetID ?? model.sheetID) else { return }
+        model.selectAndScroll(to: jump.shortcutID)
+        jumpHighlightID = jump.shortcutID
+        contentNavigation?.completeShortcutJump(jump)
     }
 }
 
 private struct ShortcutRowView: View {
     let item: ShortcutItem
     @ObservedObject var model: ShortcutListModel
+    var isJumpHighlighted: Bool = false
+    var onManualInput: ((ShortcutItem) -> Void)? = nil
     @FocusState private var focus: ShortcutField?
 
     private var isSelected: Bool { model.selection.contains(item.id) }
@@ -115,12 +237,50 @@ private struct ShortcutRowView: View {
         .padding(.vertical, 6)
         .frame(minHeight: 58)
         .background(
-            isSelected ? Color.accentColor.opacity(0.2) : Color.clear,
+            isJumpHighlighted
+                ? Color.accentColor.opacity(0.24)
+                : (isSelected ? Color.accentColor.opacity(0.2) : Color.clear),
             in: RoundedRectangle(cornerRadius: 8)
         )
+        .overlay {
+            if isJumpHighlighted {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.accentColor, lineWidth: 2)
+                    .shadow(color: Color.accentColor.opacity(0.4), radius: 3)
+                    .accessibilityElement()
+                    .accessibilityIdentifier("shortcut.jump-highlighted.\(item.id)")
+                    .accessibilityValue("已選取 高亮")
+                    .background(
+                        ViewAnchor {
+                            $0.setAccessibilityElement(false)
+                            $0.setAccessibilityIdentifier("shortcut.jump-highlighted.\(item.id)")
+                        }
+                        .accessibilityHidden(true)
+                    )
+            } else if isSelected && model.isCapturingKeyboard {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.accentColor, lineWidth: 1.5)
+                    .accessibilityElement()
+                    .accessibilityIdentifier("shortcut.row-focused")
+                    .accessibilityValue("已選取")
+                    .background(
+                        ViewAnchor {
+                            $0.setAccessibilityElement(false)
+                            $0.setAccessibilityIdentifier("shortcut.row-focused")
+                        }
+                        .accessibilityHidden(true)
+                    )
+            }
+        }
+        .accessibilityValue(isJumpHighlighted ? "已選取 高亮" : (isSelected ? "已選取" : ""))
         .contentShape(Rectangle())
         .onTapGesture {
             model.click(item.id, field: nil, modifiers: NSEvent.modifierFlags)
+        }
+        .contextMenu {
+            Button("手動輸入…") {
+                onManualInput?(item)
+            }
         }
         .background {
             if isEditingRow {
@@ -149,18 +309,26 @@ private struct ShortcutRowView: View {
 
     @ViewBuilder
     private var titleView: some View {
-        if !showsInputs {
-            Text(item.title)
-                .lineLimit(1)
-        } else if isEditing(.title) {
-            TextField("功能名稱", text: workingBinding(\.title))
-                .textFieldStyle(.plain)
-                .focused($focus, equals: .title)
-                .fieldBox(active: true)
-        } else {
-            placeholderText(item.title, placeholder: "功能名稱")
-                .fieldBox(active: false)
-                .onTapGesture { tap(.title) }
+        VStack(alignment: .leading, spacing: 2) {
+            if model.isSearching, let sheetName = model.sheetName(for: item.id) {
+                Text(sheetName)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("shortcut.source-sheet.\(item.id)")
+            }
+            if !showsInputs {
+                Text(item.title)
+                    .lineLimit(1)
+            } else if isEditing(.title) {
+                TextField("功能名稱", text: workingBinding(\.title))
+                    .textFieldStyle(.plain)
+                    .focused($focus, equals: .title)
+                    .fieldBox(active: true)
+            } else {
+                placeholderText(item.title, placeholder: "功能名稱")
+                    .fieldBox(active: false)
+                    .onTapGesture { tap(.title) }
+            }
         }
     }
 
