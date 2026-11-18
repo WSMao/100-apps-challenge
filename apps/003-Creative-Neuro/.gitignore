@@ -1,0 +1,28 @@
+# 依賴套件
+node_modules/
+.pnpm-store/
+
+# 建置產物
+dist/
+build/
+.cache/
+.vite/
+
+# 環境變數與金鑰
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# 系統與編輯器快取
+.DS_Store
+Thumbs.db
+*.log
+
+# 內部開發與競品調研文件（不推送至 GitHub）
+docs/市場競品調查.md
+tests/docs/report/
+
+
+

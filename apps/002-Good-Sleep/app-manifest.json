@@ -1,0 +1,14 @@
+{
+  "id": "002",
+  "name": "Good Sleep",
+  "description": "告別失眠焦慮！一款專注於睡前預防、溫和引導與晨間覆盤的 iOS 應用程式",
+  "tags": ["iOS", "SwiftUI", "Swift", "Health", "Mobile"],
+  "platform": "iOS",
+  "status": "completed",
+  "demoUrl": "",
+  "docUrl": "README.md",
+  "coverImage": [
+    "assets/cover1.png",
+    "assets/cover2.png"
+  ]
+}

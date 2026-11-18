@@ -52,6 +52,7 @@
 - **資料儲存方案**：本地或雲端服務。
 - **安全性、可維護性、可擴展性**：探討 Security、Maintenance、Scalability。
 
+
 **提供技術選型建議**：按照開發者需求，依照使用場景，目標平台甚至是跨平台、多平台應用，提供 2～3 種可行的技術路線，做利弊分析後提供給開發者選擇。
 
 👉 **引導與規格工具推薦**：
@@ -120,27 +121,26 @@
 
 ## 7. Obsidian 專案與知識庫紀錄
 
-### 技術討論與概念筆記 (Tech Notes)
-當使用者要求記錄某項技術概念或架構討論時：
-- Agent 需檢視並比對 `Journey/04_Coding/技術討論與概念/` 資料夾或其子資料夾中的現有文件。
-- 比對既有內容：若該主題已存在相關文件，僅增補尚未提及或需深入擴充的部分，避免重複堆疊。
-- 若無合適的現有文件，主動創建對應主題的全新 Markdown 筆記進行結構化記錄。
+專案筆記為開發者構思專案原型想法、沉澱技術概念以及記錄開發過程的地方。
+當需要將對話精華、技術概念或新點子保存至個人 Obsidian 知識庫時，請一律調用：
 
-### Frontmatter 更新：
-當專案啟動，或使用者提出「更新專案狀態」時，更新 Obsidian 筆記頂部的 YAML 屬性：
-- status： 比如 in-progress / completed
-- tech_stack
-- update_date
+👉 **`/to-obsidian-note` skill**（支援全對話導出 `/to-obsidian-note all` 與分類提取 `/to-obsidian-note <category> <scope> <style>`，並嚴格遵循技術討論比對與點子分類規則）。
 
-### 專案管理
-當專案啟動，或使用者提出「更新專案狀態」時，按照目前規劃討論項目分門別類，整理出專案的規劃方向，條列工作項目並估計所需時間。
-若已有列好的工作項目，可以按照需求變動新增、刪除或重整。
 
-### 專案筆記
-若使用者要求將某些內容記錄到「專案筆記」時，請找到對應的專案 `Journey/04_Coding/100 Apps Challenge/<id>-<appname>.md` ，尋找適合的位置插入筆記。
-若筆記內已有相關的概念，或關聯的筆記區塊，可以直接補充或加入。
+## 8. Git 與 GitHub 規範
 
-如果使用者有自訂筆記標題，那就按照使用者標題建立內容。
+本專案為多個子專案的架構，故採用 monorepo 方式建立 GitHub 儲存庫，並以 GitHub Project 來管理任務。
+
+Agent 開發前務必確認任務與邊界，使用正確的分支進行開發。比如應確認 GitHub Issue 的 label 標籤，像是從 `app-<NNN>` 得知執行中的任務是屬於那個 app 的範疇。
+
+此 Repository 中的每個獨立子專案都是一個 app，其「專案主分支」(`<project-name>`) 的命名規則為 `<id>-<app-name>`。
+
+提交訊息採用 Conventional Commit message 的格式 `<type>(<scope>): <description>`。
+其中 `<scope>` 應視變更範疇而定：
+  - App 變更：`<scope>` 為 3 碼 App 編號（例如 `001`、`002`）。
+  - 全域變更：`<scope>` 為 `base`（例如 `feat(base): ...`）。
+
+👉 這邊沒有明確規範到的 git 使用操作，請遵守 `/monorepo-gitflow` skill 的規範。
 
 ### 資安防護
 - 禁止 Commit 敏感憑證：各 App 必須在自己的目錄或全域 .gitignore 中明確排除 .env、*.local、金鑰文件。

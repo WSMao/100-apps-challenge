@@ -1,0 +1,22 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgV1" x1="92" y1="96" x2="924" y2="940" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B1120"/>
+      <stop offset="1" stop-color="#1E1B4B"/>
+    </linearGradient>
+    <linearGradient id="layersV1" x1="288" y1="334" x2="744" y2="756" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#6366F1"/>
+    </linearGradient>
+    <linearGradient id="zapV1" x1="452" y1="294" x2="620" y2="736" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FEF08A"/>
+      <stop offset="1" stop-color="#F59E0B"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="72" y="72" width="880" height="880" rx="196" fill="url(#bgV1)"/>
+  <path d="M512 380L298 480L512 580L726 480L512 380Z" stroke="url(#layersV1)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M298 594L512 694L726 594" stroke="url(#layersV1)" stroke-opacity="0.85" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M560 300C565.093 291.233 559.567 280 549.428 280H472.021L406.706 438H514.821L454.066 710L591.143 496H500.815L560 300Z" fill="url(#zapV1)"/>
+  <path d="M560 300C565.093 291.233 559.567 280 549.428 280H472.021L406.706 438H514.821L454.066 710L591.143 496H500.815L560 300Z" stroke="#FDE68A" stroke-width="8" stroke-linejoin="round"/>
+</svg>
