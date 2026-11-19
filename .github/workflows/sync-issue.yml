@@ -1,0 +1,26 @@
+
+name: Sync App001 README to Issue
+
+on:
+  push:
+    paths:
+      - 'apps/001-Challenge-Showcase/README.md'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Sync README to Issue #28
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit 28 \
+            --body-file apps/001-Challenge-Showcase/README.md
