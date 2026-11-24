@@ -15,11 +15,20 @@
 
 import type { FlowDirection, ShapeType } from '../../types/index.ts';
 
+export interface MermaidNodeStyle {
+  fill?: string;
+  stroke?: string;
+  strokeWidth?: number;
+  color?: string;
+}
+
 export interface MermaidParsedNode {
   id: string;
   label: string;
   shapeType: ShapeType;
   parentId?: string;
+  className?: string;
+  style?: MermaidNodeStyle;
 }
 
 export interface MermaidParsedEdge {
@@ -29,6 +38,7 @@ export interface MermaidParsedEdge {
   label?: string;
   stroke: 'solid' | 'dotted' | 'thick';
   arrowHead: 'arrow' | 'none';
+  arrowStart?: boolean;
 }
 
 export interface MermaidParsedSubgraph {
@@ -45,82 +55,135 @@ export interface ParsedMermaidAST {
   nodes: MermaidParsedNode[];
   edges: MermaidParsedEdge[];
   subgraphs: MermaidParsedSubgraph[];
+  classDefs?: Record<string, MermaidNodeStyle>;
 }
 
 /**
- * Strips surrounding quotes from string literals.
+ * Strips surrounding quotes from string literals, converts <br> to newlines,
+ * and removes inline HTML formatting tags (e.g. <b>, </b>, <i>, <span>).
  */
 function cleanLabel(raw: string): string {
   let s = raw.trim();
-  // Unescape escaped quotes and HTML line breaks first
-  s = s.replace(/\\"/g, '"').replace(/<br\s*\/?>/gi, '\n');
-  if (s.length >= 2 && ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")))) {
+  if (
+    s.length >= 2 &&
+    ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")))
+  ) {
+    s = s.slice(1, -1);
+  }
+  // Unescape escaped quotes, convert HTML line breaks, and strip inline HTML formatting tags
+  s = s
+    .replace(/\\"/g, '"')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/?(?:b|i|u|strong|em|span|small|sub|sup|mark|code)[^>]*>/gi, '');
+  if (
+    s.length >= 2 &&
+    ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")))
+  ) {
     s = s.slice(1, -1);
   }
   return s;
 }
 
 /**
- * Parses node token into id, label, and shape type.
+ * Parses a Mermaid classDef style string such as:
+ * "fill:#f1f5f9,stroke:#64748b,stroke-width:1.5px,color:#0f172a"
+ */
+function parseClassDefStyle(rawStyle: string): MermaidNodeStyle {
+  const style: MermaidNodeStyle = {};
+  const parts = rawStyle.split(',');
+  for (const part of parts) {
+    const colonIdx = part.indexOf(':');
+    if (colonIdx === -1) continue;
+    const key = part.slice(0, colonIdx).trim().toLowerCase();
+    const val = part.slice(colonIdx + 1).trim();
+    if (!val) continue;
+    if (key === 'fill') style.fill = val;
+    else if (key === 'stroke') style.stroke = val;
+    else if (key === 'color') style.color = val;
+    else if (key === 'stroke-width') {
+      const num = parseFloat(val);
+      if (Number.isFinite(num)) style.strokeWidth = num;
+    }
+  }
+  return style;
+}
+
+/**
+ * Parses node token into id, label, shape type, and optional :::className.
  * Priority order matters for overlapping delimiter patterns (e.g. [() vs [).
  */
-export function parseNodeToken(token: string): { id: string; label: string; shapeType: ShapeType } {
-  const trimmed = token.trim();
+export function parseNodeToken(token: string): {
+  id: string;
+  label: string;
+  shapeType: ShapeType;
+  className?: string;
+} {
+  let trimmed = token.trim();
   if (!trimmed) {
     return { id: '', label: '', shapeType: 'rectangle' };
   }
 
+  let className: string | undefined;
+  const classMatch = trimmed.match(/^(.+?):::([a-zA-Z0-9_-]+)$/);
+  if (classMatch) {
+    trimmed = classMatch[1].trim();
+    className = classMatch[2];
+  }
+
+  const withClass = (res: { id: string; label: string; shapeType: ShapeType }) =>
+    className ? { ...res, className } : res;
+
   // 1. Stadium / Pill: ([text])
   let m = trimmed.match(/^([a-zA-Z0-9_-]+)\s*\(\[\s*(.*?)\s*\]\)$/);
-  if (m) return { id: m[1], label: cleanLabel(m[2]), shapeType: 'stadium' };
+  if (m) return withClass({ id: m[1], label: cleanLabel(m[2]), shapeType: 'stadium' });
 
   // 2. Subroutine: [[text]]
   m = trimmed.match(/^([a-zA-Z0-9_-]+)\s*\[\[\s*(.*?)\s*\]\]$/);
-  if (m) return { id: m[1], label: cleanLabel(m[2]), shapeType: 'subroutine' };
+  if (m) return withClass({ id: m[1], label: cleanLabel(m[2]), shapeType: 'subroutine' });
 
   // 3. Cylinder / DB: [(text)]
   m = trimmed.match(/^([a-zA-Z0-9_-]+)\s*\[\(\s*(.*?)\s*\)\]$/);
-  if (m) return { id: m[1], label: cleanLabel(m[2]), shapeType: 'cylinder' };
+  if (m) return withClass({ id: m[1], label: cleanLabel(m[2]), shapeType: 'cylinder' });
 
   // 4. Circle: ((text))
   m = trimmed.match(/^([a-zA-Z0-9_-]+)\s*\(\(\s*(.*?)\s*\)\)$/);
-  if (m) return { id: m[1], label: cleanLabel(m[2]), shapeType: 'circle' };
+  if (m) return withClass({ id: m[1], label: cleanLabel(m[2]), shapeType: 'circle' });
 
   // 5. Hexagon: {{text}}
   m = trimmed.match(/^([a-zA-Z0-9_-]+)\s*\{\{\s*(.*?)\s*\}\}$/);
-  if (m) return { id: m[1], label: cleanLabel(m[2]), shapeType: 'hexagon' };
+  if (m) return withClass({ id: m[1], label: cleanLabel(m[2]), shapeType: 'hexagon' });
 
   // 6. Parallelogram: [/text/]
   m = trimmed.match(/^([a-zA-Z0-9_-]+)\s*\[\/\s*(.*?)\s*\/\]$/);
-  if (m) return { id: m[1], label: cleanLabel(m[2]), shapeType: 'rectangle' }; // maps to shape
+  if (m) return withClass({ id: m[1], label: cleanLabel(m[2]), shapeType: 'rectangle' }); // maps to shape
 
   // 7. Trapezoid: [/text\]
   m = trimmed.match(/^([a-zA-Z0-9_-]+)\s*\[\/\s*(.*?)\s*\\\]$/);
-  if (m) return { id: m[1], label: cleanLabel(m[2]), shapeType: 'rectangle' };
+  if (m) return withClass({ id: m[1], label: cleanLabel(m[2]), shapeType: 'rectangle' });
 
   // 8. Inverted Trapezoid: [\text/]
   m = trimmed.match(/^([a-zA-Z0-9_-]+)\s*\[\\\s*(.*?)\s*\/\]$/);
-  if (m) return { id: m[1], label: cleanLabel(m[2]), shapeType: 'rectangle' };
+  if (m) return withClass({ id: m[1], label: cleanLabel(m[2]), shapeType: 'rectangle' });
 
   // 9. Alternate Parallelogram: [\text\]
   m = trimmed.match(/^([a-zA-Z0-9_-]+)\s*\[\\\s*(.*?)\s*\\\]$/);
-  if (m) return { id: m[1], label: cleanLabel(m[2]), shapeType: 'rectangle' };
+  if (m) return withClass({ id: m[1], label: cleanLabel(m[2]), shapeType: 'rectangle' });
 
   // 10. Diamond: {text}
   m = trimmed.match(/^([a-zA-Z0-9_-]+)\s*\{\s*(.*?)\s*\}$/);
-  if (m) return { id: m[1], label: cleanLabel(m[2]), shapeType: 'diamond' };
+  if (m) return withClass({ id: m[1], label: cleanLabel(m[2]), shapeType: 'diamond' });
 
   // 11. Rounded: (text)
   m = trimmed.match(/^([a-zA-Z0-9_-]+)\s*\(\s*(.*?)\s*\)$/);
-  if (m) return { id: m[1], label: cleanLabel(m[2]), shapeType: 'rounded' };
+  if (m) return withClass({ id: m[1], label: cleanLabel(m[2]), shapeType: 'rounded' });
 
   // 12. Rectangle: [text]
   m = trimmed.match(/^([a-zA-Z0-9_-]+)\s*\[\s*(.*?)\s*\]$/);
-  if (m) return { id: m[1], label: cleanLabel(m[2]), shapeType: 'rectangle' };
+  if (m) return withClass({ id: m[1], label: cleanLabel(m[2]), shapeType: 'rectangle' });
 
   // 13. Plain identifier
   m = trimmed.match(/^([a-zA-Z0-9_-]+)$/);
-  if (m) return { id: m[1], label: cleanLabel(m[1]), shapeType: 'rectangle' };
+  if (m) return withClass({ id: m[1], label: cleanLabel(m[1]), shapeType: 'rectangle' });
 
   // Guard: If not a recognized shape or identifier, return empty id to reject noise
   return { id: '', label: '', shapeType: 'rectangle' };
@@ -129,38 +192,46 @@ export function parseNodeToken(token: string): { id: string; label: string; shap
 /**
  * Regex for arrow tokens:
  * Supports:
- * - -->, ---
- * - -.->, -.-
- * - ==>, ===
- * With inline labels: -->|label| or -- label --> or -. label .-> or == label ==>
+ * - -->, <--> , ---
+ * - -.->, <-.->, -.-
+ * - ==>, <==>, ===
+ * With inline labels: -->|label| or -- label --> or <-- label --> or -. label .-> or == label ==>
+ * Supports <br> HTML tags inside labels.
  */
 const ARROW_PATTERN =
-  /\s*(?:(--+>(?!>)|---+(?![-|>])|-\.+->(?!>)|-\.+-|==+>(?!>)|===+(?![=>]))(?:\|([^|]+)\|)?|--\s*([^>]+?)\s*-->|-\.\s*([^\.]+?)\s*\.->|==\s*([^=]+?)\s*==>)\s*/;
+  /\s*(?:(<--+>(?!>)|--+>(?!>)|---+(?![-|>])|<-\.+->(?!>)|-\.+->(?!>)|-\.+-|<==+>(?!>)|==+>(?!>)|===+(?![=>]))(?:\|([^|]+)\|)?|(<--|--)(?![->])\s*(.+?)\s*-->|(<-.-|-\.)(?![.>-])\s*(.+?)\s*\.->|(<==|==)(?![=>])\s*(.+?)\s*==>)\s*/;
 
 interface ArrowMatch {
   rawArrow: string;
   label?: string;
   stroke: 'solid' | 'dotted' | 'thick';
   arrowHead: 'arrow' | 'none';
+  arrowStart?: boolean;
 }
 
 function parseArrowDetails(match: RegExpMatchArray): ArrowMatch {
   const directArrow = match[1];
   const pipeLabel = match[2];
-  const dashLabel = match[3];
-  const dotLabel = match[4];
-  const thickLabel = match[5];
+  const dashPrefix = match[3];
+  const dashLabel = match[4];
+  const dotPrefix = match[5];
+  const dotLabel = match[6];
+  const thickPrefix = match[7];
+  const thickLabel = match[8];
 
   const label = pipeLabel || dashLabel || dotLabel || thickLabel;
   let stroke: 'solid' | 'dotted' | 'thick' = 'solid';
   let arrowHead: 'arrow' | 'none' = 'arrow';
+  let arrowStart = false;
 
   if (directArrow) {
-    if (directArrow.startsWith('-.')) stroke = 'dotted';
-    else if (directArrow.startsWith('==')) stroke = 'thick';
+    if (directArrow.startsWith('<')) arrowStart = true;
+    const cleanDirect = directArrow.replace(/^</, '');
+    if (cleanDirect.startsWith('-.')) stroke = 'dotted';
+    else if (cleanDirect.startsWith('==')) stroke = 'thick';
     else stroke = 'solid';
 
-    if (directArrow.endsWith('---') || directArrow.endsWith('-.-') || directArrow.endsWith('===')) {
+    if (cleanDirect.endsWith('---') || cleanDirect.endsWith('-.-') || cleanDirect.endsWith('===')) {
       arrowHead = 'none';
     } else {
       arrowHead = 'arrow';
@@ -168,12 +239,15 @@ function parseArrowDetails(match: RegExpMatchArray): ArrowMatch {
   } else if (dashLabel) {
     stroke = 'solid';
     arrowHead = 'arrow';
+    if (dashPrefix === '<--') arrowStart = true;
   } else if (dotLabel) {
     stroke = 'dotted';
     arrowHead = 'arrow';
+    if (dotPrefix === '<-.-') arrowStart = true;
   } else if (thickLabel) {
     stroke = 'thick';
     arrowHead = 'arrow';
+    if (thickPrefix === '<==') arrowStart = true;
   }
 
   return {
@@ -181,6 +255,7 @@ function parseArrowDetails(match: RegExpMatchArray): ArrowMatch {
     label: label ? cleanLabel(label) : undefined,
     stroke,
     arrowHead,
+    arrowStart: arrowStart ? true : undefined,
   };
 }
 
@@ -204,6 +279,7 @@ export function parseMermaid(code: string): ParsedMermaidAST {
   const edges: MermaidParsedEdge[] = [];
   const subgraphs: MermaidParsedSubgraph[] = [];
   const subgraphStack: MermaidParsedSubgraph[] = [];
+  const classDefs: Record<string, MermaidNodeStyle> = {};
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     const line = lines[lineIndex];
@@ -214,6 +290,31 @@ export function parseMermaid(code: string): ParsedMermaidAST {
       diagramType = parts[0] as 'flowchart' | 'graph';
       if (parts[1] && ['TB', 'TD', 'BT', 'RL', 'LR'].includes(parts[1])) {
         direction = parts[1] as FlowDirection;
+      }
+      continue;
+    }
+
+    // 1b. classDef declaration: classDef shell fill:#f1f5f9,stroke:#64748b,...
+    if (line.startsWith('classDef ')) {
+      const match = line.match(/^classDef\s+([a-zA-Z0-9_-]+)\s+(.+)$/);
+      if (match) {
+        classDefs[match[1]] = parseClassDefStyle(match[2]);
+      }
+      continue;
+    }
+
+    // 1c. class assignment statement: class NodeA,NodeB className
+    if (line.startsWith('class ')) {
+      const match = line.match(/^class\s+([a-zA-Z0-9_,\s-]+)\s+([a-zA-Z0-9_-]+)$/);
+      if (match) {
+        const targetIds = match[1].split(',').map((s) => s.trim()).filter(Boolean);
+        const clsName = match[2].trim();
+        for (const tid of targetIds) {
+          const existing = nodesMap.get(tid);
+          if (existing) {
+            existing.className = clsName;
+          }
+        }
       }
       continue;
     }
@@ -289,7 +390,10 @@ export function parseMermaid(code: string): ParsedMermaidAST {
               label: srcParsed.label,
               shapeType: srcParsed.shapeType,
               parentId: currentSubgraph?.id,
+              ...(srcParsed.className ? { className: srcParsed.className } : {}),
             });
+          } else if (srcParsed.className) {
+            nodesMap.get(srcParsed.id)!.className = srcParsed.className;
           }
           if (!nodesMap.has(tgtParsed.id)) {
             nodesMap.set(tgtParsed.id, {
@@ -297,7 +401,10 @@ export function parseMermaid(code: string): ParsedMermaidAST {
               label: tgtParsed.label,
               shapeType: tgtParsed.shapeType,
               parentId: currentSubgraph?.id,
+              ...(tgtParsed.className ? { className: tgtParsed.className } : {}),
             });
+          } else if (tgtParsed.className) {
+            nodesMap.get(tgtParsed.id)!.className = tgtParsed.className;
           }
 
           if (currentSubgraph) {
@@ -316,6 +423,7 @@ export function parseMermaid(code: string): ParsedMermaidAST {
             label: arrow.label,
             stroke: arrow.stroke,
             arrowHead: arrow.arrowHead,
+            ...(arrow.arrowStart ? { arrowStart: true } : {}),
           });
         }
       }
@@ -333,6 +441,7 @@ export function parseMermaid(code: string): ParsedMermaidAST {
           label: nodeParsed.label,
           shapeType: nodeParsed.shapeType,
           parentId: currentSubgraph?.id,
+          ...(nodeParsed.className ? { className: nodeParsed.className } : {}),
         });
       } else {
         // Update label or shape if previously encountered implicitly
@@ -340,6 +449,9 @@ export function parseMermaid(code: string): ParsedMermaidAST {
         if (nodeParsed.label !== nodeParsed.id) {
           existing.label = nodeParsed.label;
           existing.shapeType = nodeParsed.shapeType;
+        }
+        if (nodeParsed.className) {
+          existing.className = nodeParsed.className;
         }
         if (currentSubgraph && !existing.parentId) {
           existing.parentId = currentSubgraph.id;
@@ -352,11 +464,23 @@ export function parseMermaid(code: string): ParsedMermaidAST {
     }
   }
 
+  // Attach resolved classDef styles to nodes
+  const finalNodes = Array.from(nodesMap.values()).map((node) => {
+    if (node.className && classDefs[node.className]) {
+      return {
+        ...node,
+        style: classDefs[node.className],
+      };
+    }
+    return node;
+  });
+
   return {
     diagramType,
     direction,
-    nodes: Array.from(nodesMap.values()),
+    nodes: finalNodes,
     edges,
     subgraphs,
+    ...(Object.keys(classDefs).length > 0 ? { classDefs } : {}),
   };
 }

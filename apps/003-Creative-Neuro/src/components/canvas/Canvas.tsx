@@ -44,7 +44,14 @@ import {
   useActivePageEdges,
 } from '../../store/useProjectStore.ts';
 import type { NeuroNode, NeuroEdge, Point } from '../../types/index.ts';
-import { calculateFrameAutoGrowth } from '../../engine/index.ts';
+import {
+  calculateFrameAutoGrowth,
+  isEdgeInSelectionRect,
+  type BoundingRect,
+} from '../../engine/index.ts';
+import { useCanvasGestures, type ContextMenuState } from './hooks/useCanvasGestures.ts';
+import { useDragCoordinator } from './hooks/useDragCoordinator.ts';
+import { useSelectionSync } from './hooks/useSelectionSync.ts';
 
 import ShapeNode from './nodes/ShapeNode.tsx';
 import TextNode from './nodes/TextNode.tsx';
@@ -96,14 +103,6 @@ const edgeTypes: EdgeTypes = {
   straight: JumpConnectorEdge,
 };
 
-interface ContextMenuState {
-  x: number;
-  y: number;
-  flowX: number;
-  flowY: number;
-  targetNodeId: string | null;
-}
-
 export function CanvasContent() {
   const nodes = useActivePageNodes();
   const edges = useActivePageEdges();
@@ -121,6 +120,7 @@ export function CanvasContent() {
     selectedEdgeIds,
     handleConnectorNodeClick,
     reconnectEdge,
+    removeEdge,
     themeMode,
     selectionFilter,
     isDragging,
@@ -141,15 +141,6 @@ export function CanvasContent() {
     fitView,
   } = useReactFlow();
 
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const rightClickStartRef = useRef<{ x: number; y: number } | null>(null);
-  const pendingContextMenuRef = useRef<{
-    clientX: number;
-    clientY: number;
-    targetNodeId: string | null;
-  } | null>(null);
-  const readyToOpenContextMenuRef = useRef<boolean>(false);
-  const lastPaneClickRef = useRef<{ time: number; x: number; y: number } | null>(null);
   const lastDoubleClickSpawnRef = useRef<number>(0);
 
   // Shared helper to spawn a floating node centered at client coordinates (OP-06)
@@ -188,459 +179,41 @@ export function CanvasContent() {
     [screenToFlowPosition, addNode, setSelectedNodes, isDark]
   );
 
-  // Edge Reconnection handler (TL-03)
-  const handleReconnect = useCallback(
-    (oldEdge: Edge, newConnection: Connection) => {
-      reconnectEdge(oldEdge.id, newConnection);
-    },
-    [reconnectEdge]
-  );
+  // Interaction coordinator hooks (Candidate 3)
+  const {
+    contextMenu,
+    setContextMenu,
+    isSpacePressed,
+    handleMouseDown,
+    handleMouseUp,
+    handlePaneContextMenu,
+    handleNodeContextMenu,
+    handlePaneClick,
+  } = useCanvasGestures({
+    toolMode,
+    screenToFlowPosition,
+    addNode,
+    setToolMode,
+    setSelectedNodes,
+    setSelectedEdges,
+    spawnFloatingNodeAtClientPos,
+    isDark,
+  });
 
-  // Dragging lifecycle & manual layoutMode conversion
-  const dragStartSnapshotRef = useRef<{
-    project: any;
-    boards: any;
-    pages: any;
-    nodes: Record<string, NeuroNode>;
-    edges: any;
-    activePageId: string;
-  } | null>(null);
+  const { handleNodeDragStart, handleNodeDragStop } = useDragCoordinator();
 
-  const handleNodeDragStart: OnNodeDrag = useCallback((_event, node) => {
-    const state = useProjectStore.getState();
-    if (node && !state.selectedNodeIds.includes(node.id)) {
-      state.setSelectedNodes([node.id]);
-      state.setSelectedEdges([]);
-    }
-    dragStartSnapshotRef.current = {
-      project: state.project,
-      boards: state.boards,
-      pages: state.pages,
-      nodes: JSON.parse(JSON.stringify(state.nodes)),
-      edges: state.edges,
-      activePageId: state.activePageId,
-    };
-    useProjectStore.temporal.getState().pause();
-    useProjectStore.setState({ isDragging: true });
-  }, []);
-
-  // Context Menu opener helper
-  const openContextMenu = useCallback(
-    (clientX: number, clientY: number, targetNodeId: string | null) => {
-      const flowPos = screenToFlowPosition({
-        x: clientX,
-        y: clientY,
-      });
-
-      setContextMenu({
-        x: clientX,
-        y: clientY,
-        flowX: flowPos.x,
-        flowY: flowPos.y,
-        targetNodeId,
-      });
-    },
-    [screenToFlowPosition]
-  );
-
-  // Mouse Down: Record initial point for right-click pan vs contextmenu discrimination
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button === 2) {
-      rightClickStartRef.current = { x: e.clientX, y: e.clientY };
-      pendingContextMenuRef.current = null;
-      readyToOpenContextMenuRef.current = false;
-    }
-  }, []);
-
-  const handleRightClickRelease = useCallback(
-    (clientX: number, clientY: number) => {
-      const start = rightClickStartRef.current;
-      rightClickStartRef.current = null;
-
-      if (start) {
-        const dist = Math.hypot(clientX - start.x, clientY - start.y);
-        if (dist > 5) {
-          // It was a pan drag gesture, do not open context menu
-          pendingContextMenuRef.current = null;
-          readyToOpenContextMenuRef.current = false;
-          return;
-        }
-      }
-
-      // If contextmenu already fired (e.g. on macOS mousedown), show menu upon release
-      if (pendingContextMenuRef.current) {
-        const { clientX: px, clientY: py, targetNodeId } = pendingContextMenuRef.current;
-        pendingContextMenuRef.current = null;
-        readyToOpenContextMenuRef.current = false;
-        openContextMenu(px, py, targetNodeId);
-      } else {
-        // If contextmenu hasn't fired yet (e.g. Windows mouseup first), flag ready
-        readyToOpenContextMenuRef.current = true;
-        setTimeout(() => {
-          readyToOpenContextMenuRef.current = false;
-        }, 300);
-      }
-    },
-    [openContextMenu]
-  );
-
-  const handleMouseUp = useCallback(
-    (e: React.MouseEvent) => {
-      if (e.button === 2) {
-        handleRightClickRelease(e.clientX, e.clientY);
-      }
-    },
-    [handleRightClickRelease]
-  );
-
-  // Pane Context Menu (OP-01): Defers opening until right button is released
-  const handlePaneContextMenu = useCallback(
-    (event: MouseEvent | React.MouseEvent) => {
-      event.preventDefault();
-      const start = rightClickStartRef.current;
-      if (start) {
-        const dist = Math.hypot(event.clientX - start.x, event.clientY - start.y);
-        if (dist > 5) {
-          return;
-        }
-      }
-
-      if (readyToOpenContextMenuRef.current) {
-        readyToOpenContextMenuRef.current = false;
-        pendingContextMenuRef.current = null;
-        openContextMenu(event.clientX, event.clientY, null);
-      } else {
-        pendingContextMenuRef.current = {
-          clientX: event.clientX,
-          clientY: event.clientY,
-          targetNodeId: null,
-        };
-      }
-    },
-    [openContextMenu]
-  );
-
-  // Node Context Menu (OP-01): Defers opening until right button is released
-  const handleNodeContextMenu = useCallback(
-    (event: MouseEvent | React.MouseEvent, node: Node) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const start = rightClickStartRef.current;
-      if (start) {
-        const dist = Math.hypot(event.clientX - start.x, event.clientY - start.y);
-        if (dist > 5) {
-          return;
-        }
-      }
-
-      if (readyToOpenContextMenuRef.current) {
-        readyToOpenContextMenuRef.current = false;
-        pendingContextMenuRef.current = null;
-        openContextMenu(event.clientX, event.clientY, node.id);
-      } else {
-        pendingContextMenuRef.current = {
-          clientX: event.clientX,
-          clientY: event.clientY,
-          targetNodeId: node.id,
-        };
-      }
-    },
-    [openContextMenu]
-  );
-
-  // Global drag safety net: ensures temporal is never stuck paused if pointer capture drops
-  useEffect(() => {
-    let timerId: ReturnType<typeof setTimeout> | null = null;
-    const handleGlobalDragCancel = () => {
-      // Defer to macro-task so handleNodeDragStop has an opportunity to execute first
-      timerId = setTimeout(() => {
-        const state = useProjectStore.getState();
-        if (state.isDragging || dragStartSnapshotRef.current) {
-          useProjectStore.setState((s) => {
-            s.isDragging = false;
-            for (const node of Object.values(s.nodes)) {
-              if (node && 'dragging' in node) {
-                delete node.dragging;
-              }
-            }
-          });
-          useProjectStore.temporal.getState().resume();
-          dragStartSnapshotRef.current = null;
-        }
-      }, 0);
-    };
-    window.addEventListener('pointerup', handleGlobalDragCancel);
-    window.addEventListener('mouseup', handleGlobalDragCancel);
-    window.addEventListener('pointercancel', handleGlobalDragCancel);
-
-    const handleGlobalMouseDown = (e: MouseEvent) => {
-      if (e.button === 2) {
-        rightClickStartRef.current = { x: e.clientX, y: e.clientY };
-        pendingContextMenuRef.current = null;
-        readyToOpenContextMenuRef.current = false;
-      }
-    };
-    const handleGlobalMouseUp = (e: MouseEvent) => {
-      if (e.button === 2) {
-        handleRightClickRelease(e.clientX, e.clientY);
-      }
-    };
-    window.addEventListener('mousedown', handleGlobalMouseDown, true);
-    window.addEventListener('mouseup', handleGlobalMouseUp, true);
-
-    return () => {
-      if (timerId) clearTimeout(timerId);
-      window.removeEventListener('pointerup', handleGlobalDragCancel);
-      window.removeEventListener('mouseup', handleGlobalDragCancel);
-      window.removeEventListener('pointercancel', handleGlobalDragCancel);
-      window.removeEventListener('mousedown', handleGlobalMouseDown, true);
-      window.removeEventListener('mouseup', handleGlobalMouseUp, true);
-    };
-  }, [handleRightClickRelease]);
-
-  const handleNodeDragStop = useCallback(
-    (_event: unknown, _draggedNode: Node, allDraggedNodes?: Node[]) => {
-      const draggedNodesList =
-        allDraggedNodes && allDraggedNodes.length > 0
-          ? allDraggedNodes
-          : _draggedNode
-          ? [_draggedNode]
-          : [];
-
-      const startSnapshot = dragStartSnapshotRef.current;
-      dragStartSnapshotRef.current = null;
-
-      try {
-        useProjectStore.setState((state) => {
-          state.isDragging = false;
-          for (const node of Object.values(state.nodes)) {
-            if (node && 'dragging' in node) {
-              delete node.dragging;
-            }
-          }
-          const currentNodes = Object.values(state.nodes);
-
-          for (const dn of draggedNodesList) {
-            const storeNode = state.nodes[dn.id];
-            if (!storeNode) continue;
-
-            delete storeNode.dragging;
-
-            // 1. Force layoutMode to manual on user drag
-            if (storeNode.layoutMode === 'auto-elk') {
-              storeNode.layoutMode = 'manual';
-            }
-            if (storeNode.data && storeNode.data.layoutMode === 'auto-elk') {
-              storeNode.data.layoutMode = 'manual';
-            }
-
-            // 2. Frame container attachment check
-            if (dn.type !== 'frame') {
-              const frames = currentNodes.filter(
-                (n) => n.type === 'frame' && n.id !== dn.id && !n.data?.collapsed
-              );
-
-              const nodePos = dn.position;
-              const nodeW = dn.width ?? storeNode.width ?? 160;
-              const nodeH = dn.height ?? storeNode.height ?? 60;
-              const nodeCenter = {
-                x: nodePos.x + nodeW / 2,
-                y: nodePos.y + nodeH / 2,
-              };
-
-              let matchedFrame: NeuroNode | null = null;
-              for (const frame of frames) {
-                const fw = frame.width ?? 320;
-                const fh = frame.height ?? 240;
-                if (
-                  nodeCenter.x >= frame.position.x &&
-                  nodeCenter.x <= frame.position.x + fw &&
-                  nodeCenter.y >= frame.position.y &&
-                  nodeCenter.y <= frame.position.y + fh
-                ) {
-                  matchedFrame = frame;
-                  break;
-                }
-              }
-
-              if (matchedFrame && storeNode.parentId !== matchedFrame.id) {
-                // Attach to frame
-                storeNode.parentId = matchedFrame.id;
-                // Auto expand frame if near border
-                const children = currentNodes.filter(
-                  (n) => n.parentId === matchedFrame!.id
-                );
-                const newDims = calculateFrameAutoGrowth(
-                  matchedFrame,
-                  children,
-                  nodePos,
-                  { width: nodeW, height: nodeH },
-                  40
-                );
-                const targetFrame = state.nodes[matchedFrame.id];
-                if (targetFrame) {
-                  targetFrame.width = newDims.width;
-                  targetFrame.height = newDims.height;
-                }
-              } else if (!matchedFrame && storeNode.parentId) {
-                // Detached from frame
-                delete storeNode.parentId;
-                delete storeNode.extent;
-              }
-            }
-          }
-        });
-
-        // Check if positions actually changed compared to startSnapshot
-        if (startSnapshot) {
-          const currentState = useProjectStore.getState();
-          const hasMoved = draggedNodesList.some((dn) => {
-            const original = startSnapshot.nodes[dn.id];
-            const current = currentState.nodes[dn.id];
-            return (
-              original &&
-              current &&
-              (original.position.x !== current.position.x ||
-                original.position.y !== current.position.y)
-            );
-          });
-
-          if (hasMoved) {
-            useProjectStore.temporal.setState((t) => {
-              const pastStates = [...t.pastStates, startSnapshot];
-              if (pastStates.length > 100) pastStates.shift();
-              return {
-                pastStates,
-                futureStates: [],
-              };
-            });
-          }
-        }
-      } finally {
-        // Guarantee temporal tracking resumes cleanly
-        useProjectStore.temporal.getState().resume();
-      }
-    },
-    []
-  );
-
-  // Canvas click-to-add for toolbar modes
-  const handlePaneClick = useCallback(
-    (event: React.MouseEvent) => {
-      if (contextMenu) setContextMenu(null);
-
-      // OP-06: Detect rapid double-click on empty pane in selectionOnDrag mode
-      if (toolMode === 'select' || toolMode === 'connect') {
-        setSelectedNodes([]);
-        setSelectedEdges([]);
-        const now = Date.now();
-        const prev = lastPaneClickRef.current;
-        if (
-          prev &&
-          now - prev.time < 320 &&
-          Math.hypot(event.clientX - prev.x, event.clientY - prev.y) < 10
-        ) {
-          lastPaneClickRef.current = null;
-          spawnFloatingNodeAtClientPos(event.clientX, event.clientY);
-          return;
-        }
-        lastPaneClickRef.current = {
-          time: now,
-          x: event.clientX,
-          y: event.clientY,
-        };
-        return;
-      }
-
-      if (toolMode === 'draw') {
-        return;
-      }
-
-      const position = screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY,
-      });
-
-      if (toolMode === 'shape') {
-        addNode({
-          type: 'shape',
-          position,
-          width: 160,
-          height: 60,
-          layoutMode: 'manual',
-          data: {
-            label: 'New Node',
-            layoutMode: 'manual',
-            shapeType: 'rounded',
-            backgroundColor: isDark ? '#1e293b' : '#ffffff',
-            borderColor: isDark ? '#475569' : '#cbd5e1',
-            color: isDark ? '#f8fafc' : '#0f172a',
-          },
-        });
-        setToolMode('select');
-      } else if (toolMode === 'text') {
-        addNode({
-          type: 'text',
-          position,
-          width: 160,
-          height: 40,
-          layoutMode: 'manual',
-          data: {
-            label: 'Type text here...',
-            layoutMode: 'manual',
-            color: isDark ? '#f8fafc' : '#0f172a',
-            fontSize: 15,
-            backgroundColor: 'transparent',
-            borderColor: 'transparent',
-            borderWidth: 0,
-          },
-        });
-        setToolMode('select');
-      } else if (toolMode === 'frame') {
-        addNode({
-          type: 'frame',
-          position,
-          width: 360,
-          height: 260,
-          layoutMode: 'manual',
-          data: {
-            label: 'Container Frame',
-            title: 'Container Frame',
-            layoutMode: 'manual',
-            collapsed: false,
-          },
-        });
-        setToolMode('select');
-      } else if (toolMode === 'diagram') {
-        addNode({
-          type: 'diagram',
-          position,
-          width: 340,
-          height: 240,
-          layoutMode: 'manual',
-          data: {
-            label: 'Sub-Diagram Flow',
-            title: 'Sub-Diagram Flow',
-            layoutMode: 'manual',
-            diagramMode: 'embedded',
-            diagramOrientation: 'TB',
-            mermaidCode:
-              'flowchart TD\n  Start([Start]) --> Process[Process Step]\n  Process --> End([End])',
-          },
-        });
-        setToolMode('select');
-      }
-    },
-    [
-      toolMode,
-      screenToFlowPosition,
-      addNode,
-      setToolMode,
-      isDark,
-      contextMenu,
-      spawnFloatingNodeAtClientPos,
-    ]
-  );
+  const {
+    onReconnectStart,
+    onReconnect: handleReconnect,
+    onReconnectEnd,
+  } = useSelectionSync({
+    selectedNodeIds,
+    selectedEdgeIds,
+    nodes,
+    edges,
+    reconnectEdge,
+    removeEdge,
+  });
 
   // Double click empty canvas creates a new floating node (OP-06)
   const handlePaneDoubleClick = useCallback(
@@ -727,91 +300,6 @@ export function CanvasContent() {
     },
     [toolMode, selectionFilter.edge, selectedEdgeIds, setSelectedEdges, setSelectedNodes]
   );
-
-interface BoundingRect {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-}
-
-function isPointInRect(pt: Point, rect: BoundingRect): boolean {
-  return pt.x >= rect.minX && pt.x <= rect.maxX && pt.y >= rect.minY && pt.y <= rect.maxY;
-}
-
-function lineSegmentsCross(a1: Point, a2: Point, b1: Point, b2: Point): boolean {
-  const d1 = (b2.x - b1.x) * (a1.y - b1.y) - (b2.y - b1.y) * (a1.x - b1.x);
-  const d2 = (b2.x - b1.x) * (a2.y - b1.y) - (b2.y - b1.y) * (a2.x - b1.x);
-  const d3 = (a2.x - a1.x) * (b1.y - a1.y) - (a2.y - a1.y) * (b1.x - a1.x);
-  const d4 = (a2.x - a1.x) * (b2.y - a1.y) - (a2.y - a1.y) * (b2.x - a1.x);
-
-  return (
-    ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
-    ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
-  );
-}
-
-function isSegmentIntersectingRect(p1: Point, p2: Point, rect: BoundingRect): boolean {
-  if (isPointInRect(p1, rect) || isPointInRect(p2, rect)) return true;
-  if (Math.max(p1.x, p2.x) < rect.minX || Math.min(p1.x, p2.x) > rect.maxX) return false;
-  if (Math.max(p1.y, p2.y) < rect.minY || Math.min(p1.y, p2.y) > rect.maxY) return false;
-
-  const rTL = { x: rect.minX, y: rect.minY };
-  const rTR = { x: rect.maxX, y: rect.minY };
-  const rBR = { x: rect.maxX, y: rect.maxY };
-  const rBL = { x: rect.minX, y: rect.maxY };
-
-  return (
-    lineSegmentsCross(p1, p2, rTL, rTR) ||
-    lineSegmentsCross(p1, p2, rTR, rBR) ||
-    lineSegmentsCross(p1, p2, rBR, rBL) ||
-    lineSegmentsCross(p1, p2, rBL, rTL)
-  );
-}
-
-function getNodeEndpoint(node: NeuroNode, handleId?: string | null, isSource = false): Point {
-  const x = node.position.x;
-  const y = node.position.y;
-  const w = node.width ?? 160;
-  const h = node.height ?? 60;
-  const side = handleId ? handleId.replace('-plus', '') : isSource ? 'bottom' : 'top';
-  switch (side) {
-    case 'top':
-      return { x: x + w / 2, y };
-    case 'bottom':
-      return { x: x + w / 2, y: y + h };
-    case 'left':
-      return { x, y: y + h / 2 };
-    case 'right':
-      return { x: x + w, y: y + h / 2 };
-    default:
-      return { x: x + w / 2, y: y + h / 2 };
-  }
-}
-
-function isEdgeInSelectionRect(
-  edge: Edge | NeuroEdge,
-  nodeMap: Map<string, NeuroNode>,
-  rect: BoundingRect
-): boolean {
-  const src = nodeMap.get(edge.source);
-  const tgt = nodeMap.get(edge.target);
-  if (!src || !tgt) return false;
-
-  const p1 = getNodeEndpoint(src, edge.sourceHandle, true);
-  const p2 = getNodeEndpoint(tgt, edge.targetHandle, false);
-
-  const midX = (p1.x + p2.x) / 2;
-  const pMid1 = { x: midX, y: p1.y };
-  const pMid2 = { x: midX, y: p2.y };
-
-  return (
-    isSegmentIntersectingRect(p1, p2, rect) ||
-    isSegmentIntersectingRect(p1, pMid1, rect) ||
-    isSegmentIntersectingRect(pMid1, pMid2, rect) ||
-    isSegmentIntersectingRect(pMid2, p2, rect)
-  );
-}
 
   const handleSelectionChange = useCallback(
     ({ nodes: selNodes, edges: selEdges }: OnSelectionChangeParams) => {
@@ -976,12 +464,15 @@ function isEdgeInSelectionRect(
       .map((n) => {
         const typeKey = (n.type || 'shape') as keyof typeof selectionFilter;
         const isSelectable = selectionFilter[typeKey] ?? true;
-        const w = n.measured?.width ?? n.width ?? 160;
-        const h = n.measured?.height ?? n.height ?? 60;
+        const w = n.width ?? n.measured?.width ?? 160;
+        const h = n.height ?? n.measured?.height ?? 60;
         const measured = getStableMeasured(n.id, w, h);
 
         const nodeObj: any = {
           ...n,
+          width: w,
+          height: h,
+          draggable: true,
           selected: selectedSet.has(n.id),
           selectable: isSelectable,
           measured,
@@ -1150,7 +641,7 @@ function isEdgeInSelectionRect(
         <FreehandOverlay />
 
         {/* FN-03 & FN-04: Selection & Group Bounding Box Overlay */}
-        {selectionBounds && (
+        {selectionBounds && !useProjectStore.getState().focusedDiagramId && (
           <ViewportPortal>
             <div
               style={{

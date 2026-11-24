@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { useEdges, useReactFlow } from '@xyflow/react';
 import {
   Spline,
   CornerDownRight,
@@ -9,7 +10,7 @@ import {
   GitCommit,
 } from 'lucide-react';
 import { useProjectStore } from '../../../store/useProjectStore.ts';
-import type { EdgeRoutingType, NeuroEdgeData } from '../../../types/index.ts';
+import type { EdgeRoutingType, NeuroEdge, NeuroEdgeData } from '../../../types/index.ts';
 
 export interface EdgeFloatingActionBarProps {
   edgeId?: string;
@@ -22,6 +23,8 @@ export const EdgeFloatingActionBar: React.FC<EdgeFloatingActionBarProps> = ({ ed
   const batchUpdateEdgeData = useProjectStore((s) => s.batchUpdateEdgeData);
   const deleteEdges = useProjectStore((s) => s.deleteEdges);
   const themeMode = useProjectStore((s) => s.themeMode);
+  const rfEdges = useEdges();
+  const rfInstance = useReactFlow();
 
   const targetIds = useMemo(() => {
     if (edgeIds && edgeIds.length > 0) return edgeIds;
@@ -29,9 +32,19 @@ export const EdgeFloatingActionBar: React.FC<EdgeFloatingActionBarProps> = ({ ed
     return [];
   }, [edgeId, edgeIds]);
 
+  const isStoreEdge = useMemo(
+    () => targetIds.some((id) => Boolean(edges[id])),
+    [targetIds, edges]
+  );
+
   const targetEdges = useMemo(() => {
-    return targetIds.map((id) => edges[id]).filter(Boolean);
-  }, [targetIds, edges]);
+    if (isStoreEdge) {
+      return targetIds.map((id) => edges[id]).filter(Boolean);
+    }
+    return targetIds
+      .map((id) => rfEdges.find((e) => e.id === id) as unknown as NeuroEdge | undefined)
+      .filter((e): e is NeuroEdge => Boolean(e));
+  }, [targetIds, edges, isStoreEdge, rfEdges]);
 
   if (targetEdges.length === 0) return null;
 
@@ -45,15 +58,35 @@ export const EdgeFloatingActionBar: React.FC<EdgeFloatingActionBarProps> = ({ ed
   const currentArrowEnd = data.arrowEnd !== false;
 
   const handleUpdate = (patch: Partial<NeuroEdgeData>) => {
-    if (isMulti) {
-      batchUpdateEdgeData(targetIds, patch);
+    if (isStoreEdge) {
+      if (isMulti) {
+        batchUpdateEdgeData(targetIds, patch);
+      } else {
+        updateEdgeData(targetIds[0], patch);
+      }
     } else {
-      updateEdgeData(targetIds[0], patch);
+      rfInstance.setEdges((eds) =>
+        eds.map((ed) =>
+          targetIds.includes(ed.id)
+            ? {
+                ...ed,
+                data: {
+                  ...(ed.data || {}),
+                  ...patch,
+                },
+              }
+            : ed
+        )
+      );
     }
   };
 
   const handleDelete = () => {
-    deleteEdges(targetIds);
+    if (isStoreEdge) {
+      deleteEdges(targetIds);
+    } else {
+      rfInstance.setEdges((eds) => eds.filter((ed) => !targetIds.includes(ed.id)));
+    }
   };
 
   return (

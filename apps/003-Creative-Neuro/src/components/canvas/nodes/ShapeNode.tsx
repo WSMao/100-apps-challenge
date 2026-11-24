@@ -625,10 +625,10 @@ export function ShapeNode({
           <span
             style={{
               color: data?.color || '#f8fafc',
-              fontSize: data?.fontSize || 13,
+              fontSize: data?.fontSize || 12,
               fontWeight: data?.fontWeight || 'normal',
             }}
-            className="select-none line-clamp-2 leading-tight block"
+            className="select-none whitespace-pre-line leading-snug block break-words"
           >
             {label || 'Empty Node'}
           </span>
