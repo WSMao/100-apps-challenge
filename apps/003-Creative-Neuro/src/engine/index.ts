@@ -31,6 +31,18 @@ export {
   type ReconcileResult,
 } from './mermaid/reconciliation.ts';
 
+// 1.5 Unified Diagram Pipeline Subsystem
+export {
+  DiagramPipeline,
+  flattenNestedCoordinates,
+  applyEdgeRouting,
+  SPACING_PRESETS,
+  type DiagramCompilationOptions,
+  type DiagramCompilationResult,
+  type DiagramPreviewNode,
+  type DiagramPreviewEdge,
+} from './diagram/diagramPipeline.ts';
+
 // 2. ELK Layout Engine
 export {
   calculateElkLayout,
@@ -65,3 +77,19 @@ export {
   computeLineJumpsForSegment,
   calculateLineJumps,
 } from './geometry/svgArc.ts';
+
+export {
+  GraphRoutingEngine,
+  isPointInRect,
+  lineSegmentsCross,
+  isSegmentIntersectingRect,
+  getNodeEndpoint,
+  isEdgeInSelectionRect,
+  findEdgesInSelectionRect,
+  computeJumpArcsForEdge,
+  buildJumpSvgPath,
+  computeSmartLabelPosition,
+  type BoundingRect,
+  type JumpArcData,
+  type LeafRect,
+} from './geometry/graphRoutingEngine.ts';

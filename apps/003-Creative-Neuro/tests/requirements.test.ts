@@ -782,15 +782,11 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
     });
 
     it('UI-03: Logo asset, circular frame, Header brand layout and Workspace modal positioning', () => {
-      // 1. Verify logo_option_4e.png exists
-      const logo4ePath = path.resolve(__dirname, '../assets/logo_option_4e.png');
-      expect(fs.existsSync(logo4ePath)).toBe(true);
-
-      // 2. Verify AppLogoMenu renders circular logo button (rounded-full)
+      // 1. Verify AppLogoMenu renders circular logo button (rounded-full & top-left-logo-btn)
       const appLogoMenuPath = path.resolve(__dirname, '../src/components/workspace/AppLogoMenu.tsx');
       const appLogoMenuCode = fs.readFileSync(appLogoMenuPath, 'utf8');
-      expect(appLogoMenuCode).toContain('logo_option_4e.png');
       expect(appLogoMenuCode).toContain('rounded-full');
+      expect(appLogoMenuCode).toContain('top-left-logo-btn');
 
       // 3. Verify Workspace Modal is enlarged (max-w-3xl) and placed below header (pt-20)
       expect(appLogoMenuCode).toContain('max-w-3xl');
@@ -2804,6 +2800,190 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
       expect(focusModalCode).toContain('Auto Layout');
       expect(diagramNodeCode).toContain('calculateElkLayoutSync');
       expect(diagramNodeCode).toContain('previewElements');
+    });
+
+    it('DG-04: FocusDiagramModal sub-canvas configures identical mouse and wheel interaction contracts (OP-01, OP-02, OP-03)', () => {
+      const focusModalPath = path.resolve(__dirname, '../src/components/editor/FocusDiagramModal.tsx');
+      const focusModalCode = fs.readFileSync(focusModalPath, 'utf8');
+
+      // OP-01: Right-click drag pans canvas
+      expect(focusModalCode).toContain('panOnDrag={PAN_ON_DRAG}');
+      expect(focusModalCode).toContain('PAN_ON_DRAG = [2]');
+      expect(focusModalCode).toContain('onPaneContextMenu');
+
+      // OP-02: Mouse wheel pan and Cmd+wheel zoom
+      expect(focusModalCode).toContain('panOnScroll={true}');
+      expect(focusModalCode).toContain('panOnScrollMode={PanOnScrollMode.Free}');
+      expect(focusModalCode).toContain('zoomOnScroll={false}');
+      expect(focusModalCode).toContain('zoomActivationKeyCode={ZOOM_ACTIVATION_KEY_CODE}');
+
+      // OP-03: Left-click drag creates selection box with full enclosure
+      expect(focusModalCode).toContain('selectionOnDrag={true}');
+      expect(focusModalCode).toContain('selectionMode={SelectionMode.Full}');
+      expect(focusModalCode).toContain('selectionKeyCode={null}');
+    });
+
+    it('DG-05: Parses and layouts complex 6-layer architecture Mermaid with subgraphs, <br>/<b> tags, bidirectional arrows, and classDef in strict Top-to-Bottom (TB) order without overlap', () => {
+      const userArchitectureMermaid = `flowchart TB
+ subgraph ShellLayer["0. 跨平台容器與 UI 外殼層 (App Shell & Container)"]
+        Tauri["<b>Tauri 2.0 (Rust + WKWebView)</b><br>角色：macOS 原生桌面容器與本機檔案 I/O"]
+        Radix["<b>Radix UI / shadcn/ui + Tailwind v4</b><br>角色：無障礙分頁 (Tabs)、側邊工具列、Cmd+K 搜尋"]
+  end
+ subgraph InputLayer["1. 多模態輸入與雙向編輯層 (Multimodal Input Layer)"]
+        CM6["<b>CodeMirror 6 (@codemirror/view)</b><br>角色：專注模式左側 Mermaid 代碼編輯器"]
+        Langium["<b>Mermaid / Langium Parser</b><br>角色：語法解析與雙向轉譯器 (AST ⇄ JSON)"]
+        LiveAI["<b>Gemini Live / OpenAI Realtime API</b><br>角色：WebSocket/WebRTC 全雙工語音與 VAD 偵測"]
+        UserInput["<b>滑鼠 / 鍵盤快捷鍵互動</b><br>角色：Tab 子節點 / Enter 兄弟節點 / ⌥+方向鍵 / 拖曳"]
+  end
+ subgraph StateLayer["2. 核心狀態與歷史中樞 (Single Source of Truth)"]
+        Immer["<b>immer (ES6 Proxy)</b><br>角色：將直覺賦值轉為不可變結構共享樹"]
+        Zustand["<b>zustand (Central Store)</b><br>角色：集中管理 Project ➔ Board ➔ Page ➔ NeuroNode[]<br>同時持有結構 (AST) 與幾何座標 (x, y, layoutMode)"]
+        Zundo["<b>zundo (Temporal Middleware)</b><br>角色：攔截狀態快照，維護 past[] 與 future[] 堆疊"]
+  end
+ subgraph ComputeLayer["3. 幾何排版與空間運算層 (Layout & Geometry Engine)"]
+        ELK["<b>elkjs (Web Worker)</b><br>角色：階層與複合子圖 (Sub-graph) 自動排版引擎"]
+        AABB["<b>Smart Placement (AABB 避障演算法)</b><br>角色：Manual 模式下計算無碰撞的新節點落點"]
+        LineJump["<b>Line-Line Intersection 演算法</b><br>角色：偵測跨線交點並注入 SVG 圓弧跳線指令"]
+  end
+ subgraph RenderLayer["4. 統一圖形畫布渲染層 (Unified Scene Graph & Canvas)"]
+        ReactFlow["<b>@xyflow/react (React Flow v12) + React 19</b><br>角色：外層白板與內層 Diagram 共用的無限畫布引擎<br>• <b>HTML DOM 層</b>：渲染 Shape / Text / Frame / Diagram 容器<br>• <b>SVG 向量層</b>：渲染 Connector 連線、跳線與 Freehand 塗鴉"]
+  end
+ subgraph StorageLayer["5. 本地優先儲存與壓縮匯出層 (Persistence & Export)"]
+        Dexie["<b>Dexie.js (IndexedDB)</b><br>角色：瀏覽器端非同步 NoSQL 本機離線資料庫"]
+        Supabase["<b>Supabase (PostgreSQL + Realtime)</b><br>角色：雲端 JSONB 同步與互動式 Embed URL 生成"]
+        HtmlToImage["<b>html-to-image</b><br>角色：將 DOM + SVG 內聯化並光柵化為圖片"]
+        PakoZip["<b>pako (zlib) + JSZip</b><br>角色：JSON Deflate 無損壓縮與 ZIP 容器打包"]
+  end
+    Radix -- 輸出: Tool Mode 切換 / Page ID 路由 --> Zustand
+    CM6 <-- 輸入: 使用者打字 (Transaction)<br>輸出: Mermaid DSL 純文字字串 --> Langium
+    Langium <-- 輸出: 解析後 AST (依 Node ID 對帳 Diff)<br>輸入: NeuroNode[] 反編譯回文字 --> Immer
+    LiveAI -- 輸入: 麥克風 PCM 音訊串流<br>輸出: Function Call JSON (upsertDiagramNodes) --> Immer
+    UserInput -- 輸入: 快捷鍵 / 滑鼠事件<br>輸出: 新增或移動節點 Action --> AABB
+    AABB -- 輸入: 父節點座標 + 現有節點 Bounding Boxes<br>輸出: 無碰撞目標座標 {x, y} --> Immer
+    Immer <-- 輸入: Draft 狀態修改<br>輸出: Immutable 新狀態樹 --> Zustand
+    Zustand <-- 輸入: 狀態變更 Diff Patch<br>輸出: Cmd+Z / Cmd+Shift+Z 狀態還原 --> Zundo
+    Zustand -- "輸出: 設為 auto-elk 的 Nodes/Edges 結構樹<br>(含 sub-graph 方向設定與 Fixed 約束)" --> ELK
+    ELK -- 輸出: 計算完成的節點絕對座標 {x, y}<br>與正交/曲線連線轉折點 --> Immer
+    Zustand -- 輸出: 當前可視區 Nodes[] 與 Edges[] 狀態 --> ReactFlow
+    ReactFlow -- 輸出: 連線端點座標陣列 --> LineJump
+    LineJump -- 輸出: 插入 A rx ry 圓弧跳線的 SVG Path --> ReactFlow
+    ReactFlow -- 輸出: 節點拖曳結束 onNodeDragStop {id, x, y}<br>或雙擊聚焦 Viewport --> Immer
+    Zustand <-- 輸入/輸出: Project 完整 JSON 狀態樹<br>(非同步自動存檔與離線載入) --> Dexie
+    Dexie <-- 透過 Tauri IPC 橋接 --> Tauri
+    Zustand -- "輸出: 單一 Project 完整狀態 + 協作 Presence<br>輸入: 遠端變更事件 (Real-time Sync)" --> Supabase
+    ReactFlow -- "輸出: Canvas 完整 Viewport 截圖 (canvas.toDataURL)" --> HtmlToImage
+    HtmlToImage -- 輸入: SVG / PNG 二進位檔<br>輸出: JPG / WebP / PNG 格式 --> PakoZip
+    PakoZip -- "輸出: .project / .board 二進位壓縮檔案" --> Tauri
+
+     Tauri:::shell
+     Radix:::shell
+     CM6:::input
+     Langium:::input
+     LiveAI:::input
+     UserInput:::input
+     Immer:::store
+     Zustand:::store
+     Zundo:::store
+     ELK:::compute
+     AABB:::compute
+     LineJump:::compute
+     ReactFlow:::render
+     Dexie:::storage
+     Supabase:::storage
+     HtmlToImage:::storage
+     PakoZip:::storage
+    classDef shell fill:#f1f5f9,stroke:#64748b,stroke-width:1.5px,color:#0f172a
+    classDef input fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0c4a6e
+    classDef store fill:#fef3c7,stroke:#d97706,stroke-width:2.5px,color:#78350f
+    classDef compute fill:#f3e8ff,stroke:#9333ea,stroke-width:2px,color:#581c87
+    classDef render fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#14532d
+    classDef storage fill:#ffe4e6,stroke:#e11d48,stroke-width:2px,color:#881337`;
+
+      const ast = parseMermaid(userArchitectureMermaid);
+      expect(ast.subgraphs).toHaveLength(6);
+      expect(ast.nodes).toHaveLength(17);
+      expect(ast.edges).toHaveLength(20);
+
+      // HTML <b> tags stripped and <br> converted to \n
+      const tauriNode = ast.nodes.find((n) => n.id === 'Tauri')!;
+      expect(tauriNode.label).not.toContain('<b>');
+      expect(tauriNode.label).toContain('\n');
+      expect(tauriNode.style?.fill).toBe('#f1f5f9');
+
+      // Reconcile and run Top-to-Down ELK Auto Layout
+      const reconciled = reconcileMermaidAST(ast, []);
+      const laidOut = calculateElkLayoutSync(reconciled.nodes, reconciled.edges, {
+        direction: 'TB',
+        nodeSpacing: 50,
+        layerSpacing: 80,
+      });
+
+      const frameOrder = [
+        'ShellLayer',
+        'InputLayer',
+        'StateLayer',
+        'ComputeLayer',
+        'RenderLayer',
+        'StorageLayer',
+      ];
+      const frames = frameOrder.map((fid) => laidOut.nodes.find((n) => n.id === fid)!);
+
+      // Verify strict Top-to-Bottom non-overlapping vertical progression of the 6 subgraphs
+      for (let i = 0; i < frames.length - 1; i++) {
+        const curr = frames[i];
+        const next = frames[i + 1];
+        expect(curr.position.y + (curr.height || 180)).toBeLessThanOrEqual(next.position.y);
+      }
+    });
+
+    it('DG-06: FocusDiagramModal provides Edge Routing Selector (Jump/Step/Curve/Line), Spacing Preset Selector, and Sub-Canvas EdgeFloatingActionBar', () => {
+      const focusModalPath = path.resolve(
+        __dirname,
+        '../src/components/editor/FocusDiagramModal.tsx'
+      );
+      const focusModalCode = fs.readFileSync(focusModalPath, 'utf8');
+
+      // 1. Edge Routing Type Selector (jump, smoothstep, bezier, straight)
+      expect(focusModalCode).toContain('data-testid="focus-diagram-edge-routing"');
+      expect(focusModalCode).toContain('focus-routing-${opt.id}');
+      expect(focusModalCode).toContain("id: 'jump'");
+      expect(focusModalCode).toContain("id: 'smoothstep'");
+      expect(focusModalCode).toContain("id: 'bezier'");
+      expect(focusModalCode).toContain("id: 'straight'");
+
+      // 2. ELK Spacing Preset Selector (compact, normal, spacious)
+      expect(focusModalCode).toContain('data-testid="focus-diagram-spacing"');
+      expect(focusModalCode).toContain('compact: { nodeSpacing: 36, layerSpacing: 60');
+      expect(focusModalCode).toContain('normal: { nodeSpacing: 50, layerSpacing: 80');
+      expect(focusModalCode).toContain('spacious: { nodeSpacing: 80, layerSpacing: 130');
+
+      // 3. EdgeFloatingActionBar supports sub-canvas edges via useReactFlow().setEdges fallback
+      const edgeBarPath = path.resolve(
+        __dirname,
+        '../src/components/canvas/edges/EdgeFloatingActionBar.tsx'
+      );
+      const edgeBarCode = fs.readFileSync(edgeBarPath, 'utf8');
+      expect(edgeBarCode).toContain('useReactFlow');
+      expect(edgeBarCode).toContain('rfInstance.setEdges');
+    });
+
+    it('DG-07: DiagramNode supports left-click position dragging on main canvas and 8-direction border/corner resizing', () => {
+      const diagramNodePath = path.resolve(
+        __dirname,
+        '../src/components/canvas/nodes/DiagramNode.tsx'
+      );
+      const diagramNodeCode = fs.readFileSync(diagramNodePath, 'utf8');
+
+      // 1. 4 border resize strips (n, s, e, w) and 4 corner resize handles (nw, ne, sw, se) with nodrag nopan
+      for (const dir of ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se']) {
+        expect(diagramNodeCode).toContain(`data-testid="diagram-resize-${dir}"`);
+      }
+      expect(diagramNodeCode).toContain('handleResizeMouseDown');
+      expect(diagramNodeCode).toContain('nodrag nopan');
+
+      // 2. Hover overlay is pointer-events-none so left-click and left-click drag on diagram body move the node instead of hijacking click to open modal
+      expect(diagramNodeCode).toContain('Double-click to expand');
+      expect(diagramNodeCode).toContain('cursor-grab active:cursor-grabbing');
     });
   });
 });

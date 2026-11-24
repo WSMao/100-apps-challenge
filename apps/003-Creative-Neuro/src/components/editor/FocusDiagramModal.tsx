@@ -9,9 +9,10 @@
  * - Global Escape key listener & Done button flushing changes back to parent DiagramNode
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ReactFlow,
+  ReactFlowProvider,
   Background,
   Controls,
   applyNodeChanges,
@@ -23,7 +24,10 @@ import {
   type EdgeTypes,
   type Node,
   type Edge,
+  type ReactFlowInstance,
   BackgroundVariant,
+  SelectionMode,
+  PanOnScrollMode,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {
@@ -36,17 +40,33 @@ import {
 
 import { useProjectStore } from '../../store/useProjectStore.ts';
 import {
-  parseMermaid,
-  reconcileMermaidAST,
-  serializeMermaid,
+  DiagramPipeline,
+  applyEdgeRouting,
   calculateElkLayoutSync,
 } from '../../engine/index.ts';
-import type { NeuroNode, NeuroEdge, FlowDirection } from '../../types/index.ts';
+import type {
+  NeuroNode,
+  NeuroEdge,
+  FlowDirection,
+  EdgeRoutingType,
+  ElkSpacingPreset,
+} from '../../types/index.ts';
 import { MermaidEditor } from './MermaidEditor.tsx';
 import ShapeNode from '../canvas/nodes/ShapeNode.tsx';
 import TextNode from '../canvas/nodes/TextNode.tsx';
 import FrameNode from '../canvas/nodes/FrameNode.tsx';
 import JumpConnectorEdge from '../canvas/edges/JumpConnectorEdge.tsx';
+
+export type { ElkSpacingPreset };
+
+export const SPACING_PRESETS: Record<
+  ElkSpacingPreset,
+  { nodeSpacing: number; layerSpacing: number; label: string }
+> = {
+  compact: { nodeSpacing: 36, layerSpacing: 60, label: 'Compact (36 / 60)' },
+  normal: { nodeSpacing: 50, layerSpacing: 80, label: 'Normal (50 / 80)' },
+  spacious: { nodeSpacing: 80, layerSpacing: 130, label: 'Spacious (80 / 130)' },
+};
 
 const subNodeTypes: NodeTypes = {
   shape: ShapeNode,
@@ -56,8 +76,19 @@ const subNodeTypes: NodeTypes = {
 
 const subEdgeTypes: EdgeTypes = {
   jump: JumpConnectorEdge,
+  smoothstep: JumpConnectorEdge,
+  bezier: JumpConnectorEdge,
+  straight: JumpConnectorEdge,
   default: JumpConnectorEdge,
 };
+
+// Stable React Flow Sub-Canvas configuration matching main Canvas (OP-01, OP-02, OP-03)
+const SNAP_GRID: [number, number] = [16, 16];
+const PAN_ON_DRAG = [2]; // Right-click drag pans canvas
+const MULTI_SELECTION_KEY_CODE = ['Meta', 'Control'];
+const ZOOM_ACTIVATION_KEY_CODE = ['Meta', 'Control'];
+const FIT_VIEW_OPTIONS = { padding: 0.2 };
+const PRO_OPTIONS = { hideAttribution: true };
 
 export function FocusDiagramModal() {
   const focusedDiagramId = useProjectStore((s) => s.focusedDiagramId);
@@ -78,9 +109,31 @@ export function FocusDiagramModal() {
   const [direction, setDirection] = useState<FlowDirection>(
     (parentNode?.data?.diagramOrientation as FlowDirection) || 'TB'
   );
+  const [edgeRouting, setEdgeRouting] = useState<EdgeRoutingType>(
+    (parentNode?.data?.customData?.edgeRouting as EdgeRoutingType) || 'jump'
+  );
+  const [spacingPreset, setSpacingPreset] = useState<ElkSpacingPreset>(
+    (parentNode?.data?.customData?.spacingPreset as ElkSpacingPreset) || 'normal'
+  );
   const [nodes, setNodes] = useState<NeuroNode[]>([]);
   const [edges, setEdges] = useState<NeuroEdge[]>([]);
   const [syntaxError, setSyntaxError] = useState<string | null>(null);
+  const rfInstanceRef = useRef<ReactFlowInstance | null>(null);
+
+  const applyRoutingToEdges = useCallback(
+    (
+      edgeList: NeuroEdge[],
+      routing: EdgeRoutingType,
+      forceOverwrite = false
+    ): NeuroEdge[] => applyEdgeRouting(edgeList, routing, forceOverwrite),
+    []
+  );
+
+  const scheduleFitView = useCallback(() => {
+    setTimeout(() => {
+      rfInstanceRef.current?.fitView({ padding: 0.08, duration: 150 });
+    }, 60);
+  }, []);
 
   // Initialize modal state whenever focusedDiagramId transitions to a valid diagram node
   useEffect(() => {
@@ -93,10 +146,16 @@ export function FocusDiagramModal() {
       parentNode.data?.title || parentNode.data?.label || 'Sub-Diagram';
     const orient =
       (parentNode.data?.diagramOrientation as FlowDirection) || 'TB';
+    const savedRouting =
+      (parentNode.data?.customData?.edgeRouting as EdgeRoutingType) || 'jump';
+    const savedSpacing =
+      (parentNode.data?.customData?.spacingPreset as ElkSpacingPreset) || 'normal';
 
     setCode(mermaid);
     setTitle(nodeTitle);
     setDirection(orient);
+    setEdgeRouting(savedRouting);
+    setSpacingPreset(savedSpacing);
     setSyntaxError(null);
 
     const savedSubNodes = parentNode.data?.customData?.subNodes as
@@ -107,26 +166,23 @@ export function FocusDiagramModal() {
       | undefined;
 
     try {
-      const ast = parseMermaid(mermaid);
-      const effectiveDir = (ast.direction || orient || 'TB') as FlowDirection;
-      setDirection(effectiveDir);
-      const reconciled = reconcileMermaidAST(ast, savedSubNodes || []);
-      const layoutResult = calculateElkLayoutSync(
-        reconciled.nodes,
-        savedSubEdges && savedSubEdges.length > 0 ? savedSubEdges : reconciled.edges,
-        {
-          direction: effectiveDir,
-          nodeSpacing: 50,
-          layerSpacing: 80,
-        }
-      );
-      setNodes(layoutResult.nodes);
-      setEdges(layoutResult.edges);
+      const compiled = DiagramPipeline.compile({
+        mermaidCode: mermaid,
+        savedSubNodes,
+        savedSubEdges,
+        direction: orient,
+        spacingPreset: savedSpacing,
+        edgeRouting: savedRouting,
+      });
+      setDirection(compiled.direction);
+      setNodes(compiled.nodes);
+      setEdges(compiled.edges);
+      scheduleFitView();
     } catch {
       setNodes(savedSubNodes || []);
       setEdges(savedSubEdges || []);
     }
-  }, [focusedDiagramId, parentNode]);
+  }, [focusedDiagramId, parentNode, scheduleFitView]);
 
   // Close & Sync Back to Parent Node
   const handleClose = useCallback(() => {
@@ -142,6 +198,8 @@ export function FocusDiagramModal() {
         ...parentNode?.data?.customData,
         subNodes: nodes,
         subEdges: edges,
+        edgeRouting,
+        spacingPreset,
       },
     });
     setFocusedDiagramId(null);
@@ -150,6 +208,8 @@ export function FocusDiagramModal() {
     title,
     code,
     direction,
+    edgeRouting,
+    spacingPreset,
     nodes,
     edges,
     parentNode?.data?.customData,
@@ -174,27 +234,25 @@ export function FocusDiagramModal() {
   const handleCodeChange = useCallback(
     (newCode: string) => {
       setCode(newCode);
-      try {
-        const ast = parseMermaid(newCode);
-        setSyntaxError(null);
-        const newDir = (ast.direction || direction || 'TB') as FlowDirection;
-        if (ast.direction) setDirection(ast.direction);
+      const compiled = DiagramPipeline.compile({
+        mermaidCode: newCode,
+        savedSubNodes: nodes,
+        direction,
+        spacingPreset,
+        edgeRouting,
+      });
 
-        const result = reconcileMermaidAST(ast, nodes);
-        const layoutResult = calculateElkLayoutSync(result.nodes, result.edges, {
-          direction: newDir,
-          nodeSpacing: 50,
-          layerSpacing: 80,
-        });
-        setNodes(layoutResult.nodes);
-        setEdges(layoutResult.edges);
-      } catch (err: unknown) {
-        setSyntaxError(
-          err instanceof Error ? err.message : 'Invalid Mermaid syntax'
-        );
+      if (compiled.syntaxError) {
+        setSyntaxError(compiled.syntaxError);
+      } else {
+        setSyntaxError(null);
+        if (compiled.ast.direction) setDirection(compiled.ast.direction);
+        setNodes(compiled.nodes);
+        setEdges(compiled.edges);
+        scheduleFitView();
       }
     },
-    [nodes, direction]
+    [nodes, direction, spacingPreset, edgeRouting, scheduleFitView]
   );
 
   // Sub-Canvas visual changes -> CodeMirror Sync
@@ -233,21 +291,60 @@ export function FocusDiagramModal() {
   const handleDirectionChange = useCallback(
     (newDir: FlowDirection) => {
       setDirection(newDir);
+      const spacingCfg = SPACING_PRESETS[spacingPreset] || SPACING_PRESETS.normal;
       const layoutResult = calculateElkLayoutSync(nodes, edges, {
         direction: newDir,
-        nodeSpacing: 50,
-        layerSpacing: 80,
+        nodeSpacing: spacingCfg.nodeSpacing,
+        layerSpacing: spacingCfg.layerSpacing,
       });
       setNodes(layoutResult.nodes);
-      setEdges(layoutResult.edges);
-      const serialized = serializeMermaid(layoutResult.nodes, layoutResult.edges, newDir);
+      const routedEdges = applyRoutingToEdges(layoutResult.edges, edgeRouting);
+      setEdges(routedEdges);
+      const serialized = DiagramPipeline.serialize(layoutResult.nodes, routedEdges, newDir);
       setCode(serialized);
+      scheduleFitView();
     },
-    [nodes, edges]
+    [nodes, edges, spacingPreset, edgeRouting, applyRoutingToEdges, scheduleFitView]
+  );
+
+  // Edge Routing Type Change (Jump / Smoothstep / Bezier / Straight)
+  const handleEdgeRoutingChange = useCallback(
+    (newRouting: EdgeRoutingType) => {
+      setEdgeRouting(newRouting);
+      setEdges((eds) => applyRoutingToEdges(eds, newRouting, true));
+    },
+    [applyRoutingToEdges]
+  );
+
+  // ELK Spacing Preset Change (Compact / Normal / Spacious)
+  const handleSpacingChange = useCallback(
+    (newPreset: ElkSpacingPreset) => {
+      setSpacingPreset(newPreset);
+      const spacingCfg = SPACING_PRESETS[newPreset] || SPACING_PRESETS.normal;
+      const autoNodes = nodes.map((n) =>
+        n.layoutMode === 'fixed'
+          ? n
+          : {
+              ...n,
+              layoutMode: 'auto-elk' as const,
+              data: { ...n.data, layoutMode: 'auto-elk' as const },
+            }
+      );
+      const layoutResult = calculateElkLayoutSync(autoNodes, edges, {
+        direction,
+        nodeSpacing: spacingCfg.nodeSpacing,
+        layerSpacing: spacingCfg.layerSpacing,
+      });
+      setNodes(layoutResult.nodes);
+      setEdges(applyRoutingToEdges(layoutResult.edges, edgeRouting));
+      scheduleFitView();
+    },
+    [nodes, edges, direction, edgeRouting, applyRoutingToEdges, scheduleFitView]
   );
 
   // Manual Trigger: Force Auto-Layout with ELK
   const handleAutoLayout = useCallback(() => {
+    const spacingCfg = SPACING_PRESETS[spacingPreset] || SPACING_PRESETS.normal;
     const autoNodes = nodes.map((n) =>
       n.layoutMode === 'fixed'
         ? n
@@ -259,12 +356,13 @@ export function FocusDiagramModal() {
     );
     const layoutResult = calculateElkLayoutSync(autoNodes, edges, {
       direction,
-      nodeSpacing: 50,
-      layerSpacing: 80,
+      nodeSpacing: spacingCfg.nodeSpacing,
+      layerSpacing: spacingCfg.layerSpacing,
     });
     setNodes(layoutResult.nodes);
-    setEdges(layoutResult.edges);
-  }, [nodes, edges, direction]);
+    setEdges(applyRoutingToEdges(layoutResult.edges, edgeRouting));
+    scheduleFitView();
+  }, [nodes, edges, direction, spacingPreset, edgeRouting, applyRoutingToEdges, scheduleFitView]);
 
   const onConnect = useCallback(
     (params: Connection) => {
@@ -276,14 +374,18 @@ export function FocusDiagramModal() {
         sourceHandle: params.sourceHandle || undefined,
         targetHandle: params.targetHandle || undefined,
         type: 'jump',
+        data: {
+          routingType: edgeRouting,
+          jumpArc: edgeRouting === 'jump',
+        },
       };
       const nextEdges = [...edges, newEdge];
       setEdges(nextEdges);
 
-      const nextMermaid = serializeMermaid(nodes, nextEdges, direction);
+      const nextMermaid = DiagramPipeline.serialize(nodes, nextEdges, direction);
       setCode(nextMermaid);
     },
-    [edges, nodes, direction]
+    [edges, nodes, direction, edgeRouting]
   );
 
   if (!focusedDiagramId || !parentNode) return null;
@@ -291,7 +393,7 @@ export function FocusDiagramModal() {
   return (
     <div
       data-testid="focus-diagram-modal"
-      className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 text-slate-100 backdrop-blur-xl"
+      className="fixed inset-0 z-[1000000] flex flex-col bg-slate-950/95 text-slate-100 backdrop-blur-xl"
     >
       {/* Top Header Bar */}
       <header className="h-14 px-4 border-b border-slate-800 bg-slate-900/90 flex items-center justify-between shrink-0">
@@ -331,6 +433,55 @@ export function FocusDiagramModal() {
               <span>Synced ({nodes.length} nodes)</span>
             </span>
           )}
+
+          {/* Edge Routing Type Selector (Jump / Smoothstep / Bezier / Straight) */}
+          <div
+            data-testid="focus-diagram-edge-routing"
+            className="flex items-center bg-slate-800/90 border border-slate-700 rounded-lg p-0.5 gap-0.5"
+            title="連接線種類 (Edge Routing Type)"
+          >
+            {(
+              [
+                { id: 'jump', label: 'Jump', title: '跳線直線 (Jump Arc)' },
+                { id: 'smoothstep', label: 'Step', title: '正交直角折線 (Smoothstep)' },
+                { id: 'bezier', label: 'Curve', title: '平滑貝茲曲線 (Bezier)' },
+                { id: 'straight', label: 'Line', title: '無跳線直線 (Straight)' },
+              ] as const
+            ).map((opt) => {
+              const active = edgeRouting === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  data-testid={`focus-routing-${opt.id}`}
+                  onClick={() => handleEdgeRoutingChange(opt.id)}
+                  title={opt.title}
+                  className={`px-2 py-0.5 text-[11px] font-medium rounded-md transition cursor-pointer ${
+                    active
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* ELK Spacing Preset Selector (nodeSpacing / layerSpacing) */}
+          <select
+            value={spacingPreset}
+            data-testid="focus-diagram-spacing"
+            onChange={(e) =>
+              handleSpacingChange(e.target.value as ElkSpacingPreset)
+            }
+            title="ELK 節點與層級間距 (nodeSpacing / layerSpacing)"
+            className="text-xs bg-slate-800 text-slate-200 border border-slate-700 rounded-md px-2 py-1 focus:outline-none focus:border-indigo-500 cursor-pointer"
+          >
+            <option value="compact">Spacing: Compact (36/60)</option>
+            <option value="normal">Spacing: Normal (50/80)</option>
+            <option value="spacious">Spacing: Spacious (80/130)</option>
+          </select>
 
           {/* ELK Auto-Layout Button */}
           <button
@@ -390,31 +541,61 @@ export function FocusDiagramModal() {
 
         {/* Right Side: Dedicated Sub-Canvas */}
         <div className="flex-1 relative bg-slate-950">
-          <ReactFlow
-            nodes={nodes as unknown as Node[]}
-            edges={edges as unknown as Edge[]}
-            nodeTypes={subNodeTypes}
-            edgeTypes={subEdgeTypes}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            fitView
-            colorMode="dark"
-            proOptions={{ hideAttribution: true }}
-            className="w-full h-full"
-          >
-            <Background
-              variant={BackgroundVariant.Dots}
-              gap={16}
-              size={1}
-              color="#334155"
-            />
-            <Controls className="!bg-slate-900 !border-slate-800 !text-slate-200" />
-          </ReactFlow>
+          <ReactFlowProvider>
+            <ReactFlow
+              nodes={nodes as unknown as Node[]}
+              edges={edges as unknown as Edge[]}
+              nodeTypes={subNodeTypes}
+              edgeTypes={subEdgeTypes}
+              onInit={(instance) => {
+                rfInstanceRef.current = instance;
+              }}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              onPaneContextMenu={(e) => e.preventDefault()}
+              onNodeContextMenu={(e) => e.preventDefault()}
+              snapToGrid={true}
+              snapGrid={SNAP_GRID}
+              minZoom={0.05}
+              maxZoom={2.5}
+              // OP-01: Right-click drag pans the canvas
+              panOnDrag={PAN_ON_DRAG}
+              // OP-03: Left-click drag on empty canvas creates selection box
+              selectionOnDrag={true}
+              selectionMode={SelectionMode.Full}
+              selectionKeyCode={null}
+              // Multi-select with Cmd/Ctrl + click
+              multiSelectionKeyCode={MULTI_SELECTION_KEY_CODE}
+              // OP-02: Mouse wheel vertical scroll, Shift+wheel horizontal scroll
+              panOnScroll={true}
+              panOnScrollMode={PanOnScrollMode.Free}
+              // OP-02: Cmd/Ctrl + wheel zooms in/out
+              zoomOnScroll={false}
+              zoomOnDoubleClick={false}
+              zoomActivationKeyCode={ZOOM_ACTIVATION_KEY_CODE}
+              fitView
+              fitViewOptions={FIT_VIEW_OPTIONS}
+              colorMode="dark"
+              elevateNodesOnSelect={true}
+              elevateEdgesOnSelect={true}
+              proOptions={PRO_OPTIONS}
+              className="w-full h-full"
+            >
+              <Background
+                variant={BackgroundVariant.Dots}
+                gap={16}
+                size={1}
+                color="#334155"
+              />
+              <Controls className="!bg-slate-900 !border-slate-800 !text-slate-200" />
+            </ReactFlow>
+          </ReactFlowProvider>
 
           {/* Sub-canvas Quick Hint Overlay */}
-          <div className="absolute bottom-4 left-4 pointer-events-none text-xs text-slate-500 bg-slate-900/80 px-2.5 py-1.5 rounded-lg border border-slate-800 backdrop-blur">
-            Drag sub-nodes to arrange, or edit Mermaid syntax on left
+          <div className="absolute bottom-4 left-4 pointer-events-none text-xs text-slate-400 bg-slate-900/90 px-3 py-1.5 rounded-lg border border-slate-800 shadow-md backdrop-blur flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
+            <span>右鍵拖移平移畫布 · 滾輪上下/左右捲動 · ⌘+滾輪縮放 · 左鍵框選多選</span>
           </div>
         </div>
       </div>

@@ -83,9 +83,12 @@ export function validateMermaidCode(code: string): SyntaxErrorDetail | null {
     if (line.startsWith('subgraph')) openSubgraphs++;
     if (line === 'end') openSubgraphs--;
 
+    // Strip quoted string literals before checking delimiter balance
+    const unquoted = line.replace(/"(?:\\"|[^"])*"/g, '""');
+
     // Check unclosed brackets
-    const squareOpen = (line.match(/\[/g) || []).length;
-    const squareClose = (line.match(/\]/g) || []).length;
+    const squareOpen = (unquoted.match(/\[/g) || []).length;
+    const squareClose = (unquoted.match(/\]/g) || []).length;
     if (squareOpen !== squareClose) {
       return {
         line: i + 1,
@@ -93,8 +96,8 @@ export function validateMermaidCode(code: string): SyntaxErrorDetail | null {
       };
     }
 
-    const parenOpen = (line.match(/\(/g) || []).length;
-    const parenClose = (line.match(/\)/g) || []).length;
+    const parenOpen = (unquoted.match(/\(/g) || []).length;
+    const parenClose = (unquoted.match(/\)/g) || []).length;
     if (parenOpen !== parenClose) {
       return {
         line: i + 1,
@@ -102,8 +105,8 @@ export function validateMermaidCode(code: string): SyntaxErrorDetail | null {
       };
     }
 
-    const curlyOpen = (line.match(/\{/g) || []).length;
-    const curlyClose = (line.match(/\}/g) || []).length;
+    const curlyOpen = (unquoted.match(/\{/g) || []).length;
+    const curlyClose = (unquoted.match(/\}/g) || []).length;
     if (curlyOpen !== curlyClose) {
       return {
         line: i + 1,
@@ -340,6 +343,7 @@ export function MermaidEditor({
       parent: containerRef.current,
     });
     viewRef.current = view;
+    (containerRef.current as unknown as { __cmView?: EditorView }).__cmView = view;
 
     return () => {
       if (debounceTimerRef.current) {
