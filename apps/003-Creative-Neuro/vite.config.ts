@@ -37,6 +37,8 @@ export default defineConfig({
       'tests/adversarialPersistence.test.ts',
       'tests/requirements.test.ts',
       'tests/integration_canvas_lifecycle.test.ts',
+      'tests/importExport.test.ts',
+      'tests/pageLifecycle.test.ts',
     ],
   },
 });

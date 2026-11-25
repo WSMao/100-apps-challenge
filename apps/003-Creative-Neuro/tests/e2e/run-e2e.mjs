@@ -1018,6 +1018,202 @@ async function runE2EScenario() {
     fs.writeFileSync(diagMainCanvasSsPath, Buffer.from(diagMainCanvasSs.result.data, 'base64'));
     console.log(`  ✓ Captured DiagramNode main canvas move & resize screenshot: ${path.relative(appRoot, diagMainCanvasSsPath)} (${fs.statSync(diagMainCanvasSsPath).size} bytes)`);
 
+    // -------------------------------------------------------------------------
+    // Step 10b: Issue #42 — Page Hide / Reopen / Delete Lifecycle in Real Browser
+    // -------------------------------------------------------------------------
+    console.log('\n[E2E Step 10b] Testing Page hide/reopen/delete lifecycle in real browser:');
+    const pageLifecycleRes = await pageSend('Runtime.evaluate', {
+      expression: `
+        (async () => {
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const addBtn = document.querySelector("[data-testid='add-page-btn']");
+          if (!addBtn) throw new Error('Missing add-page-btn');
+          addBtn.click();
+          await sleep(150);
+
+          const store = window.__CREATIVE_NEURO_STORE__;
+          const addedPageId = store.getState().activePageId;
+          const tabBeforeHide = document.querySelector("[data-testid='page-tab-" + addedPageId + "']");
+          if (!tabBeforeHide) throw new Error('Newly added page tab not visible');
+
+          // Close tab -> hides page without deleting data
+          const closeBtn = document.querySelector("[data-testid='close-page-tab-btn-" + addedPageId + "']");
+          if (!closeBtn) throw new Error('Missing close-page-tab-btn');
+          closeBtn.click();
+          await sleep(150);
+
+          const tabAfterHide = document.querySelector("[data-testid='page-tab-" + addedPageId + "']");
+          if (tabAfterHide) throw new Error('Hidden page tab should not be visible in tab bar');
+          if (!store.getState().pages[addedPageId]?.hidden) throw new Error('Page should be marked hidden in store');
+
+          // Open Pages manager & reopen hidden page
+          const managerBtn = document.querySelector("[data-testid='pages-manager-btn']");
+          if (!managerBtn) throw new Error('Missing pages-manager-btn');
+          managerBtn.click();
+          await sleep(150);
+
+          const reopenBtn = document.querySelector("[data-testid='reopen-page-btn-" + addedPageId + "']");
+          if (!reopenBtn) throw new Error('Missing reopen-page-btn in Pages manager');
+          reopenBtn.click();
+          await sleep(150);
+
+          const tabAfterReopen = document.querySelector("[data-testid='page-tab-" + addedPageId + "']");
+          if (!tabAfterReopen) throw new Error('Reopened page tab should be visible again');
+
+          // Open Pages manager, request delete -> cancel -> request delete -> confirm
+          managerBtn.click();
+          await sleep(150);
+          const deleteBtn = document.querySelector("[data-testid='delete-page-btn-" + addedPageId + "']");
+          if (!deleteBtn) throw new Error('Missing delete-page-btn in Pages manager');
+          deleteBtn.click();
+          await sleep(150);
+
+          const cancelBtn = document.querySelector("[data-testid='cancel-delete-page-btn']");
+          if (!cancelBtn) throw new Error('Missing confirm-delete-page-dialog cancel button');
+          cancelBtn.click();
+          await sleep(150);
+          if (!store.getState().pages[addedPageId]) throw new Error('Canceling delete should preserve page');
+
+          managerBtn.click();
+          await sleep(150);
+          document.querySelector("[data-testid='delete-page-btn-" + addedPageId + "']").click();
+          await sleep(150);
+          const confirmBtn = document.querySelector("[data-testid='confirm-delete-page-btn']");
+          if (!confirmBtn) throw new Error('Missing confirm-delete-page-btn');
+          confirmBtn.click();
+          await sleep(150);
+
+          if (store.getState().pages[addedPageId]) throw new Error('Confirmed delete should remove page');
+          return { addedPageId, deleted: true };
+        })()
+      `,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    if (pageLifecycleRes.exceptionDetails) {
+      throw new Error(`Page lifecycle E2E failed: ${JSON.stringify(pageLifecycleRes.exceptionDetails)}`);
+    }
+    console.log('  ✓ Page hide/reopen/delete lifecycle verified:', JSON.stringify(pageLifecycleRes.result?.result?.value));
+
+    // -------------------------------------------------------------------------
+    // Step 10c: Issue #42 — .neuro.json Project Import & PNG/SVG Rejection
+    // -------------------------------------------------------------------------
+    console.log('\n[E2E Step 10c] Testing .neuro.json import & PNG/SVG rejection in ExportModal:');
+    const importE2eRes = await pageSend('Runtime.evaluate', {
+      expression: `
+        (async () => {
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const exportBtn = document.querySelector("[data-testid='open-export-modal-btn']") ||
+            Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('Export'));
+          if (!exportBtn) throw new Error('Missing Export button');
+          exportBtn.click();
+          await sleep(200);
+
+          const importTab = document.querySelector("[data-testid='export-tab-import']");
+          if (!importTab) throw new Error('Missing export-tab-import');
+          importTab.click();
+          await sleep(150);
+
+          const fileInput = document.querySelector("[data-testid='import-file-input']");
+          if (!fileInput) throw new Error('Missing import-file-input');
+          if (fileInput.getAttribute('accept')?.includes('.png') || fileInput.getAttribute('accept')?.includes('.svg')) {
+            throw new Error('Import file input must not accept .png or .svg');
+          }
+
+          // Reject PNG file
+          const pngDt = new DataTransfer();
+          pngDt.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'bad.neuro.png', { type: 'image/png' }));
+          fileInput.files = pngDt.files;
+          fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+          await sleep(200);
+          const pngBanner = document.querySelector("[data-testid='import-status-banner']")?.textContent || '';
+          if (!pngBanner.includes('.neuro.json')) {
+            throw new Error('Expected PNG import rejection message, got: ' + pngBanner);
+          }
+
+          // Import valid .neuro.json
+          const payload = {
+            version: '1.0.0',
+            project: {
+              id: 'proj-e2e-imported',
+              name: 'E2E Imported Project',
+              version: '1.0.0',
+              activeBoardId: 'board-1',
+              boardIds: ['board-1'],
+              activePageId: 'page-imp-1',
+              pageIds: ['page-imp-1'],
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            },
+            boards: {
+              'board-1': {
+                id: 'board-1',
+                projectId: 'proj-e2e-imported',
+                name: 'Main Board',
+                activePageId: 'page-imp-1',
+                pageIds: ['page-imp-1'],
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+              },
+            },
+            pages: {
+              'page-imp-1': {
+                id: 'page-imp-1',
+                projectId: 'proj-e2e-imported',
+                boardId: 'board-1',
+                title: 'Imported Flow',
+                name: 'Imported Flow',
+                order: 0,
+                viewport: { x: 0, y: 0, zoom: 1 },
+                nodeIds: ['node-imp-1'],
+                edgeIds: [],
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+              },
+            },
+            nodes: {
+              'node-imp-1': {
+                id: 'node-imp-1',
+                type: 'shape',
+                position: { x: 100, y: 100 },
+                width: 160,
+                height: 60,
+                layoutMode: 'manual',
+                data: { label: 'Imported Node', shapeType: 'rectangle', layoutMode: 'manual' },
+              },
+            },
+            edges: {},
+          };
+
+          const jsonDt = new DataTransfer();
+          jsonDt.items.add(new File([JSON.stringify(payload)], 'e2e.neuro.json', { type: 'application/json' }));
+          fileInput.files = jsonDt.files;
+          fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+          await sleep(250);
+
+          const jsonBanner = document.querySelector("[data-testid='import-status-banner']")?.textContent || '';
+          if (!jsonBanner.includes('E2E Imported Project')) {
+            throw new Error('Expected JSON import success banner, got: ' + jsonBanner);
+          }
+
+          const storeState = window.__CREATIVE_NEURO_STORE__.getState();
+          if (storeState.project.name !== 'E2E Imported Project' || !storeState.nodes['node-imp-1']) {
+            throw new Error('Imported project state was not applied to store');
+          }
+
+          document.querySelector("[data-testid='close-export-modal']")?.click();
+          await sleep(150);
+          return { importedProject: storeState.project.name, nodeLabel: storeState.nodes['node-imp-1'].data.label };
+        })()
+      `,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    if (importE2eRes.exceptionDetails) {
+      throw new Error(`.neuro.json import E2E failed: ${JSON.stringify(importE2eRes.exceptionDetails)}`);
+    }
+    console.log('  ✓ .neuro.json import & PNG rejection verified:', JSON.stringify(importE2eRes.result?.result?.value));
+
     // Verify Error Boundary state
     console.log('\n[E2E Step 11] Validating browser crash & error-boundary guarantees:');
     const errorBoundaryCheck = await pageSend('Runtime.evaluate', {

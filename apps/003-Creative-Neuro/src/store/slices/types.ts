@@ -112,6 +112,8 @@ export interface ProjectActions {
   deleteNodes: (ids: string[]) => void;
   deleteEdges: (ids: string[]) => void;
   deletePage: (pageId: string) => void;
+  hidePage: (pageId: string) => void;
+  reopenPage: (pageId: string, activate?: boolean) => void;
   updatePageTitle: (pageId: string, title: string) => void;
   setViewport: (pageId: string, viewport: Viewport) => void;
   setToolMode: (mode: ToolMode) => void;
