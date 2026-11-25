@@ -97,3 +97,21 @@ export {
   type LeafRect,
   type HandleSide,
 } from './geometry/graphRoutingEngine.ts';
+
+// 5. MindMap Mode Engine
+export {
+  resolveMindMapRootId,
+  buildMindMapTree,
+  calculateMindMapLayout,
+  canAttachMindMapNode,
+  attachMindMapNode,
+  detachMindMapNode,
+  swapMindMapNodes,
+  findAttachTargetNode,
+  serializeMindMapMermaid,
+  parseMindMapMermaid,
+  createMindMapDiagramPayload,
+  type MindMapLayoutOptions,
+  type MindMapLayoutResult,
+  type MindMapTreeStructure,
+} from './mindmap/mindmapEngine.ts';

@@ -36,6 +36,10 @@ import {
   Code2,
   Workflow,
   AlertCircle,
+  Network,
+  Plus,
+  Unlink,
+  ArrowLeftRight,
 } from 'lucide-react';
 
 import { useProjectStore } from '../../store/useProjectStore.ts';
@@ -43,11 +47,19 @@ import {
   DiagramPipeline,
   applyEdgeRouting,
   calculateElkLayoutSync,
+  calculateMindMapLayout,
+  attachMindMapNode,
+  detachMindMapNode,
+  swapMindMapNodes,
+  findAttachTargetNode,
+  serializeMindMapMermaid,
+  resolveMindMapRootId,
 } from '../../engine/index.ts';
 import type {
   NeuroNode,
   NeuroEdge,
   FlowDirection,
+  MindMapDirection,
   EdgeRoutingType,
   ElkSpacingPreset,
 } from '../../types/index.ts';
@@ -103,12 +115,25 @@ export function FocusDiagramModal() {
     'flowchart TD\n  Start([Start]) --> End([End])';
   const initialTitle =
     parentNode?.data?.title || parentNode?.data?.label || 'Sub-Diagram';
+  const isMindMapMode = Boolean(
+    parentNode?.data?.diagramKind === 'mindmap' ||
+      initialCode.trimStart().startsWith('mindmap')
+  );
 
   const [code, setCode] = useState<string>(initialCode);
   const [title, setTitle] = useState<string>(initialTitle);
   const [direction, setDirection] = useState<FlowDirection>(
     (parentNode?.data?.diagramOrientation as FlowDirection) || 'TB'
   );
+  const [mindMapDirection, setMindMapDirection] = useState<MindMapDirection>(
+    (parentNode?.data?.mindMapDirection as MindMapDirection) || 'radial'
+  );
+  const [showMermaidEditor, setShowMermaidEditor] = useState<boolean>(!isMindMapMode);
+  const [attachPreview, setAttachPreview] = useState<{
+    childId: string;
+    targetId: string;
+  } | null>(null);
+  const lastSubPaneClickRef = useRef<{ time: number; x: number; y: number } | null>(null);
   const [edgeRouting, setEdgeRouting] = useState<EdgeRoutingType>(() => {
     const saved = parentNode?.data?.customData?.edgeRouting as string | undefined;
     if (saved === 'jump') return 'straight';
@@ -172,6 +197,11 @@ export function FocusDiagramModal() {
     setCode(mermaid);
     setTitle(nodeTitle);
     setDirection(orient);
+    setMindMapDirection((parentNode.data?.mindMapDirection as MindMapDirection) || 'radial');
+    setShowMermaidEditor(
+      !(parentNode.data?.diagramKind === 'mindmap' || mermaid.trimStart().startsWith('mindmap'))
+    );
+    setAttachPreview(null);
     setEdgeRouting(savedRouting);
     setSpacingPreset(savedSpacing);
     setContinuousLayout(Boolean(parentNode.data?.continuousLayout));
@@ -185,11 +215,16 @@ export function FocusDiagramModal() {
       | undefined;
 
     try {
+      const mindMapFlag =
+        parentNode.data?.diagramKind === 'mindmap' || mermaid.trimStart().startsWith('mindmap');
       const compiled = DiagramPipeline.compile({
         mermaidCode: mermaid,
         savedSubNodes,
         savedSubEdges,
         direction: orient,
+        diagramKind: mindMapFlag ? 'mindmap' : 'flowchart',
+        mindMapDirection: (parentNode.data?.mindMapDirection as MindMapDirection) || 'radial',
+        continuousLayout: Boolean(parentNode.data?.continuousLayout),
         spacingPreset: savedSpacing,
         edgeRouting: savedRouting,
       });
@@ -212,6 +247,8 @@ export function FocusDiagramModal() {
       mermaidCode: code,
       isFocused: false,
       diagramMode: 'embedded',
+      diagramKind: isMindMapMode ? 'mindmap' : 'flowchart',
+      mindMapDirection,
       diagramOrientation: direction,
       continuousLayout,
       lineJump,
@@ -254,14 +291,17 @@ export function FocusDiagramModal() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [focusedDiagramId, handleClose]);
 
-  // CodeMirror -> Sub-Canvas Sync with ELK Auto-Layout
+  // CodeMirror -> Sub-Canvas Sync with ELK or MindMap Auto-Layout
   const handleCodeChange = useCallback(
     (newCode: string) => {
       setCode(newCode);
       const compiled = DiagramPipeline.compile({
         mermaidCode: newCode,
-        savedSubNodes: nodes,
+        savedSubNodes: isMindMapMode ? undefined : nodes,
         direction,
+        diagramKind: isMindMapMode ? 'mindmap' : 'flowchart',
+        mindMapDirection,
+        continuousLayout,
         spacingPreset,
         edgeRouting,
       });
@@ -276,7 +316,7 @@ export function FocusDiagramModal() {
         scheduleFitView();
       }
     },
-    [nodes, direction, spacingPreset, edgeRouting, scheduleFitView]
+    [nodes, direction, isMindMapMode, mindMapDirection, continuousLayout, spacingPreset, edgeRouting, scheduleFitView]
   );
 
   // Sub-Canvas visual changes -> enforce lock guard & optional Continuous Auto Layout
@@ -302,7 +342,7 @@ export function FocusDiagramModal() {
           nds as unknown as Node[]
         ) as unknown as NeuroNode[];
 
-        if (shouldReLayout) {
+        if (shouldReLayout && !isMindMapMode) {
           const spacingCfg = SPACING_PRESETS[spacingPreset] || SPACING_PRESETS.normal;
           const layoutResult = calculateElkLayoutSync(updated, edges, {
             direction,
@@ -315,7 +355,7 @@ export function FocusDiagramModal() {
         return updated;
       });
     },
-    [continuousLayout, spacingPreset, edges, direction, edgeRouting, applyRoutingToEdges]
+    [continuousLayout, isMindMapMode, spacingPreset, edges, direction, edgeRouting, applyRoutingToEdges]
   );
 
   const onEdgesChange = useCallback((changes: EdgeChange[]) => {
@@ -389,9 +429,22 @@ export function FocusDiagramModal() {
     [nodes, edges, direction, edgeRouting, applyRoutingToEdges, scheduleFitView]
   );
 
-  // One-shot Trigger: Auto-Layout with ELK (skips locked nodes)
+  // One-shot Trigger: Auto-Layout with ELK or MindMap Engine (skips locked nodes)
   const handleAutoLayout = useCallback(() => {
     const spacingCfg = SPACING_PRESETS[spacingPreset] || SPACING_PRESETS.normal;
+    if (isMindMapMode) {
+      const res = calculateMindMapLayout(nodes, edges, {
+        direction: mindMapDirection,
+        nodeSpacing: spacingCfg.nodeSpacing,
+        layerSpacing: spacingCfg.layerSpacing,
+      });
+      setNodes(res.nodes);
+      const routed = applyRoutingToEdges(res.edges, edgeRouting || 'bezier');
+      setEdges(routed);
+      setCode(serializeMindMapMermaid(res.nodes, routed, res.rootId || undefined));
+      scheduleFitView();
+      return;
+    }
     const layoutResult = calculateElkLayoutSync(nodes, edges, {
       direction,
       nodeSpacing: spacingCfg.nodeSpacing,
@@ -400,7 +453,223 @@ export function FocusDiagramModal() {
     setNodes(layoutResult.nodes);
     setEdges(applyRoutingToEdges(layoutResult.edges, edgeRouting));
     scheduleFitView();
-  }, [nodes, edges, direction, spacingPreset, edgeRouting, applyRoutingToEdges, scheduleFitView]);
+  }, [nodes, edges, direction, isMindMapMode, mindMapDirection, spacingPreset, edgeRouting, applyRoutingToEdges, scheduleFitView]);
+
+  const handleMindMapDirectionChange = useCallback(
+    (newDir: MindMapDirection) => {
+      setMindMapDirection(newDir);
+      const spacingCfg = SPACING_PRESETS[spacingPreset] || SPACING_PRESETS.normal;
+      const res = calculateMindMapLayout(nodes, edges, {
+        direction: newDir,
+        nodeSpacing: spacingCfg.nodeSpacing,
+        layerSpacing: spacingCfg.layerSpacing,
+      });
+      setNodes(res.nodes);
+      const routed = applyRoutingToEdges(res.edges, edgeRouting || 'bezier');
+      setEdges(routed);
+      setCode(serializeMindMapMermaid(res.nodes, routed, res.rootId || undefined));
+      scheduleFitView();
+    },
+    [nodes, edges, spacingPreset, edgeRouting, applyRoutingToEdges, scheduleFitView]
+  );
+
+  const selectedSubNodes = nodes.filter((n) => n.selected);
+
+  const addMindMapNode = useCallback(
+    (kind: 'child' | 'sibling') => {
+      if (!isMindMapMode) return;
+      const rootId = resolveMindMapRootId(nodes, edges);
+      const anchor = selectedSubNodes[0] || nodes.find((n) => n.id === rootId) || nodes[0];
+      if (!anchor) return;
+
+      let parentId = anchor.id;
+      if (kind === 'sibling' && anchor.id !== rootId) {
+        const parentEdge = edges.find((e) => e.target === anchor.id);
+        if (parentEdge) parentId = parentEdge.source;
+      }
+
+      const newId = `mm_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      const newNode: NeuroNode = {
+        id: newId,
+        type: 'shape',
+        position: { x: anchor.position.x + 180, y: anchor.position.y + 40 },
+        width: 140,
+        height: 48,
+        locked: false,
+        selected: true,
+        data: {
+          label: kind === 'child' ? 'New Topic' : 'Sibling Topic',
+          shapeType: 'rounded',
+          locked: false,
+        },
+      };
+      const newEdge: NeuroEdge = {
+        id: `e-${parentId}-${newId}`,
+        source: parentId,
+        target: newId,
+        type: 'bezier',
+        data: { routingType: 'bezier' },
+      };
+
+      const baseNodes: NeuroNode[] = [...nodes.map((n) => ({ ...n, selected: false })), newNode];
+      const baseEdges = [...edges, newEdge];
+
+      if (continuousLayout) {
+        const spacingCfg = SPACING_PRESETS[spacingPreset] || SPACING_PRESETS.normal;
+        const res = calculateMindMapLayout(baseNodes, baseEdges, {
+          rootId: rootId || undefined,
+          direction: mindMapDirection,
+          nodeSpacing: spacingCfg.nodeSpacing,
+          layerSpacing: spacingCfg.layerSpacing,
+        });
+        setNodes(res.nodes);
+        const routed = applyRoutingToEdges(res.edges, edgeRouting || 'bezier');
+        setEdges(routed);
+        setCode(serializeMindMapMermaid(res.nodes, routed, res.rootId || undefined));
+      } else {
+        setNodes(baseNodes);
+        setEdges(baseEdges);
+        setCode(serializeMindMapMermaid(baseNodes, baseEdges, rootId || undefined));
+      }
+    },
+    [isMindMapMode, nodes, edges, selectedSubNodes, continuousLayout, spacingPreset, mindMapDirection, edgeRouting, applyRoutingToEdges]
+  );
+
+  const handleDetachSelected = useCallback(() => {
+    if (!isMindMapMode || selectedSubNodes.length === 0) return;
+    const rootId = resolveMindMapRootId(nodes, edges);
+    let nextEdges = edges;
+    for (const sel of selectedSubNodes) {
+      nextEdges = detachMindMapNode(nextEdges, sel.id, rootId);
+    }
+    setEdges(nextEdges);
+    setCode(serializeMindMapMermaid(nodes, nextEdges, rootId || undefined));
+  }, [isMindMapMode, selectedSubNodes, nodes, edges]);
+
+  const handleSwapSelected = useCallback(() => {
+    if (!isMindMapMode || selectedSubNodes.length !== 2) return;
+    const rootId = resolveMindMapRootId(nodes, edges);
+    const swapped = swapMindMapNodes(
+      nodes,
+      edges,
+      selectedSubNodes[0].id,
+      selectedSubNodes[1].id,
+      {
+        rootId: rootId || undefined,
+        direction: mindMapDirection,
+        autoLayout: continuousLayout,
+      }
+    );
+    setNodes(swapped.nodes);
+    setEdges(swapped.edges);
+    setCode(serializeMindMapMermaid(swapped.nodes, swapped.edges, rootId || undefined));
+  }, [isMindMapMode, selectedSubNodes, nodes, edges, mindMapDirection, continuousLayout]);
+
+  const handleSubNodeDrag = useCallback(
+    (_event: React.MouseEvent | MouseEvent | TouchEvent, draggedNode: Node) => {
+      if (!isMindMapMode) return;
+      const rootId = resolveMindMapRootId(nodes, edges);
+      const hasParent = edges.some((e) => e.target === draggedNode.id);
+      if (hasParent || draggedNode.id === rootId) {
+        if (attachPreview) setAttachPreview(null);
+        return;
+      }
+      const updatedNodes = nodes.map((n) =>
+        n.id === draggedNode.id ? { ...n, position: draggedNode.position } : n
+      );
+      const target = findAttachTargetNode(updatedNodes, edges, draggedNode.id, rootId || undefined, 48);
+      if (target) {
+        setAttachPreview({ childId: draggedNode.id, targetId: target.id });
+      } else if (attachPreview) {
+        setAttachPreview(null);
+      }
+    },
+    [isMindMapMode, nodes, edges, attachPreview]
+  );
+
+  const handleSubNodeDragStop = useCallback(
+    (_event: React.MouseEvent | MouseEvent | TouchEvent, draggedNode: Node) => {
+      if (!isMindMapMode) return;
+      const rootId = resolveMindMapRootId(nodes, edges);
+      const updatedNodes = nodes.map((n) =>
+        n.id === draggedNode.id ? { ...n, position: draggedNode.position } : n
+      );
+
+      if (attachPreview && attachPreview.childId === draggedNode.id) {
+        const attached = attachMindMapNode(
+          updatedNodes,
+          edges,
+          attachPreview.childId,
+          attachPreview.targetId,
+          {
+            rootId: rootId || undefined,
+            direction: mindMapDirection,
+            autoLayout: continuousLayout,
+          }
+        );
+        setAttachPreview(null);
+        setNodes(attached.nodes);
+        const routed = applyRoutingToEdges(attached.edges, edgeRouting || 'bezier');
+        setEdges(routed);
+        setCode(serializeMindMapMermaid(attached.nodes, routed, rootId || undefined));
+        return;
+      }
+
+      setAttachPreview(null);
+      if (continuousLayout) {
+        const spacingCfg = SPACING_PRESETS[spacingPreset] || SPACING_PRESETS.normal;
+        const res = calculateMindMapLayout(updatedNodes, edges, {
+          rootId: rootId || undefined,
+          direction: mindMapDirection,
+          nodeSpacing: spacingCfg.nodeSpacing,
+          layerSpacing: spacingCfg.layerSpacing,
+        });
+        setNodes(res.nodes);
+        const routed = applyRoutingToEdges(res.edges, edgeRouting || 'bezier');
+        setEdges(routed);
+      }
+    },
+    [isMindMapMode, nodes, edges, attachPreview, mindMapDirection, continuousLayout, spacingPreset, edgeRouting, applyRoutingToEdges]
+  );
+
+  const handleSubPaneClick = useCallback(
+    (event: React.MouseEvent) => {
+      if (!isMindMapMode) return;
+      const now = Date.now();
+      const prev = lastSubPaneClickRef.current;
+      if (
+        prev &&
+        now - prev.time < 380 &&
+        Math.hypot(event.clientX - prev.x, event.clientY - prev.y) < 12
+      ) {
+        lastSubPaneClickRef.current = null;
+        const flowPos = rfInstanceRef.current?.screenToFlowPosition({
+          x: event.clientX,
+          y: event.clientY,
+        }) || { x: 100, y: 100 };
+
+        const floatId = `mm_float_${Date.now()}`;
+        const floatNode: NeuroNode = {
+          id: floatId,
+          type: 'shape',
+          position: flowPos,
+          width: 140,
+          height: 48,
+          locked: false,
+          selected: true,
+          data: {
+            label: 'Floating Idea',
+            shapeType: 'rounded',
+            locked: false,
+          },
+        };
+        setNodes((nds) => [...nds.map((n) => ({ ...n, selected: false })), floatNode]);
+        return;
+      }
+      lastSubPaneClickRef.current = { time: now, x: event.clientX, y: event.clientY };
+    },
+    [isMindMapMode]
+  );
 
   const handleToggleContinuous = useCallback(
     (checked: boolean) => {
@@ -436,7 +705,49 @@ export function FocusDiagramModal() {
     [edges, nodes, direction, edgeRouting, lineJump]
   );
 
+  useEffect(() => {
+    if (!focusedDiagramId || !isMindMapMode) return;
+    const onMindMapKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable ||
+          target.closest('.cm-editor'))
+      ) {
+        return;
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        addMindMapNode('child');
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        addMindMapNode('sibling');
+      }
+    };
+    window.addEventListener('keydown', onMindMapKeyDown);
+    return () => window.removeEventListener('keydown', onMindMapKeyDown);
+  }, [focusedDiagramId, isMindMapMode, addMindMapNode]);
+
   if (!focusedDiagramId || !parentNode) return null;
+
+  const renderedEdges: Edge[] = (
+    attachPreview
+      ? [
+          ...edges,
+          {
+            id: 'preview-attach-edge',
+            source: attachPreview.targetId,
+            target: attachPreview.childId,
+            type: 'bezier',
+            animated: true,
+            style: { stroke: '#34d399', strokeWidth: 2, strokeDasharray: '6 4' },
+            data: { routingType: 'bezier' },
+          },
+        ]
+      : edges
+  ) as unknown as Edge[];
 
   return (
     <div
@@ -458,7 +769,11 @@ export function FocusDiagramModal() {
           <div className="h-4 w-px bg-slate-800" />
 
           <div className="flex items-center gap-2">
-            <Workflow className="w-4 h-4 text-indigo-400" />
+            {isMindMapMode ? (
+              <Network className="w-4 h-4 text-emerald-400" />
+            ) : (
+              <Workflow className="w-4 h-4 text-indigo-400" />
+            )}
             <input
               type="text"
               value={title}
@@ -466,10 +781,80 @@ export function FocusDiagramModal() {
               className="bg-transparent font-semibold text-sm text-white border-b border-transparent hover:border-slate-700 focus:border-indigo-500 focus:outline-none px-1 py-0.5"
               placeholder="Diagram Title"
             />
+            {isMindMapMode && (
+              <span
+                data-testid="focus-mindmap-badge"
+                className="text-[11px] font-medium px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+              >
+                MindMap Mode
+              </span>
+            )}
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          {isMindMapMode && (
+            <div className="flex items-center gap-1.5 mr-1">
+              <button
+                type="button"
+                data-testid="mindmap-add-child"
+                onClick={() => addMindMapNode('child')}
+                className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 cursor-pointer"
+                title="Add Child Topic (Tab)"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Child</span>
+              </button>
+              <button
+                type="button"
+                data-testid="mindmap-add-sibling"
+                onClick={() => addMindMapNode('sibling')}
+                className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
+                title="Add Sibling Topic (Enter)"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Sibling</span>
+              </button>
+              {selectedSubNodes.length >= 1 && (
+                <button
+                  type="button"
+                  data-testid="mindmap-detach"
+                  onClick={handleDetachSelected}
+                  className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 cursor-pointer"
+                  title="Detach selected node into Floating"
+                >
+                  <Unlink className="w-3 h-3" />
+                  <span>Detach</span>
+                </button>
+              )}
+              {selectedSubNodes.length === 2 && (
+                <button
+                  type="button"
+                  data-testid="mindmap-swap"
+                  onClick={handleSwapSelected}
+                  className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 cursor-pointer"
+                  title="Swap two selected nodes"
+                >
+                  <ArrowLeftRight className="w-3 h-3" />
+                  <span>Swap</span>
+                </button>
+              )}
+              <button
+                type="button"
+                data-testid="mindmap-toggle-mermaid"
+                onClick={() => setShowMermaidEditor((v) => !v)}
+                className={`flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-md border cursor-pointer ${
+                  showMermaidEditor
+                    ? 'bg-indigo-600/25 text-indigo-200 border-indigo-500/40'
+                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-white'
+                }`}
+                title="Toggle optional Mermaid syntax sync panel"
+              >
+                <Code2 className="w-3 h-3" />
+                <span>Mermaid</span>
+              </button>
+            </div>
+          )}
           {syntaxError ? (
             <span className="flex items-center gap-1 text-xs text-rose-400 bg-rose-500/10 px-2.5 py-1 rounded-md border border-rose-500/20">
               <AlertCircle className="w-3.5 h-3.5" />
@@ -573,17 +958,32 @@ export function FocusDiagramModal() {
             </label>
           </div>
 
-          <select
-            value={direction}
-            data-testid="focus-diagram-direction"
-            onChange={(e) => handleDirectionChange(e.target.value as FlowDirection)}
-            className="text-xs bg-slate-800 text-slate-200 border border-slate-700 rounded-md px-2 py-1 focus:outline-none focus:border-indigo-500 cursor-pointer"
-          >
-            <option value="TB">TB (Top to Bottom)</option>
-            <option value="LR">LR (Left to Right)</option>
-            <option value="BT">BT (Bottom to Top)</option>
-            <option value="RL">RL (Right to Left)</option>
-          </select>
+          {isMindMapMode ? (
+            <select
+              value={mindMapDirection}
+              data-testid="focus-mindmap-direction"
+              onChange={(e) =>
+                handleMindMapDirectionChange(e.target.value as MindMapDirection)
+              }
+              className="text-xs bg-slate-800 text-slate-200 border border-slate-700 rounded-md px-2 py-1 focus:outline-none focus:border-emerald-500 cursor-pointer"
+            >
+              <option value="radial">Radial (Left-Right)</option>
+              <option value="right">Right</option>
+              <option value="down">Down</option>
+            </select>
+          ) : (
+            <select
+              value={direction}
+              data-testid="focus-diagram-direction"
+              onChange={(e) => handleDirectionChange(e.target.value as FlowDirection)}
+              className="text-xs bg-slate-800 text-slate-200 border border-slate-700 rounded-md px-2 py-1 focus:outline-none focus:border-indigo-500 cursor-pointer"
+            >
+              <option value="TB">TB (Top to Bottom)</option>
+              <option value="LR">LR (Left to Right)</option>
+              <option value="BT">BT (Bottom to Top)</option>
+              <option value="RL">RL (Right to Left)</option>
+            </select>
+          )}
 
           <button
             type="button"
@@ -598,24 +998,26 @@ export function FocusDiagramModal() {
 
       {/* Main Split Content Workspace */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Side: CodeMirror 6 Mermaid Editor */}
-        <div className="w-[420px] lg:w-[480px] border-r border-slate-800 flex flex-col bg-slate-900/50 shrink-0">
-          <div className="px-4 py-2 border-b border-slate-800/80 bg-slate-950/40 flex items-center justify-between text-xs text-slate-400">
-            <span className="flex items-center gap-1.5 font-medium text-slate-300">
-              <Code2 className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Mermaid Source Code</span>
-            </span>
-            <span className="text-[11px] text-slate-500">Auto-syncs 300ms</span>
-          </div>
+        {/* Left Side: CodeMirror 6 Mermaid Editor (optional in MindMap Mode) */}
+        {showMermaidEditor && (
+          <div className="w-[420px] lg:w-[480px] border-r border-slate-800 flex flex-col bg-slate-900/50 shrink-0">
+            <div className="px-4 py-2 border-b border-slate-800/80 bg-slate-950/40 flex items-center justify-between text-xs text-slate-400">
+              <span className="flex items-center gap-1.5 font-medium text-slate-300">
+                <Code2 className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Mermaid Source Code</span>
+              </span>
+              <span className="text-[11px] text-slate-500">Auto-syncs 300ms</span>
+            </div>
 
-          <div className="flex-1 overflow-hidden relative">
-            <MermaidEditor
-              value={code}
-              onChange={handleCodeChange}
-              error={syntaxError}
-            />
+            <div className="flex-1 overflow-hidden relative">
+              <MermaidEditor
+                value={code}
+                onChange={handleCodeChange}
+                error={syntaxError}
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Right Side: Dedicated Sub-Canvas */}
         <div className="flex-1 relative bg-slate-950">
@@ -625,7 +1027,7 @@ export function FocusDiagramModal() {
                 ...n,
                 draggable: !Boolean(n.locked || n.data?.locked),
               })) as unknown as Node[]}
-              edges={edges as unknown as Edge[]}
+              edges={renderedEdges}
               nodeTypes={subNodeTypes}
               edgeTypes={subEdgeTypes}
               onInit={(instance) => {
@@ -633,6 +1035,9 @@ export function FocusDiagramModal() {
               }}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
+              onNodeDrag={handleSubNodeDrag}
+              onNodeDragStop={handleSubNodeDragStop}
+              onPaneClick={handleSubPaneClick}
               onConnect={onConnect}
               onPaneContextMenu={(e) => e.preventDefault()}
               onNodeContextMenu={(e) => e.preventDefault()}

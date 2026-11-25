@@ -13,8 +13,8 @@
 
 import React, { useMemo, useCallback } from 'react';
 import { Handle, Position, useStoreApi, type NodeProps } from '@xyflow/react';
-import { Workflow, Maximize2, Layers } from 'lucide-react';
-import type { NeuroNode, NeuroEdge, FlowDirection } from '../../../types/index.ts';
+import { Workflow, Maximize2, Layers, Network } from 'lucide-react';
+import type { NeuroNode, NeuroEdge, FlowDirection, MindMapDirection } from '../../../types/index.ts';
 import { useProjectStore } from '../../../store/useProjectStore.ts';
 import { DiagramPipeline, calculateElkLayoutSync } from '../../../engine/index.ts';
 import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
@@ -45,7 +45,9 @@ export function DiagramNode({
 
   const mermaidCode =
     data?.mermaidCode || 'flowchart TD\n  Start([Start]) --> End([End])';
-  const title = data?.title || data?.label || 'Sub-Diagram Flow';
+  const isMindMap =
+    data?.diagramKind === 'mindmap' || mermaidCode.trimStart().startsWith('mindmap');
+  const title = data?.title || data?.label || (isMindMap ? 'MindMap Diagram' : 'Sub-Diagram Flow');
 
   // Compile Mermaid diagram via pure DiagramPipeline
   const compiled = useMemo(() => {
@@ -54,12 +56,18 @@ export function DiagramNode({
       savedSubNodes: data?.customData?.subNodes as NeuroNode[] | undefined,
       savedSubEdges: data?.customData?.subEdges as NeuroEdge[] | undefined,
       direction: data?.diagramOrientation as FlowDirection | undefined,
+      diagramKind: isMindMap ? 'mindmap' : 'flowchart',
+      mindMapDirection: (data?.mindMapDirection as MindMapDirection) || 'radial',
+      continuousLayout: data?.continuousLayout ?? true,
     });
   }, [
     mermaidCode,
+    isMindMap,
     data?.customData?.subNodes,
     data?.customData?.subEdges,
     data?.diagramOrientation,
+    data?.mindMapDirection,
+    data?.continuousLayout,
   ]);
 
   const nodeCount = compiled.ast.nodes.length;
@@ -306,11 +314,23 @@ export function DiagramNode({
         <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-800 bg-slate-950/60 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-6 h-6 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center shrink-0">
-              <Workflow className="w-3.5 h-3.5 text-indigo-400" />
+              {isMindMap ? (
+                <Network className="w-3.5 h-3.5 text-emerald-400" />
+              ) : (
+                <Workflow className="w-3.5 h-3.5 text-indigo-400" />
+              )}
             </div>
             <span className="text-xs font-semibold text-slate-200 truncate" title={title}>
               {title}
             </span>
+            {isMindMap && (
+              <span
+                data-testid="diagram-mindmap-badge"
+                className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shrink-0"
+              >
+                MindMap
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2 shrink-0">

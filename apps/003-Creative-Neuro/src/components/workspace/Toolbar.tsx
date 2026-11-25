@@ -35,6 +35,7 @@ import {
   Check,
   X,
   Image as ImageIcon,
+  Network,
 } from 'lucide-react';
 import type { EdgeRoutingType, ShapeType, ToolMode, SelectionFilter } from '../../types/index.ts';
 import { useProjectStore } from '../../store/projectStore.ts';
@@ -61,6 +62,7 @@ const TOOL_ITEMS: ToolItemConfig[] = [
   { mode: 'draw', label: 'Freehand Pen', shortcut: 'P', icon: PenTool },
   { mode: 'frame', label: 'Container Frame', shortcut: 'F', icon: Frame },
   { mode: 'diagram', label: 'Mermaid Diagram', shortcut: 'D', icon: FileCode2 },
+  { mode: 'mindmap', label: 'MindMap Diagram', shortcut: 'M', icon: Network },
   { mode: 'image', label: 'Image Asset', shortcut: 'I', icon: ImageIcon },
 ];
 

@@ -84,6 +84,7 @@ export type ToolMode =
   | 'draw'
   | 'frame'
   | 'diagram'
+  | 'mindmap'
   | 'image';
 
 /**
@@ -105,6 +106,7 @@ export type DiagramMode = 'embedded' | 'focused';
  */
 export type DiagramOrientation = 'TB' | 'LR' | 'BT' | 'RL' | 'TD';
 export type FlowDirection = DiagramOrientation;
+export type MindMapDirection = 'radial' | 'right' | 'down';
 
 export type ThemeMode = 'light' | 'dark';
 export type SpawnDirection = 'top' | 'right' | 'bottom' | 'left';
@@ -160,10 +162,13 @@ export interface NeuroNodeData {
   fontWeight?: 'normal' | 'bold';
   textAlign?: 'left' | 'center' | 'right';
 
-  // Diagram Node specific properties (Mermaid DSL)
+  // Diagram Node specific properties (Mermaid DSL & MindMap Mode)
   mermaidCode?: string;
   diagramMode?: DiagramMode;
+  diagramKind?: 'flowchart' | 'mindmap';
   diagramOrientation?: DiagramOrientation;
+  mindMapDirection?: MindMapDirection;
+  isMindMapRoot?: boolean;
   continuousLayout?: boolean;
   isFocused?: boolean;
   lineJump?: boolean;

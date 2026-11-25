@@ -12,6 +12,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import type { ToolMode, Point } from '../../../types/index.ts';
+import { createMindMapDiagramPayload } from '../../../engine/index.ts';
 
 export interface ContextMenuState {
   x: number;
@@ -258,6 +259,31 @@ export function useCanvasGestures({
       }
 
       if (toolMode === 'draw') {
+        return;
+      }
+
+      if (toolMode === 'mindmap') {
+        const now = Date.now();
+        const prev = lastPaneClickRef.current;
+        if (
+          prev &&
+          now - prev.time < 380 &&
+          Math.hypot(event.clientX - prev.x, event.clientY - prev.y) < 12
+        ) {
+          lastPaneClickRef.current = null;
+          const position = screenToFlowPosition({
+            x: event.clientX,
+            y: event.clientY,
+          });
+          addNode(createMindMapDiagramPayload(position, isDark));
+          setToolMode('select');
+          return;
+        }
+        lastPaneClickRef.current = {
+          time: now,
+          x: event.clientX,
+          y: event.clientY,
+        };
         return;
       }
 

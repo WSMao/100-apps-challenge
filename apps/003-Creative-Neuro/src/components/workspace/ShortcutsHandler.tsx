@@ -422,6 +422,11 @@ export function handleGlobalKeyDown(e: {
     }
   }
 
+  // Guard: When FocusDiagramModal is open, do not fire Page-level shortcuts behind the modal
+  if (state.focusedDiagramId) {
+    return false;
+  }
+
   // Guard: Do not intercept keys when user is typing in an input, textarea, or CodeMirror editor
   if (isEditableTarget(e.target ?? null)) {
     return false;
@@ -602,6 +607,7 @@ export function handleGlobalKeyDown(e: {
       p: 'draw',
       f: 'frame',
       d: 'diagram',
+      m: 'mindmap',
       i: 'image',
     };
     const mappedMode = keyMap[e.key.toLowerCase()];
