@@ -184,7 +184,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
                 addNode({
                   type: 'shape',
                   position: { x: flowX, y: flowY },
-                  data: { label: 'New Idea', shapeType: 'rounded', layoutMode: 'manual' },
+                  data: { label: 'New Idea', shapeType: 'rounded', locked: false },
                 });
                 onClose();
               }}
@@ -204,7 +204,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
                   position: { x: flowX, y: flowY },
                   width: 360,
                   height: 260,
-                  data: { title: 'Container Frame', layoutMode: 'manual' },
+                  data: { title: 'Container Frame', locked: false },
                 });
                 onClose();
               }}
@@ -226,7 +226,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
                   data: {
                     title: 'Mermaid Sub-Flow',
                     mermaidCode: 'flowchart TD\n  A[Step 1] --> B[Step 2]',
-                    layoutMode: 'manual',
+                    locked: false,
                   },
                 });
                 onClose();

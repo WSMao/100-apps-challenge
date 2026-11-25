@@ -174,31 +174,6 @@ export function FrameNode({
         if (page) page.updatedAt = Date.now();
         state.project.updatedAt = Date.now();
       });
-
-      // 3. Recalculate global layout to adjust auto-elk root nodes around folded frame
-      const currentStore = useProjectStore.getState();
-      const activePage = currentStore.pages[currentStore.activePageId];
-      const activeNodes = activePage
-        ? activePage.nodeIds
-            .map((nid) => currentStore.nodes[nid])
-            .filter((n): n is NeuroNode => Boolean(n))
-        : Object.values(currentStore.nodes);
-      const activeEdges = activePage
-        ? activePage.edgeIds
-            .map((eid) => currentStore.edges[eid])
-            .filter((ed): ed is NeuroEdge => Boolean(ed))
-        : Object.values(currentStore.edges);
-
-      calculateElkLayout(activeNodes, activeEdges).then(({ nodes: updatedNodes }) => {
-        useProjectStore.setState((state) => {
-          for (const u of updatedNodes) {
-            const existing = state.nodes[u.id];
-            if (existing && existing.layoutMode === 'auto-elk') {
-              existing.position = u.position;
-            }
-          }
-        });
-      });
     },
     [id, isCollapsed, width, height]
   );

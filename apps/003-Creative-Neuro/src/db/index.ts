@@ -326,7 +326,12 @@ export function validateAndSanitizeProjectRecord(record: unknown): ProjectRecord
   if (isNodesValidObject) {
     for (const node of Object.values(sanitizedNodes)) {
       if (node && node.type === 'text') {
-        if (!node.data) node.data = { label: '', layoutMode: 'manual' };
+        if (!node.data) node.data = { label: '', locked: false };
+        const legacyLayoutMode = (node as any).layoutMode ?? (node.data as any).layoutMode;
+        if (node.locked === undefined) {
+          node.locked = legacyLayoutMode === 'fixed';
+        }
+        node.data.locked = Boolean(node.locked);
         if (
           !node.data.backgroundColor ||
           node.data.backgroundColor === '#ffffff' ||

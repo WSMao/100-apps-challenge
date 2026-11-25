@@ -72,15 +72,7 @@ export function useDragCoordinator() {
 
             delete storeNode.dragging;
 
-            // 1. Force layoutMode to manual on user drag
-            if (storeNode.layoutMode === 'auto-elk') {
-              storeNode.layoutMode = 'manual';
-            }
-            if (storeNode.data && storeNode.data.layoutMode === 'auto-elk') {
-              storeNode.data.layoutMode = 'manual';
-            }
-
-            // 2. Frame container attachment check (exclude frame and macro diagram cards)
+            // 1. Frame container attachment check (exclude frame and macro diagram cards)
             if (dn.type !== 'frame' && dn.type !== 'diagram') {
               const frames = currentNodes.filter(
                 (n) => n.type === 'frame' && n.id !== dn.id && !n.data?.collapsed

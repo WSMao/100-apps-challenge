@@ -539,27 +539,23 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
   // Section 5: Advanced Features (FN-01, FN-02, FN-03, FN-04)
   // ==========================================================================
   describe('Advanced Features: Manual, Layer, Multi-Select, Grouping', () => {
-    it('FN-01: should support explicitly toggling manual layout mode on page and nodes', () => {
+    it('FN-01: should support toggling Lock boolean on nodes', () => {
       const store = useProjectStore.getState();
       const node = store.addNode({
         position: { x: 100, y: 100 },
-        data: { label: 'Layout Node', layoutMode: 'auto-elk' },
+        data: { label: 'Layout Node' },
       });
 
-      expect(useProjectStore.getState().nodes[node].layoutMode).toBe('auto-elk');
+      expect(useProjectStore.getState().nodes[node].locked).toBe(false);
 
-      // Explicitly set node to manual
-      store.setNodeLayoutMode(node, 'manual');
-      expect(useProjectStore.getState().nodes[node].layoutMode).toBe('manual');
-      expect(useProjectStore.getState().nodes[node].data.layoutMode).toBe('manual');
+      // Explicitly lock node
+      store.setNodeLocked(node, true);
+      expect(useProjectStore.getState().nodes[node].locked).toBe(true);
+      expect(useProjectStore.getState().nodes[node].data.locked).toBe(true);
 
-      // Toggle back to auto-elk
-      store.setNodeLayoutMode(node, 'auto-elk');
-      expect(useProjectStore.getState().nodes[node].layoutMode).toBe('auto-elk');
-
-      // Page level layout mode setting
-      store.setPageLayoutMode('manual');
-      expect(useProjectStore.getState().pageLayoutMode).toBe('manual');
+      // Unlock node
+      store.setNodeLocked(node, false);
+      expect(useProjectStore.getState().nodes[node].locked).toBe(false);
     });
 
     it('FN-02: should support layer management (bringToFront, sendToBack, zIndex step)', () => {
@@ -874,11 +870,11 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
       expect(useProjectStore.getState().nodes[node2].data.shapeType).toBe('circle');
       expect(useProjectStore.getState().nodes[node3].data.shapeType).toBe('circle');
 
-      // 2. Batch switch layoutMode to manual
-      store.batchSetNodeLayoutMode([node1, node2, node3], 'manual');
-      expect(useProjectStore.getState().nodes[node1].layoutMode).toBe('manual');
-      expect(useProjectStore.getState().nodes[node2].layoutMode).toBe('manual');
-      expect(useProjectStore.getState().nodes[node3].layoutMode).toBe('manual');
+      // 2. Batch lock nodes
+      store.batchSetNodeLocked([node1, node2, node3], true);
+      expect(useProjectStore.getState().nodes[node1].locked).toBe(true);
+      expect(useProjectStore.getState().nodes[node2].locked).toBe(true);
+      expect(useProjectStore.getState().nodes[node3].locked).toBe(true);
 
       // 3. Batch bringToFront
       const initialZ = store.addNode({ position: { x: 0, y: 0 }, zIndex: 10 });
@@ -1750,18 +1746,18 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
         position: { x: 100, y: 100 },
         width: 160,
         height: 60,
-        layoutMode: 'auto-elk',
-        data: { label: 'Node A', layoutMode: 'auto-elk' },
+        locked: false,
+        data: { label: 'Node A', locked: false },
       });
       const nodeB = store.addNode({
         position: { x: 800, y: 800 },
         width: 160,
         height: 60,
-        layoutMode: 'auto-elk',
-        data: { label: 'Node B', layoutMode: 'auto-elk' },
+        locked: false,
+        data: { label: 'Node B', locked: false },
       });
 
-      expect(useProjectStore.getState().nodes[nodeA].layoutMode).toBe('auto-elk');
+      expect(useProjectStore.getState().nodes[nodeA].locked).toBe(false);
 
       // 2. Simulate dragging Node A to a new position (250, 250)
       const temporal = useProjectStore.temporal;
@@ -1789,9 +1785,9 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
         { id: nodeA, type: 'position', position: { x: 250, y: 250 }, dragging: true },
       ]);
 
-      // Verify that while dragging, layoutMode transitioned to manual
-      expect(useProjectStore.getState().nodes[nodeA].layoutMode).toBe('manual');
-      expect(useProjectStore.getState().nodes[nodeA].data.layoutMode).toBe('manual');
+      // Verify that while dragging, unlocked node remains unlocked
+      expect(useProjectStore.getState().nodes[nodeA].locked).toBe(false);
+      expect(useProjectStore.getState().nodes[nodeA].data.locked).toBe(false);
 
       // Stop drag: handleNodeDragStop simulation
       useProjectStore.setState((state) => {
@@ -1819,7 +1815,7 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
       expect((stateAfterDrag.nodes[nodeA] as any).dragging).toBeUndefined();
       expect((stateAfterDrag.nodes[nodeB] as any).dragging).toBeUndefined();
       expect(stateAfterDrag.nodes[nodeA].position).toEqual({ x: 250, y: 250 });
-      expect(stateAfterDrag.nodes[nodeA].layoutMode).toBe('manual');
+      expect(stateAfterDrag.nodes[nodeA].locked).toBe(false);
       // Redundant position change with dragging: false must NOT add an extra undo state
       expect(temporal.getState().pastStates.length).toBe(1);
 
@@ -2755,17 +2751,17 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
       expect(posBLR.x).toBeLessThan(posELR.x);
     });
 
-    it('DG-02: Preserves manual node positions while auto-laying out new auto-elk nodes with ELK', () => {
+    it('DG-02: Preserves locked node positions while auto-laying out unlocked nodes with ELK', () => {
       const mermaid1 = `flowchart TD
   A --> B`;
       const ast1 = parseMermaid(mermaid1);
       const rec1 = reconcileMermaidAST(ast1, []);
       const l1 = calculateElkLayoutSync(rec1.nodes, rec1.edges, { direction: 'TB' });
 
-      // User manually moves node B to custom coordinate (e.g. 500, 500)
-      const nodesWithManual = l1.nodes.map((n) =>
+      // User locks node B at custom coordinate (e.g. 500, 500)
+      const nodesWithLocked = l1.nodes.map((n) =>
         n.id === 'B'
-          ? { ...n, position: { x: 500, y: 500 }, layoutMode: 'manual' as const, data: { ...n.data, layoutMode: 'manual' as const } }
+          ? { ...n, position: { x: 500, y: 500 }, locked: true, data: { ...n.data, locked: true } }
           : n
       );
 
@@ -2774,18 +2770,18 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
   A --> B
   B --> C`;
       const ast2 = parseMermaid(mermaid2);
-      const rec2 = reconcileMermaidAST(ast2, nodesWithManual);
+      const rec2 = reconcileMermaidAST(ast2, nodesWithLocked);
       const l2 = calculateElkLayoutSync(rec2.nodes, rec2.edges, { direction: 'TB' });
 
       const nodeB = l2.nodes.find((n) => n.id === 'B')!;
       const nodeC = l2.nodes.find((n) => n.id === 'C')!;
 
-      // Manual coordinate of B is strictly preserved
+      // Locked coordinate of B is strictly preserved
       expect(nodeB.position).toEqual({ x: 500, y: 500 });
-      expect(nodeB.layoutMode).toBe('manual');
-      // Auto-elk node C is assigned an ELK position
+      expect(nodeB.locked).toBe(true);
+      // Unlocked node C is assigned an ELK position
       expect(nodeC.position).toBeDefined();
-      expect(nodeC.layoutMode).toBe('auto-elk');
+      expect(nodeC.locked).toBe(false);
     });
 
     it('DG-03: FocusDiagramModal and DiagramNode static contracts include calculateElkLayoutSync and Auto Layout', () => {

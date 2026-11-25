@@ -11,9 +11,10 @@ import type {
   NeuroNodeData,
   NeuroNodeType,
   Point,
-  LayoutMode,
+  FlowDirection,
   EdgeRoutingType,
 } from '../../types/index.ts';
+import { calculateElkLayoutSync } from '../../engine/layout/elkEngine.ts';
 import type { StoreSet, StoreGet } from './types.ts';
 
 /**
@@ -89,11 +90,11 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
 
     set((state) => {
       const isTextType = nodeData.type === 'text';
+      const isLocked = Boolean(nodeData.locked ?? nodeData.data?.locked ?? false);
       const defaultData: NeuroNodeData = {
         ...nodeData.data,
         label: nodeData.data?.label || (isTextType ? 'Type text here...' : 'New Node'),
-        layoutMode:
-          nodeData.data?.layoutMode || nodeData.layoutMode || 'manual',
+        locked: isLocked,
         shapeType: nodeData.data?.shapeType || (isTextType ? undefined : 'rounded'),
         backgroundColor: isTextType
           ? (nodeData.data?.backgroundColor || 'transparent')
@@ -117,7 +118,7 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
         height: nodeData.height || 60,
         parentId: nodeData.parentId,
         extent: nodeData.extent,
-        layoutMode: defaultData.layoutMode,
+        locked: isLocked,
         data: defaultData,
         zIndex: nodeData.zIndex || 1,
       };
@@ -159,11 +160,11 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
 
     set((state) => {
       const isTextType = nodeData.type === 'text';
+      const isLocked = Boolean(nodeData.locked ?? nodeData.data?.locked ?? false);
       const defaultData: NeuroNodeData = {
         ...nodeData.data,
         label: nodeData.data?.label || (isTextType ? 'Type text here...' : 'New Node'),
-        layoutMode:
-          nodeData.data?.layoutMode || nodeData.layoutMode || 'manual',
+        locked: isLocked,
         shapeType: nodeData.data?.shapeType || (isTextType ? undefined : 'rounded'),
         backgroundColor: isTextType
           ? (nodeData.data?.backgroundColor || 'transparent')
@@ -187,7 +188,7 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
         height: nodeData.height || 60,
         parentId: nodeData.parentId,
         extent: nodeData.extent,
-        layoutMode: defaultData.layoutMode,
+        locked: isLocked,
         data: defaultData,
         zIndex: nodeData.zIndex || 1,
       };
@@ -243,15 +244,8 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
   updateNodePosition: (id: string, position: Point) => {
     set((state) => {
       const node = state.nodes[id];
-      if (node) {
+      if (node && !node.locked && !node.data?.locked) {
         node.position = position;
-        // Moving a node manually switches auto-elk to manual to preserve coordinates
-        if (node.layoutMode === 'auto-elk') {
-          node.layoutMode = 'manual';
-        }
-        if (node.data && node.data.layoutMode === 'auto-elk') {
-          node.data.layoutMode = 'manual';
-        }
         const page = state.pages[state.activePageId];
         if (page) {
           page.updatedAt = Date.now();
@@ -268,7 +262,7 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
     let hasDataChange = false;
     if (currentData) {
       for (const key of Object.keys(patch)) {
-        if (key === 'layoutMode') continue;
+        if (key === 'locked') continue;
         if (currentData[key] !== (patch as any)[key]) {
           hasDataChange = true;
           break;
@@ -278,8 +272,8 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
       hasDataChange = true;
     }
 
-    const hasLayoutChange = patch.layoutMode && currentNode.layoutMode !== patch.layoutMode;
-    if (!hasDataChange && !hasLayoutChange) {
+    const hasLockChange = patch.locked !== undefined && Boolean(currentNode.locked) !== Boolean(patch.locked);
+    if (!hasDataChange && !hasLockChange) {
       return;
     }
 
@@ -290,8 +284,8 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
           ...node.data,
           ...patch,
         };
-        if (patch.layoutMode) {
-          node.layoutMode = patch.layoutMode;
+        if (patch.locked !== undefined) {
+          node.locked = Boolean(patch.locked);
         }
         const page = state.pages[state.activePageId];
         if (page) {
@@ -312,8 +306,8 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
             ...node.data,
             ...patch,
           };
-          if (patch.layoutMode) {
-            node.layoutMode = patch.layoutMode;
+          if (patch.locked !== undefined) {
+            node.locked = Boolean(patch.locked);
           }
         }
       }
@@ -625,15 +619,13 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
     });
   },
 
-  setPageLayoutMode: (pageLayoutMode: LayoutMode) => set({ pageLayoutMode }),
-
-  setNodeLayoutMode: (nodeId: string, mode: LayoutMode) => {
+  setNodeLocked: (nodeId: string, locked: boolean) => {
     set((state) => {
       const node = state.nodes[nodeId];
       if (node) {
-        node.layoutMode = mode;
+        node.locked = locked;
         if (node.data) {
-          node.data.layoutMode = mode;
+          node.data.locked = locked;
         }
         const page = state.pages[state.activePageId];
         if (page) page.updatedAt = Date.now();
@@ -642,20 +634,53 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
     });
   },
 
-  batchSetNodeLayoutMode: (ids: string[], mode: LayoutMode) => {
+  batchSetNodeLocked: (ids: string[], locked: boolean) => {
     if (!ids || ids.length === 0) return;
     set((state) => {
       for (const id of ids) {
         const node = state.nodes[id];
         if (node) {
-          node.layoutMode = mode;
+          node.locked = locked;
           if (node.data) {
-            node.data.layoutMode = mode;
+            node.data.locked = locked;
           }
         }
       }
       const page = state.pages[state.activePageId];
       if (page) page.updatedAt = Date.now();
+      state.project.updatedAt = Date.now();
+    });
+  },
+
+  autoLayoutPage: (direction = 'TB') => {
+    const { activePageId, pages, nodes, edges } = get();
+    const activePage = pages[activePageId];
+    if (!activePage) return;
+
+    const pageNodes = activePage.nodeIds
+      .map((id) => nodes[id])
+      .filter((n): n is NeuroNode => Boolean(n));
+    const pageEdges = activePage.edgeIds
+      .map((id) => edges[id])
+      .filter((e): e is NeuroEdge => Boolean(e));
+
+    if (pageNodes.length === 0) return;
+
+    const result = calculateElkLayoutSync(pageNodes, pageEdges, { direction });
+
+    set((state) => {
+      for (const laidOutNode of result.nodes) {
+        const target = state.nodes[laidOutNode.id];
+        if (target && !target.locked && !target.data?.locked) {
+          target.position = { ...laidOutNode.position };
+          if (laidOutNode.width) target.width = laidOutNode.width;
+          if (laidOutNode.height) target.height = laidOutNode.height;
+        }
+      }
+      const pg = state.pages[state.activePageId];
+      if (pg) {
+        pg.updatedAt = Date.now();
+      }
       state.project.updatedAt = Date.now();
     });
   },

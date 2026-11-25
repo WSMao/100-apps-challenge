@@ -28,7 +28,6 @@ export const initialState: ProjectState = {
 
   themeMode: 'light',
   lastDirection: 'right',
-  pageLayoutMode: 'auto-elk',
   connectorSourceNodeId: null,
   defaultEdgeRoutingType: 'jump',
   availableProjects: [

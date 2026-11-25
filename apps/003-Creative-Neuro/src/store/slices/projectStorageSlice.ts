@@ -152,7 +152,7 @@ export const createProjectStorageSlice = (
       // Sanitize text nodes to guarantee transparent background and border
       for (const node of Object.values(state.nodes)) {
         if (node && node.type === 'text') {
-          if (!node.data) node.data = { label: '', layoutMode: 'manual' };
+          if (!node.data) node.data = { label: '', locked: false };
           if (
             !node.data.backgroundColor ||
             node.data.backgroundColor === '#ffffff' ||

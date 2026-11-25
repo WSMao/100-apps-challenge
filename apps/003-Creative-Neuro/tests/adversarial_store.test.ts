@@ -258,12 +258,11 @@ describe('Empirical Adversarial Stress Tests: Layer 1 State Store', () => {
       expect(audit.violations).toEqual([]);
     });
 
-    it('onNodesChange position change should automatically transition layoutMode from auto-elk to manual', () => {
+    it('onNodesChange position change moves unlocked nodes and blocks locked nodes', () => {
       const store = useProjectStore.getState();
       store.setActivePage(SEED_PAGE_IDS.mindmap);
 
-      // 'mm-root' has layoutMode 'auto-elk' in seed data
-      expect(store.nodes['mm-root'].layoutMode).toBe('auto-elk');
+      expect(store.nodes['mm-root'].locked).toBe(false);
 
       // Simulate dragging node in React Flow canvas
       store.onNodesChange([
@@ -276,9 +275,18 @@ describe('Empirical Adversarial Stress Tests: Layer 1 State Store', () => {
 
       const state = useProjectStore.getState();
       expect(state.nodes['mm-root'].position).toEqual({ x: 450, y: 450 });
-      // Dragging a node MUST convert layoutMode to manual to preserve manual coordinates!
-      expect(state.nodes['mm-root'].layoutMode).toBe('manual');
-      expect(state.nodes['mm-root'].data.layoutMode).toBe('manual');
+      expect(state.nodes['mm-root'].locked).toBe(false);
+
+      // Locking the node prevents subsequent position changes
+      state.setNodeLocked('mm-root', true);
+      state.onNodesChange([
+        {
+          type: 'position',
+          id: 'mm-root',
+          position: { x: 999, y: 999 },
+        },
+      ]);
+      expect(useProjectStore.getState().nodes['mm-root'].position).toEqual({ x: 450, y: 450 });
     });
 
     it('onEdgesChange with remove change sanitizes selectedEdgeIds', () => {
