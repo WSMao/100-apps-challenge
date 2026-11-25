@@ -89,10 +89,12 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
     const activePageId = get().activePageId;
 
     set((state) => {
-      const isTextType = nodeData.type === 'text';
-      const isFrameType = nodeData.type === 'frame';
+      const resolvedType: NeuroNodeType = nodeData.type || 'shape';
+      const isTextType = resolvedType === 'text';
+      const isFrameType = resolvedType === 'frame';
+      const isImageType = resolvedType === 'image';
       const isDark = state.themeMode === 'dark';
-      const defaultBg = isTextType
+      const defaultBg = isTextType || isImageType
         ? 'transparent'
         : isFrameType
         ? isDark
@@ -111,11 +113,18 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
         ...nodeData.data,
         label:
           nodeData.data?.label ||
-          (isTextType ? 'Type text here...' : isFrameType ? 'Container Frame' : 'New Node'),
+          (isTextType
+            ? 'Type text here...'
+            : isFrameType
+            ? 'Container Frame'
+            : isImageType
+            ? 'Image'
+            : 'New Node'),
         layoutMode:
           nodeData.data?.layoutMode || nodeData.layoutMode || 'manual',
         shapeType:
-          nodeData.data?.shapeType || (isTextType || isFrameType ? undefined : 'rounded'),
+          nodeData.data?.shapeType ||
+          (isTextType || isFrameType || isImageType ? undefined : 'rounded'),
         backgroundColor: nodeData.data?.backgroundColor || defaultBg,
         borderColor: nodeData.data?.borderColor || defaultBorder,
         borderWidth: isTextType
@@ -130,10 +139,10 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
 
       const newNode: NeuroNode = {
         id,
-        type: nodeData.type || 'shape',
+        type: resolvedType,
         position: nodeData.position || { x: 100, y: 100 },
-        width: nodeData.width || (isFrameType ? 360 : 160),
-        height: nodeData.height || (isFrameType ? 260 : 60),
+        width: nodeData.width || (isFrameType ? 360 : isImageType ? 240 : 160),
+        height: nodeData.height || (isFrameType ? 260 : isImageType ? 180 : 60),
         parentId: nodeData.parentId,
         extent: nodeData.extent,
         layoutMode: defaultData.layoutMode,
@@ -142,6 +151,16 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
       };
 
       state.nodes[id] = newNode;
+
+      if (
+        resolvedType === 'shape' ||
+        resolvedType === 'text' ||
+        resolvedType === 'frame' ||
+        resolvedType === 'diagram' ||
+        resolvedType === 'image'
+      ) {
+        state.lastCreatedNodeType = resolvedType;
+      }
 
       const page = state.pages[activePageId];
       if (page) {
@@ -154,6 +173,94 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
     });
 
     return id;
+  },
+
+  spawnNodeForLastCreatedType: (centerPos: Point): string => {
+    const state = get();
+    const targetType = state.lastCreatedNodeType || 'shape';
+    const isDark = state.themeMode === 'dark';
+
+    let newNodeId: string;
+    if (targetType === 'text') {
+      newNodeId = state.addNode({
+        type: 'text',
+        position: { x: Math.round(centerPos.x - 100), y: Math.round(centerPos.y - 30) },
+        width: 200,
+        height: 60,
+        layoutMode: 'manual',
+        data: {
+          label: 'Text Note',
+          layoutMode: 'manual',
+          backgroundColor: 'transparent',
+          borderColor: 'transparent',
+          borderWidth: 0,
+          color: isDark ? '#f8fafc' : '#0f172a',
+        },
+      });
+    } else if (targetType === 'frame') {
+      newNodeId = state.addNode({
+        type: 'frame',
+        position: { x: Math.round(centerPos.x - 180), y: Math.round(centerPos.y - 130) },
+        width: 360,
+        height: 260,
+        layoutMode: 'manual',
+        data: {
+          label: 'Container Group',
+          title: 'Container Group',
+          collapsed: false,
+          direction: 'TB',
+          layoutMode: 'manual',
+        },
+      });
+    } else if (targetType === 'diagram') {
+      newNodeId = state.addNode({
+        type: 'diagram',
+        position: { x: Math.round(centerPos.x - 170), y: Math.round(centerPos.y - 130) },
+        width: 340,
+        height: 260,
+        layoutMode: 'manual',
+        data: {
+          label: 'Mermaid Diagram',
+          title: 'Mermaid Diagram',
+          diagramMode: 'embedded',
+          diagramOrientation: 'TB',
+          mermaidCode:
+            'flowchart TD\n  Start([Start]) --> Process[Action]\n  Process --> End([Done])',
+          layoutMode: 'manual',
+        },
+      });
+    } else if (targetType === 'image') {
+      newNodeId = state.addNode({
+        type: 'image',
+        position: { x: Math.round(centerPos.x - 120), y: Math.round(centerPos.y - 90) },
+        width: 240,
+        height: 180,
+        layoutMode: 'manual',
+        data: {
+          label: 'Image',
+          layoutMode: 'manual',
+        },
+      });
+    } else {
+      newNodeId = state.addNode({
+        type: 'shape',
+        position: { x: Math.round(centerPos.x - 80), y: Math.round(centerPos.y - 30) },
+        width: 160,
+        height: 60,
+        layoutMode: 'manual',
+        data: {
+          label: 'New Idea',
+          layoutMode: 'manual',
+          shapeType: 'rounded',
+          backgroundColor: isDark ? '#1e293b' : '#ffffff',
+          borderColor: isDark ? '#475569' : '#cbd5e1',
+          color: isDark ? '#f8fafc' : '#0f172a',
+        },
+      });
+    }
+
+    state.setSelectedNodes([newNodeId]);
+    return newNodeId;
   },
 
   addConnectedNode: (

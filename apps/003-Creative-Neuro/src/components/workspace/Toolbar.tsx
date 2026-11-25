@@ -34,9 +34,11 @@ import {
   Minus,
   Check,
   X,
+  Image as ImageIcon,
 } from 'lucide-react';
 import type { EdgeRoutingType, ShapeType, ToolMode, SelectionFilter } from '../../types/index.ts';
 import { useProjectStore } from '../../store/projectStore.ts';
+import { importImageFileAsNode, isImageFile } from '../../utils/imageImport.ts';
 
 export interface ToolbarProps {
   activeShapeType?: ShapeType;
@@ -59,6 +61,7 @@ const TOOL_ITEMS: ToolItemConfig[] = [
   { mode: 'draw', label: 'Freehand Pen', shortcut: 'P', icon: PenTool },
   { mode: 'frame', label: 'Container Frame', shortcut: 'F', icon: Frame },
   { mode: 'diagram', label: 'Mermaid Diagram', shortcut: 'D', icon: FileCode2 },
+  { mode: 'image', label: 'Image Asset', shortcut: 'I', icon: ImageIcon },
 ];
 
 interface ShapeOptionConfig {
@@ -122,6 +125,7 @@ const FILTER_ITEMS: { key: keyof SelectionFilter; label: string; icon: React.Com
   { key: 'text', label: '文字區塊 (Text Blocks)', icon: Type },
   { key: 'frame', label: '容器外框 (Frames)', icon: Frame },
   { key: 'diagram', label: 'Mermaid 圖表 (Diagrams)', icon: FileCode2 },
+  { key: 'image', label: '圖片物件 (Images)', icon: ImageIcon },
 ];
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -143,6 +147,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const clearSelectionFilter = useProjectStore((s) => s.clearSelectionFilter);
 
   const toolbarRef = useRef<HTMLElement | null>(null);
+  const imageFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [internalShape, setInternalShape] = useState<ShapeType>('rounded');
   const [showShapeMenu, setShowShapeMenu] = useState<boolean>(false);
@@ -182,6 +187,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       setShowConnectorMenu((prev) => !prev);
       setShowShapeMenu(false);
       setShowSelectFilterMenu(false);
+    } else if (mode === 'image') {
+      setShowShapeMenu(false);
+      setShowConnectorMenu(false);
+      setShowSelectFilterMenu(false);
+      imageFileInputRef.current?.click();
     } else {
       setShowShapeMenu(false);
       setShowConnectorMenu(false);
@@ -341,6 +351,31 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       >
         <Plus className="w-4 h-4" />
       </button>
+
+      {/* Hidden File Picker for Image Asset Import */}
+      <input
+        ref={imageFileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        data-testid="toolbar-image-file-input"
+        onChange={async (e) => {
+          const files = Array.from(e.target.files || []).filter(isImageFile);
+          const store = useProjectStore.getState();
+          for (let i = 0; i < files.length; i++) {
+            await importImageFileAsNode(
+              files[i],
+              { x: 260 + i * 32, y: 200 + i * 32 },
+              store
+            );
+          }
+          if (files.length > 0) {
+            setToolMode('select');
+          }
+          e.target.value = '';
+        }}
+      />
 
       {/* Floating Selection Filter Popover (TL-06) */}
       {showSelectFilterMenu && (

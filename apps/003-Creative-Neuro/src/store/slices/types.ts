@@ -67,6 +67,7 @@ export interface ProjectState {
   defaultEdgeRoutingType: EdgeRoutingType;
   availableProjects: ProjectSummary[];
   selectionFilter: SelectionFilter;
+  lastCreatedNodeType: NeuroNodeType;
 }
 
 export interface ProjectActions {
@@ -158,6 +159,7 @@ export interface ProjectActions {
   toggleSelectionFilterItem: (key: keyof SelectionFilter) => void;
   resetSelectionFilter: () => void;
   clearSelectionFilter: () => void;
+  spawnNodeForLastCreatedType: (centerPos: Point) => string;
 }
 
 export type ProjectStore = ProjectState & ProjectActions;

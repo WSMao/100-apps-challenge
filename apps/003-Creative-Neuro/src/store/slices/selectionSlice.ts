@@ -96,6 +96,7 @@ export const createSelectionSlice = (set: StoreSet, get: StoreGet) => ({
         edge: true,
         frame: true,
         diagram: true,
+        image: true,
       };
     });
   },
@@ -108,6 +109,7 @@ export const createSelectionSlice = (set: StoreSet, get: StoreGet) => ({
         edge: false,
         frame: false,
         diagram: false,
+        image: false,
       };
     });
   },

@@ -57,7 +57,14 @@ import ShapeNode from './nodes/ShapeNode.tsx';
 import TextNode from './nodes/TextNode.tsx';
 import FrameNode from './nodes/FrameNode.tsx';
 import DiagramNode from './nodes/DiagramNode.tsx';
+import ImageNode from './nodes/ImageNode.tsx';
 import JumpConnectorEdge from './edges/JumpConnectorEdge.tsx';
+import {
+  importImageFileAsNode,
+  importImageUrlAsNode,
+  isImageFile,
+  isImageUrlCandidate,
+} from '../../utils/imageImport.ts';
 import FreehandOverlay from './freehand/FreehandOverlay.tsx';
 import FocusDiagramModal from '../editor/FocusDiagramModal.tsx';
 import { ContextMenu } from './ContextMenu.tsx';
@@ -93,6 +100,7 @@ const nodeTypes: NodeTypes = {
   text: TextNode,
   frame: FrameNode,
   diagram: DiagramNode,
+  image: ImageNode,
 };
 
 const edgeTypes: EdgeTypes = {
@@ -112,6 +120,7 @@ export function CanvasContent() {
     onEdgesChange,
     onConnect,
     addNode,
+    spawnNodeForLastCreatedType,
     toolMode,
     setToolMode,
     setSelectedNodes,
@@ -156,27 +165,9 @@ export function CanvasContent() {
         x: clientX,
         y: clientY,
       });
-      const newNodeId = addNode({
-        type: 'shape',
-        position: {
-          x: Math.round(flowPos.x - 80),
-          y: Math.round(flowPos.y - 30),
-        },
-        width: 160,
-        height: 60,
-        layoutMode: 'manual',
-        data: {
-          label: 'New Idea',
-          layoutMode: 'manual',
-          shapeType: 'rounded',
-          backgroundColor: isDark ? '#1e293b' : '#ffffff',
-          borderColor: isDark ? '#475569' : '#cbd5e1',
-          color: isDark ? '#f8fafc' : '#0f172a',
-        },
-      });
-      setSelectedNodes([newNodeId]);
+      spawnNodeForLastCreatedType(flowPos);
     },
-    [screenToFlowPosition, addNode, setSelectedNodes, isDark]
+    [screenToFlowPosition, spawnNodeForLastCreatedType]
   );
 
   // Interaction coordinator hooks (Candidate 3)
@@ -239,6 +230,50 @@ export function CanvasContent() {
       spawnFloatingNodeAtClientPos(event.clientX, event.clientY);
     },
     [spawnFloatingNodeAtClientPos]
+  );
+
+  // Drag-and-drop image files or image URLs onto the canvas
+  const handleCanvasDragOver = useCallback((event: React.DragEvent) => {
+    if (
+      event.dataTransfer?.types?.includes('Files') ||
+      event.dataTransfer?.types?.includes('text/uri-list') ||
+      event.dataTransfer?.types?.includes('text/plain')
+    ) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    }
+  }, []);
+
+  const handleCanvasDrop = useCallback(
+    async (event: React.DragEvent) => {
+      const files = Array.from(event.dataTransfer?.files || []).filter(isImageFile);
+      if (files.length > 0) {
+        event.preventDefault();
+        event.stopPropagation();
+        const basePos = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+        const store = useProjectStore.getState();
+        for (let i = 0; i < files.length; i++) {
+          await importImageFileAsNode(
+            files[i],
+            { x: Math.round(basePos.x + i * 24), y: Math.round(basePos.y + i * 24) },
+            store
+          );
+        }
+        return;
+      }
+
+      const uri =
+        event.dataTransfer?.getData('text/uri-list') ||
+        event.dataTransfer?.getData('text/plain') ||
+        '';
+      if (isImageUrlCandidate(uri)) {
+        event.preventDefault();
+        event.stopPropagation();
+        const pos = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+        importImageUrlAsNode(uri, pos, useProjectStore.getState());
+      }
+    },
+    [screenToFlowPosition]
   );
 
   // Connector Tool Node Click Handler (TL-01) & Single/Group Node Selection Click (FN-04)
@@ -644,6 +679,8 @@ export function CanvasContent() {
         }
       }}
       onDoubleClick={handlePaneDoubleClick}
+      onDragOver={handleCanvasDragOver}
+      onDrop={handleCanvasDrop}
       onMouseDown={handleMouseDown}
       onMouseUp={handleMouseUp}
     >

@@ -41,6 +41,7 @@ export default defineConfig({
       'tests/lineJumpConnector.test.ts',
       'tests/importExport.test.ts',
       'tests/pageLifecycle.test.ts',
+      'tests/imageAssetResizeDblClick.test.ts',
     ],
   },
 });
