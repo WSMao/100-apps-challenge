@@ -76,7 +76,8 @@ export type NeuroNodeType =
   | 'frame'
   | 'diagram'
   | 'freehand'
-  | 'pageCard';
+  | 'pageCard'
+  | 'image';
 
 /**
  * Workspace toolbar interaction modes.
@@ -88,7 +89,8 @@ export type ToolMode =
   | 'connect'
   | 'draw'
   | 'frame'
-  | 'diagram';
+  | 'diagram'
+  | 'image';
 
 /**
  * Connector line rendering types.
@@ -188,6 +190,15 @@ export interface NeuroNodeData {
 
   // Page Card specific properties (inter-page navigation)
   targetPageId?: string;
+
+  // Image Node specific properties (IndexedDB Asset or external URL)
+  assetId?: string;
+  src?: string;
+  alt?: string;
+  fileName?: string;
+  naturalWidth?: number;
+  naturalHeight?: number;
+  objectFit?: 'contain' | 'cover' | 'fill';
 
   // Algorithmic flags
   isUnplaced?: boolean;
@@ -297,6 +308,17 @@ export interface Project {
 // 7. Aggregate & Serialized Schemas (Dexie & Export)
 // ============================================================================
 
+export interface SerializedAsset {
+  id: string;
+  projectId: string;
+  mimeType: string;
+  dataUrl: string;
+  fileName?: string;
+  width?: number;
+  height?: number;
+  createdAt: number;
+}
+
 export interface SerializedProjectPayload {
   version: string;
   project: Project;
@@ -304,6 +326,7 @@ export interface SerializedProjectPayload {
   pages: Record<string, Page>;
   nodes: Record<string, NeuroNode>;
   edges: Record<string, NeuroEdge>;
+  assets?: Record<string, SerializedAsset>;
   exportedAt: number;
 }
 
@@ -361,4 +384,5 @@ export interface SelectionFilter {
   edge: boolean;
   frame: boolean;
   diagram: boolean;
+  image: boolean;
 }

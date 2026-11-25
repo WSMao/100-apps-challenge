@@ -40,6 +40,7 @@ export default defineConfig({
       'tests/groupFrameStyleZOrder.test.ts',
       'tests/importExport.test.ts',
       'tests/pageLifecycle.test.ts',
+      'tests/imageAssetResizeDblClick.test.ts',
     ],
   },
 });

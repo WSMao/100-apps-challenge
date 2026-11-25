@@ -184,6 +184,7 @@ export const createProjectStorageSlice = (
 
       // Ephemeral UI State Sanitization
       state.toolMode = 'select';
+      state.lastCreatedNodeType = 'shape';
       state.hoveredNodeId = null;
       state.selectedNodeIds = [];
       state.selectedEdgeIds = [];

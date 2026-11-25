@@ -45,6 +45,8 @@ export const initialState: ProjectState = {
     edge: true,
     frame: true,
     diagram: true,
+    image: true,
   },
+  lastCreatedNodeType: 'shape',
 };
 

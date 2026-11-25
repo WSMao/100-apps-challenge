@@ -1495,6 +1495,84 @@ async function runE2EScenario() {
     }
     console.log('  ✓ .neuro.json import & PNG rejection verified:', JSON.stringify(importE2eRes.result?.result?.value));
 
+    // Verify Image object import, universal resize handles, and double-click last-created type
+    console.log('\n[E2E Step 10c] Verifying Image import, universal resize handles, and double-click last-created type...');
+    const imageAndDblClickRes = await pageSend('Runtime.evaluate', {
+      expression: `
+        (async () => {
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const store = window.__CREATIVE_NEURO_STORE__;
+
+          // 1. Trigger file-picker image import via toolbar input
+          const imgInput = document.querySelector("[data-testid='toolbar-image-file-input']");
+          if (!imgInput) throw new Error('toolbar-image-file-input not found');
+          const b64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+          const bin = atob(b64);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          const file = new File([bytes], 'e2e-photo.png', { type: 'image/png' });
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          imgInput.files = dt.files;
+          imgInput.dispatchEvent(new Event('change', { bubbles: true }));
+          await sleep(300);
+
+          const st1 = store.getState();
+          const imgNode = Object.values(st1.nodes).find((n) => n.type === 'image');
+          if (!imgNode || !imgNode.data?.assetId) {
+            throw new Error('Image node with IndexedDB assetId was not created');
+          }
+          if (st1.lastCreatedNodeType !== 'image') {
+            throw new Error('Expected lastCreatedNodeType to be image, got ' + st1.lastCreatedNodeType);
+          }
+          const imgEl = document.querySelector(\`[data-testid='image-node-\${imgNode.id}'] img\`);
+          if (!imgEl) throw new Error('Rendered <img> element inside ImageNode not found');
+          const imgResizeSe = document.querySelector("[data-testid='image-resize-se']");
+          if (!imgResizeSe) throw new Error('image-resize-se handle not found');
+
+          // 2. Create a text node, then double-click blank pane and verify a text node is spawned
+          const textId = st1.addNode({
+            type: 'text',
+            position: { x: 100, y: 100 },
+            width: 180,
+            height: 50,
+            layoutMode: 'manual',
+            data: { label: 'Seed Text', layoutMode: 'manual' },
+          });
+          st1.setSelectedNodes([textId]);
+          await sleep(200);
+          const textResizeSe = document.querySelector("[data-testid='text-resize-se']");
+          if (!textResizeSe) throw new Error('text-resize-se handle not found');
+
+          const countBeforeDbl = Object.keys(store.getState().nodes).length;
+          const pane = document.querySelector('.react-flow__pane');
+          if (!pane) throw new Error('.react-flow__pane not found');
+          pane.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, button: 0, clientX: 900, clientY: 500 }));
+          await sleep(250);
+          const st2 = store.getState();
+          const countAfterDbl = Object.keys(st2.nodes).length;
+          if (countAfterDbl !== countBeforeDbl + 1) {
+            throw new Error('Blank-canvas dblclick did not create a node');
+          }
+          const createdDblNode = st2.nodes[st2.selectedNodeIds[0]];
+          if (!createdDblNode || createdDblNode.type !== 'text') {
+            throw new Error('Expected dblclick to create text node, got ' + createdDblNode?.type);
+          }
+
+          return {
+            imageAssetId: imgNode.data.assetId,
+            dblCreatedType: createdDblNode.type,
+          };
+        })()
+      `,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    if (imageAndDblClickRes.exceptionDetails) {
+      throw new Error(`Image & dblclick E2E failed: ${JSON.stringify(imageAndDblClickRes.exceptionDetails)}`);
+    }
+    console.log('  ✓ Image import, resize handles & dblclick verified:', JSON.stringify(imageAndDblClickRes.result?.result?.value));
+
     // Verify Error Boundary state
     console.log('\n[E2E Step 11] Validating browser crash & error-boundary guarantees:');
     const errorBoundaryCheck = await pageSend('Runtime.evaluate', {

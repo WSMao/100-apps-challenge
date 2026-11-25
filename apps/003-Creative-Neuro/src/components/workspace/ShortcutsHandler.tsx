@@ -602,6 +602,7 @@ export function handleGlobalKeyDown(e: {
       p: 'draw',
       f: 'frame',
       d: 'diagram',
+      i: 'image',
     };
     const mappedMode = keyMap[e.key.toLowerCase()];
     if (mappedMode) {

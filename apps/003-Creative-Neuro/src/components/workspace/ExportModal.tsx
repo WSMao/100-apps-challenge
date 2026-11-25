@@ -29,6 +29,7 @@ import type { FlowDirection } from '../../types/index.ts';
 import { useProjectStore } from '../../store/projectStore.ts';
 import {
   exportProjectAsJson,
+  exportProjectAsJsonWithAssets,
   exportPageAsMermaid,
   exportCanvasAsSvg,
   exportCanvasAsPngWithMetadata,
@@ -135,9 +136,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     );
   };
 
-  const handleDownloadJson = () => {
+  const handleDownloadJson = async () => {
+    const fullJson = await exportProjectAsJsonWithAssets();
     downloadTextFile(
-      jsonPayload,
+      fullJson,
       `${safeSlug}.neuro.json`,
       'application/json;charset=utf-8'
     );

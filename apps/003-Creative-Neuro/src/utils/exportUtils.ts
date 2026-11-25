@@ -17,6 +17,7 @@ import type {
   NeuroNode,
   NeuroEdge,
   FlowDirection,
+  SerializedAsset,
   SerializedProjectPayload,
 } from '../types/index.ts';
 import type {
@@ -24,6 +25,14 @@ import type {
   ProjectState,
   ProjectActions,
 } from '../store/projectStore.ts';
+import {
+  db,
+  CreativeNeuroDB,
+  getAsset,
+  saveAsset,
+  assetToDataUrl,
+  dataUrlToBlob,
+} from '../db/index.ts';
 import { createSeedProject } from '../store/seedData.ts';
 import { serializeMermaid, calculateLineJumps } from '../engine/index.ts';
 import {
@@ -233,6 +242,14 @@ export function buildUnifiedProjectPayload(
     updatedAt: rawProject.updatedAt || Date.now(),
   };
 
+  const rawAssets =
+    'assets' in storeState &&
+    storeState.assets &&
+    typeof storeState.assets === 'object' &&
+    !Array.isArray(storeState.assets)
+      ? (storeState.assets as Record<string, SerializedAsset>)
+      : undefined;
+
   return {
     ...projectObj,
     version: projectObj.version,
@@ -241,6 +258,7 @@ export function buildUnifiedProjectPayload(
     pages: normalizedPages,
     nodes: flatNodes,
     edges: flatEdges,
+    ...(rawAssets ? { assets: rawAssets } : {}),
     exportedAt: Date.now(),
   };
 }
@@ -257,6 +275,84 @@ export function exportProjectAsJson(
 ): string {
   const payload = buildUnifiedProjectPayload(source);
   return JSON.stringify(payload, null, 2);
+}
+
+/**
+ * Serializes the project into `.neuro.json` and embeds any referenced IndexedDB assets
+ * as Base64 Data URLs for single-file portability (ADR-0003).
+ */
+export async function exportProjectAsJsonWithAssets(
+  source?: Partial<ProjectState> | Partial<SerializedProjectPayload> | Partial<ProjectRecord>,
+  database: CreativeNeuroDB = db
+): Promise<string> {
+  const payload = buildUnifiedProjectPayload(source);
+  const embeddedAssets: Record<string, SerializedAsset> = {
+    ...(payload.assets ?? {}),
+  };
+
+  const referencedAssetIds = new Set<string>();
+  for (const node of Object.values(payload.nodes)) {
+    const aid = node?.data?.assetId;
+    if (typeof aid === 'string' && aid) {
+      referencedAssetIds.add(aid);
+    }
+  }
+
+  for (const assetId of referencedAssetIds) {
+    if (embeddedAssets[assetId]) continue;
+    const record = await getAsset(assetId, database);
+    if (!record) continue;
+    const dataUrl = await assetToDataUrl(record);
+    embeddedAssets[assetId] = {
+      id: record.id,
+      projectId: record.projectId,
+      mimeType: record.mimeType,
+      dataUrl,
+      fileName: record.fileName,
+      width: record.width,
+      height: record.height,
+      createdAt: record.createdAt,
+    };
+  }
+
+  if (Object.keys(embeddedAssets).length > 0) {
+    payload.assets = embeddedAssets;
+  }
+
+  return JSON.stringify(payload, null, 2);
+}
+
+/**
+ * Restores any embedded Base64 Data URL assets from an imported `.neuro.json` payload
+ * back into the IndexedDB `assets` table as binary Blobs.
+ */
+export async function restoreAssetsFromPayload(
+  payload: SerializedProjectPayload,
+  database: CreativeNeuroDB = db
+): Promise<void> {
+  if (!payload.assets || typeof payload.assets !== 'object') {
+    return;
+  }
+
+  for (const asset of Object.values(payload.assets)) {
+    if (!asset || typeof asset.id !== 'string' || typeof asset.dataUrl !== 'string') {
+      continue;
+    }
+    const { blob, mimeType } = dataUrlToBlob(asset.dataUrl);
+    await saveAsset(
+      {
+        id: asset.id,
+        projectId: asset.projectId || payload.project.id,
+        mimeType: asset.mimeType || mimeType,
+        blob,
+        fileName: asset.fileName,
+        width: asset.width,
+        height: asset.height,
+        createdAt: asset.createdAt || Date.now(),
+      },
+      database
+    );
+  }
 }
 
 /**
@@ -293,6 +389,7 @@ export function importProjectFromJson(jsonString: string): UnifiedExportPayload 
  * Applies an imported project payload directly into `useProjectStore`.
  */
 export function applyImportedProjectToStore(payload: UnifiedExportPayload): void {
+  void restoreAssetsFromPayload(payload);
   if (activeStoreAccessor) {
     const state = activeStoreAccessor.getState();
     if (typeof state.setProject === 'function') {
@@ -499,6 +596,10 @@ export function exportCanvasAsSvg(
         .join(' ');
       const freehandColor = n.data.strokeColor || n.data.color || '#ef4444';
       return `<polyline points="${pts}" fill="none" stroke="${freehandColor}" stroke-width="${n.data.strokeWidth || 3}" stroke-linecap="round" stroke-linejoin="round"/>`;
+    }
+
+    if (n.type === 'image' && n.data.src) {
+      return `<g data-node-id="${escapeXml(n.id)}"><image href="${escapeXml(n.data.src)}" x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="xMidYMid meet"/></g>`;
     }
 
     const rx =

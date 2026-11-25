@@ -22,6 +22,7 @@ import {
   type PlacementDirection,
 } from '../../../engine/index.ts';
 import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
+import { ResizeHandles, useNodeResize } from './ResizeHandles.tsx';
 import {
   spawnChildNode,
   spawnSiblingNode,
@@ -199,9 +200,19 @@ export function ShapeNode({
   const selectedNodeCount = useProjectStore((s) => s.selectedNodeIds.length);
   const isStoreSelected = useProjectStore((s) => s.selectedNodeIds.includes(id));
   const isConnectorSource = connectorSourceNodeId === id;
-  const isNodeSelected = selected || isStoreSelected;
+  const isNodeSelected = Boolean(selected || isStoreSelected);
   const isSingleSelected = isNodeSelected && selectedNodeCount === 1;
   const shouldRenderInput = isSingleSelected || isEditing;
+
+  const storeWidth = useProjectStore((s) => s.nodes[id]?.width);
+  const storeHeight = useProjectStore((s) => s.nodes[id]?.height);
+  const handleResizeMouseDown = useNodeResize({
+    id,
+    defaultWidth: storeWidth || width || 160,
+    defaultHeight: storeHeight || height || 60,
+    minWidth: 64,
+    minHeight: 36,
+  });
 
   useEffect(() => {
     if (!isEditing) {
@@ -442,6 +453,13 @@ export function ShapeNode({
     >
       {/* Horizontal Floating Quick-Action Menu directly above node when single node is selected */}
       {isNodeSelected && selectedNodeCount <= 1 && <NodeFloatingActionBar nodeId={id} />}
+
+      {/* 8-Direction Corner & Edge Resize Handles */}
+      <ResizeHandles
+        isSelected={isNodeSelected}
+        testIdPrefix="shape"
+        onResizeMouseDown={handleResizeMouseDown}
+      />
 
       {/* Connector Source Selection Badge */}
       {isConnectorSource && (

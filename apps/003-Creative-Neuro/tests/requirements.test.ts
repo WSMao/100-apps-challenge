@@ -1652,6 +1652,7 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
         edge: true,
         frame: true,
         diagram: true,
+        image: true,
       });
 
       // Toggle edge off
@@ -1671,6 +1672,7 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
         edge: true,
         frame: true,
         diagram: true,
+        image: true,
       });
 
       // Clear (Deselect all)
@@ -1681,6 +1683,7 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
         edge: false,
         frame: false,
         diagram: false,
+        image: false,
       });
     });
 

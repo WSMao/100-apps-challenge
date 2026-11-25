@@ -333,6 +333,19 @@ export function useCanvasGestures({
           },
         });
         setToolMode('select');
+      } else if (toolMode === 'image') {
+        addNode({
+          type: 'image',
+          position,
+          width: 240,
+          height: 180,
+          layoutMode: 'manual',
+          data: {
+            label: 'Image',
+            layoutMode: 'manual',
+          },
+        });
+        setToolMode('select');
       }
     },
     [
