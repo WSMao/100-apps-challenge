@@ -713,7 +713,7 @@ const page2Edges: NeuroEdge[] = [
     target: 'fc-parse',
     sourceHandle: 'bottom',
     targetHandle: 'top',
-    type: 'jump',
+    type: 'straight',
     data: { color: '#334155', strokeWidth: 2 },
   },
   // Parse -> Decision
@@ -723,7 +723,7 @@ const page2Edges: NeuroEdge[] = [
     target: 'fc-decision',
     sourceHandle: 'bottom',
     targetHandle: 'top',
-    type: 'jump',
+    type: 'straight',
     data: { color: '#334155', strokeWidth: 2 },
   },
   // Decision -> Error (No)
@@ -733,7 +733,7 @@ const page2Edges: NeuroEdge[] = [
     target: 'fc-error',
     sourceHandle: 'right',
     targetHandle: 'left',
-    type: 'jump',
+    type: 'straight',
     label: 'No',
     data: { color: '#ef4444', strokeWidth: 2, lineStyle: 'dashed' },
   },
@@ -744,7 +744,7 @@ const page2Edges: NeuroEdge[] = [
     target: 'fc-reconcile',
     sourceHandle: 'bottom',
     targetHandle: 'top',
-    type: 'jump',
+    type: 'straight',
     label: 'Yes',
     data: { color: '#10b981', strokeWidth: 2 },
   },
@@ -755,7 +755,7 @@ const page2Edges: NeuroEdge[] = [
     target: 'fc-preserve',
     sourceHandle: 'bottom',
     targetHandle: 'top',
-    type: 'jump',
+    type: 'straight',
     data: { color: '#3b82f6', strokeWidth: 1.5 },
   },
   // Reconcile -> ELK
@@ -765,7 +765,7 @@ const page2Edges: NeuroEdge[] = [
     target: 'fc-elk',
     sourceHandle: 'bottom',
     targetHandle: 'top',
-    type: 'jump',
+    type: 'straight',
     data: { color: '#10b981', strokeWidth: 1.5 },
   },
   // Preserve -> Render
@@ -775,7 +775,7 @@ const page2Edges: NeuroEdge[] = [
     target: 'fc-render',
     sourceHandle: 'bottom',
     targetHandle: 'top',
-    type: 'jump',
+    type: 'straight',
     data: { color: '#3b82f6', strokeWidth: 1.5 },
   },
   // ELK -> Render
@@ -785,7 +785,7 @@ const page2Edges: NeuroEdge[] = [
     target: 'fc-render',
     sourceHandle: 'bottom',
     targetHandle: 'top',
-    type: 'jump',
+    type: 'straight',
     data: { color: '#10b981', strokeWidth: 1.5 },
   },
   // Render -> DB
@@ -795,7 +795,7 @@ const page2Edges: NeuroEdge[] = [
     target: 'fc-db',
     sourceHandle: 'bottom',
     targetHandle: 'top',
-    type: 'jump',
+    type: 'straight',
     data: { color: '#4f46e5', strokeWidth: 2 },
   },
 
@@ -806,7 +806,7 @@ const page2Edges: NeuroEdge[] = [
     target: 'fc-telemetry-out',
     sourceHandle: 'right',
     targetHandle: 'left',
-    type: 'jump',
+    type: 'straight',
     label: 'SVG Jump Crossing',
     data: {
       color: '#9333ea',
@@ -1188,6 +1188,7 @@ export const SEED_PAGES: Record<string, Page> = {
     name: 'Engine Flowchart & Jumps',
     order: 1,
     viewport: { x: 50, y: 20, zoom: 0.85 },
+    lineJump: true,
     nodeIds: page2Nodes.map((n) => n.id),
     edgeIds: page2Edges.map((e) => e.id),
     createdAt: 1735000000000,

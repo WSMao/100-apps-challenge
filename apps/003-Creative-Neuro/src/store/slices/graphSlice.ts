@@ -167,7 +167,7 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
       nodeData.id ||
       `node-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const activePageId = get().activePageId;
-    const defaultRouting = get().defaultEdgeRoutingType || 'jump';
+    const defaultRouting = get().defaultEdgeRoutingType || 'smoothstep';
 
     let edgeId: string | undefined;
     if (edgeData) {
@@ -233,7 +233,6 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
           animated: edgeData.animated,
           style: edgeData.style,
           data: {
-            jumpArc: routing === 'jump',
             routingType: routing,
             ...edgeData.data,
           },
@@ -446,7 +445,7 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
       edgeData.id ||
       `edge-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const activePageId = get().activePageId;
-    const defaultRouting = get().defaultEdgeRoutingType || 'jump';
+    const defaultRouting = get().defaultEdgeRoutingType || 'smoothstep';
     const routing = (edgeData.type as EdgeRoutingType) || defaultRouting;
 
     set((state) => {
@@ -461,7 +460,6 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
         animated: edgeData.animated,
         style: edgeData.style,
         data: {
-          jumpArc: routing === 'jump',
           routingType: routing,
           ...edgeData.data,
         },
@@ -703,7 +701,7 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
       handles = findOptimalHandlePair(nodeA, nodeB);
     }
 
-    const routing = get().defaultEdgeRoutingType || 'jump';
+    const routing = get().defaultEdgeRoutingType || 'smoothstep';
 
     // Establish edge between currentSource and nodeId with optimal handles
     const edgeId = get().addEdge({
@@ -714,7 +712,6 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
       type: routing,
       data: {
         routingType: routing,
-        jumpArc: routing === 'jump',
       },
     });
 

@@ -88,8 +88,12 @@ export {
   findEdgesInSelectionRect,
   computeJumpArcsForEdge,
   buildJumpSvgPath,
+  sampleEdgePolyline,
+  computeJumpArcsForPolyline,
+  buildPolylineJumpSvgPath,
   computeSmartLabelPosition,
   type BoundingRect,
   type JumpArcData,
   type LeafRect,
+  type HandleSide,
 } from './geometry/graphRoutingEngine.ts';

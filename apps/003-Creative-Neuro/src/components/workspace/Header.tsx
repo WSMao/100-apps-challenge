@@ -19,6 +19,7 @@ import {
   RotateCcw,
   Download,
   Settings,
+  GitCommit,
 } from 'lucide-react';
 import {
   useProjectStore,
@@ -58,6 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
   const undoAction = useProjectStore((s) => s.undo);
   const redoAction = useProjectStore((s) => s.redo);
   const resetToSeed = useProjectStore((s) => s.resetToSeed);
+  const togglePageLineJump = useProjectStore((s) => s.togglePageLineJump);
   const themeMode = useProjectStore((s) => s.themeMode);
   const isDark = themeMode === 'dark';
 
@@ -70,6 +72,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const activeBoard = boards[project.activeBoardId];
   const activePage = pages[activePageId];
+  const pageLineJump = activePage?.lineJump ?? true;
 
   const handleAutoElkLayout = async () => {
     if (!activePage || isLayoutRunning) return;
@@ -233,6 +236,23 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
             </button>
           </div>
+
+          {/* Page-level Line Jump Toggle */}
+          <button
+            type="button"
+            onClick={() => togglePageLineJump(activePageId)}
+            aria-pressed={pageLineJump}
+            title="Toggle Line Jump arcs for intersecting connectors on this Page"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition cursor-pointer ${
+              pageLineJump
+                ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/40 hover:bg-cyan-500/25'
+                : 'bg-slate-800/80 text-slate-400 border-slate-700/80 hover:text-slate-200'
+            }`}
+            data-testid="page-line-jump-toggle"
+          >
+            <GitCommit className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">Line Jump</span>
+          </button>
 
           {/* Reset to Seed Demo */}
           <button

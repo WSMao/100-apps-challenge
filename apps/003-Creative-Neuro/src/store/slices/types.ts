@@ -116,6 +116,8 @@ export interface ProjectActions {
   hidePage: (pageId: string) => void;
   reopenPage: (pageId: string, activate?: boolean) => void;
   updatePageTitle: (pageId: string, title: string) => void;
+  setPageLineJump: (enabled: boolean, pageId?: string) => void;
+  togglePageLineJump: (pageId?: string) => void;
   setViewport: (pageId: string, viewport: Viewport) => void;
   setToolMode: (mode: ToolMode) => void;
   setSelectedNodes: (ids: string[]) => void;

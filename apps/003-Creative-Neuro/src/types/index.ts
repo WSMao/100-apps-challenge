@@ -93,9 +93,9 @@ export type ToolMode =
 /**
  * Connector line rendering types.
  */
-export type EdgeType = 'jump' | 'smoothstep' | 'bezier' | 'straight' | 'default';
+export type EdgeType = 'smoothstep' | 'bezier' | 'straight' | 'default';
 
-export type EdgeRoutingType = 'jump' | 'smoothstep' | 'bezier' | 'straight';
+export type EdgeRoutingType = 'smoothstep' | 'bezier' | 'straight';
 
 /**
  * Diagram object interaction modes:
@@ -169,6 +169,7 @@ export interface NeuroNodeData {
   diagramMode?: DiagramMode;
   diagramOrientation?: DiagramOrientation;
   isFocused?: boolean;
+  lineJump?: boolean;
 
   // Freehand Doodle specific properties (perfect-freehand)
   freehandPoints?: FreehandPoint[];
@@ -258,6 +259,7 @@ export interface Page {
   order: number;
   hidden?: boolean;
   viewport: Viewport;
+  lineJump?: boolean;
   nodeIds: string[];
   edgeIds: string[];
   nodes?: Record<string, NeuroNode>;

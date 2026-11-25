@@ -30,7 +30,7 @@ export const initialState: ProjectState = {
   lastDirection: 'right',
   pageLayoutMode: 'auto-elk',
   connectorSourceNodeId: null,
-  defaultEdgeRoutingType: 'jump',
+  defaultEdgeRoutingType: 'smoothstep',
   availableProjects: [
     {
       id: initialSeed.project.id,

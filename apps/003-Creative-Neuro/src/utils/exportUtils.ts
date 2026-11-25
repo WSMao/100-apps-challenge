@@ -430,8 +430,13 @@ export function exportCanvasAsSvg(
   const viewWidth = Math.max(800, Math.round(maxX - minX));
   const viewHeight = Math.max(600, Math.round(maxY - minY));
 
-  // Compute line jumps for edges
-  const jumpMap = calculateLineJumps(edges, nodeMapRecord);
+  // Compute line jumps for edges when page-level lineJump is enabled
+  const resolvedPage =
+    pageOrSource && 'id' in pageOrSource
+      ? (pageOrSource as Page)
+      : state.pages?.[state.activePageId || ''];
+  const pageLineJump = resolvedPage?.lineJump ?? true;
+  const jumpMap = pageLineJump ? calculateLineJumps(edges, nodeMapRecord) : new Map();
 
   // Render edges
   const edgeSvgs = edges.map((e) => {
