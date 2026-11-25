@@ -56,7 +56,7 @@
 
 👉 **引導與規格工具推薦**：
 - 需求深入盤查與架構決策：調用 `/grill-me` skill 進行問題樹訪談。
-- 討論成案與規格產出：調用 `/to-spec` skill。
+- 討論成案與規格產出：調用 `/to-prd` skill 產出 `docs/PRD.md`，或調用 `/to-spec` skill 產出 Spec Issue。
 - 將規格轉換為工作項目 Issues：調用 `/to-tickets` skill。
 - 互動與架構可行性探索：調用 `/prototype` skill 建立拋棄式原型。
 
@@ -69,7 +69,7 @@
 
 開發者若沒有明確表示「直接開發」，就不要直接開發，而是按照「mattpocock skills」流程：
 1. `/grill-me`：釐清需求與設計決策。若過程需要同步沉澱領域名詞或架構決策，改用 `/grill-with-docs`。
-2. `/to-spec`：產出規格 Spec Issue。
+2. `/to-prd` 或 `/to-spec`：先將確定的產品規格記錄於 `docs/PRD.md`（`/to-prd`），需要派工追蹤時再產出規格 Spec Issue（`/to-spec`）。
 3. `/to-tickets`：把較大的 Spec Issue 拆成數個較小的 Issues。
 4. 由開發者下命令觸發：
    - `/implement <ticket>`：單張 ticket，遵循 `/tdd`，完成後自動呼叫 `/code-review` 檢查。
@@ -90,11 +90,12 @@
 
 ## 5. 專案文件 (Documentation Architecture)
 
-本專案文件嚴格遵守 Single Source of Truth 原則，按用途分為 4 種：
-1. **公開展示用 (`apps/<id>-<app-name>/README.md`)**：面向 GitHub 訪問者（使用者與外部開發者），專注產品解決了什麼問題，提供什麼價值。
-2. **動態任務用 (GitHub Projects & Issues)**：日常 Sprint、功能拆票（`/to-tickets`）、Bug 追蹤與阻擋依賴。
-3. **架構知識用 (`GLOSSARY.md` & `docs/adr/`)**：領域專有名詞與架構決策（遵循 `/domain-modeling` skill）。
-4. **個人認知用 (Obsidian 筆記庫)**：個人做中學反思與技術深入探討。
+本專案文件嚴格遵守 Single Source of Truth 原則，按用途分為 5 種：
+1. **個人認知用 (Obsidian 筆記庫)**：給我個人看的，如「技術筆記」、「暫時未確定的專案想法」、「工作日誌」。
+2. **客戶溝通用 (`apps/<id>-<app-name>/docs/PRD.md`)**：給客戶跟產品開發者看的，跟客戶溝通完後整理成「使用者故事」，為「確定的產品規格」（遵循 `/to-prd` skill）。
+3. **動態任務用 (GitHub Issues)**：追蹤待辦任務用，無論是待討論議題（Bugs、客戶需求異動）或是開發任務，可善用討論區或者任務拆分 sub-issues 功能（`/to-tickets`）。Open Issues 作為開始，目標把它 Close 掉。
+4. **架構知識用 (`GLOSSARY.md` & `docs/adr/`)**：給開發者看的（包含 Agents）決策結論記錄，開發者需共同遵守。一個是領域專有名詞，另一個是架構決策紀錄（遵循 `/domain-modeling` 以及 `/grill-with-docs` skill）。
+5. **公開展示用 (`apps/<id>-<app-name>/README.md`)**：面向 GitHub 訪問者（使用者與外部開發者），專注產品解決了什麼問題，提供什麼價值。
 
 詳細規範請一律參照 `project-docs` skill 及其[範本](.skills-repo/wsmao/project-docs/resources/app-readme-template.md)進行撰寫或重構。
 

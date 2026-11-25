@@ -1,9 +1,9 @@
 ---
 name: project-docs
-description: "Guidelines and templates for writing human-facing subproject READMEs and maintaining the 4-tier project documentation architecture."
+description: "Guidelines and templates for writing human-facing subproject READMEs and maintaining the 5-tier project documentation architecture."
 ---
 
-# Project Docs (4-Tier Documentation Architecture)
+# Project Docs (5-Tier Documentation Architecture)
 
 This skill defines the information architecture, content boundaries, and drafting guidelines for documentation across the **100 Apps Challenge**.
 
@@ -11,27 +11,31 @@ It ensures that subproject documentation is optimized for its intended audience,
 
 ---
 
-## 1. The 4-Tier Documentation Taxonomy.
+## 1. The 5-Tier Documentation Taxonomy
 
 Every piece of information in this repository belongs to exactly one tier. Never duplicate content across tiers:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│ 1. Public Showcase: apps/<id>-<app-name>/README.md                     │
+│ 1. Personal Cognitive Second Brain: Obsidian Notes                     │
+│    Audience: The Human Creator (Personal learning & exploration)       │
+│    Purpose: Technical notes, unconfirmed app ideas, daily work logs    │
+├────────────────────────────────────────────────────────────────────────┤
+│ 2. Client & Product Spec: apps/<id>-<app-name>/docs/PRD.md             │
+│    Audience: Clients, PMs & Product Developers                         │
+│    Purpose: Confirmed product specs & phased User Stories (`/to-prd`)  │
+├────────────────────────────────────────────────────────────────────────┤
+│ 3. Dynamic Task Tracker: GitHub Issues                                 │
+│    Audience: Driving Developer & AI Agents                             │
+│    Purpose: Bugs, requirement changes, `/to-tickets` sub-issues (Close)│
+├────────────────────────────────────────────────────────────────────────┤
+│ 4. Repo Architecture Knowledge: GLOSSARY.md & docs/adr/                │
+│    Audience: Developers & AI Agents (`/domain-modeling`, `/grill-with-docs`)│
+│    Purpose: Domain terminology, invariant contracts & ADR decisions    │
+├────────────────────────────────────────────────────────────────────────┤
+│ 5. Public Showcase: apps/<id>-<app-name>/README.md                     │
 │    Audience: Human GitHub readers (Users, Evaluators & Developers)     │
 │    Purpose: Product pitch, visual tour, user guide & developer setup   │
-├────────────────────────────────────────────────────────────────────────┤
-│ 2. Dynamic Task Tracker: GitHub Projects & Issues                      │
-│    Audience: Driving Developer & AI Agents                             │
-│    Purpose: Active sprint tasks, triage state machine, blockers, PRs   │
-├────────────────────────────────────────────────────────────────────────┤
-│ 3. Repo Architecture Knowledge: GLOSSARY.md & docs/adr/                │
-│    Audience: AI Agents & Software Architects                           │
-│    Purpose: Domain terminology, architecture invariants, ADR decisions │
-├────────────────────────────────────────────────────────────────────────┤
-│ 4. Personal Cognitive Second Brain: Obsidian Notes                     │
-│    Audience: The Human Creator (Personal learning & retrospective)     │
-│    Purpose: In-depth technical insights, mental models, tool evaluation│
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -41,10 +45,11 @@ Every piece of information in this repository belongs to exactly one tier. Never
 
 | Tier | File / Platform | MUST Include | NEVER Include (Anti-Patterns) |
 | :--- | :--- | :--- | :--- |
-| **Tier 1: Showcase** | `apps/<id>-<app-name>/README.md` | • One-line Value Proposition<br>• Core pain points solved<br>• User Guide <br>• Dev Guide(Tech stack & architecture)•  | ❌ Daily commit history or work snapshot tables<br>❌ Granular bug-fix changelogs<br>❌ Dynamic TODOs or sprint tickets |
-| **Tier 2: Tasks** | **GitHub Projects & Issues** | • Active and upcoming feature tickets<br>• `app-<NNN>` & `triage: ready-for-agent` labels<br>• Acceptance Criteria & blocking edges<br>• Closed issues & linked PR history | ❌ Static architecture tutorials<br>❌ Broad conceptual study notes |
-| **Tier 3: Domain** | `GLOSSARY.md` & `docs/adr/` | • Canonical domain vocabulary<br>• Hard-to-reverse ADR design decisions<br>• Invariant module seams and contracts | ❌ Transient sprint tickets or daily logs<br>❌ Marketing copy |
-| **Tier 4: Personal** | **Obsidian Notes** | • Deep-dive learning notes & algorithms<br>• Capture personal insights and reflections<br>• Bidirectional links (`[[Topic]]`) across apps | ❌ Duplicate task checklists (use GitHub Projects) |
+| **Tier 1: Personal** | **Obsidian Notes** | • Deep-dive technical notes & algorithms<br>• Unconfirmed project ideas & exploration<br>• Daily work logs & reflections (`/to-obsidian-note`) | ❌ Duplicate confirmed task checklists (use GitHub Issues) |
+| **Tier 2: PRD** | `apps/<id>-<app-name>/docs/PRD.md` | • Product Vision & Problem Statement<br>• Phased User Stories (categorized numbered checkboxes via `/to-prd`)<br>• Confirmed scope & testing/interface decisions | ❌ Unconfirmed brainstorms (use Obsidian)<br>• Daily progress logs or hardcoded code snippets |
+| **Tier 3: Tasks** | **GitHub Issues** | • Open bugs & client requirement changes<br>• Feature tickets & sub-issues (`/to-tickets`)<br>• `app-<NNN>` & triage labels; goal is to Close | ❌ Static architecture tutorials<br>• Broad conceptual study notes |
+| **Tier 4: Domain** | `GLOSSARY.md` & `docs/adr/` | • Canonical domain vocabulary<br>• Hard-to-reverse ADR design decisions<br>• Invariant module seams (`/domain-modeling`, `/grill-with-docs`) | ❌ Transient sprint tickets or daily logs<br>• Marketing copy |
+| **Tier 5: Showcase** | `apps/<id>-<app-name>/README.md` | • One-line Value Proposition<br>• Core pain points solved<br>• User Guide & Dev Guide (Tech stack & architecture) | ❌ Daily commit history or work snapshot tables<br>• Granular bug-fix changelogs<br>• Dynamic TODOs or sprint tickets |
 
 ---
 
