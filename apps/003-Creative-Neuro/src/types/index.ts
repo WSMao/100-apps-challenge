@@ -261,6 +261,7 @@ export interface Page {
   edgeIds: string[];
   nodes?: Record<string, NeuroNode>;
   edges?: Record<string, NeuroEdge>;
+  groupStyles?: Record<string, NodeStyle>;
   createdAt: number;
   updatedAt: number;
 }

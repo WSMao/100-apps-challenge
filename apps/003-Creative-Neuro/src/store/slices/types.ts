@@ -29,6 +29,7 @@ import type {
   LayoutMode,
   EdgeRoutingType,
   SelectionFilter,
+  NodeStyle,
 } from '../../types/index.ts';
 
 export interface ProjectRecord extends Omit<Project, 'boards' | 'pages'> {
@@ -134,8 +135,13 @@ export interface ProjectActions {
   toggleNodeSelection: (nodeId: string) => void;
   bringToFront: (nodeIdOrIds: string | string[]) => void;
   sendToBack: (nodeIdOrIds: string | string[]) => void;
+  bringForward: (nodeIdOrIds: string | string[]) => void;
+  sendBackward: (nodeIdOrIds: string | string[]) => void;
   groupSelectedNodes: (title?: string) => string | null;
   ungroupNodes: (frameId: string) => void;
+  setGroupStyle: (groupId: string, style: Partial<NodeStyle> | null) => void;
+  captureNodesInFrame: (frameId: string) => string[];
+  toggleFrameCollapse: (frameId: string) => void;
 
   // Project Management Actions (PM-01, PM-02)
   createProject: (name?: string) => string;

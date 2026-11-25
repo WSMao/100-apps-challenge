@@ -9,17 +9,22 @@
  */
 
 import React, { useCallback, useState, useRef, useEffect } from 'react';
-import { Handle, Position, useNodes, type NodeProps } from '@xyflow/react';
-import { ChevronDown, ChevronRight, Folder, Layers } from 'lucide-react';
+import { Handle, Position, useNodes, useStoreApi, type NodeProps } from '@xyflow/react';
+import { ChevronDown, ChevronRight, Frame } from 'lucide-react';
 
-import type { NeuroEdge, NeuroNode } from '../../../types/index.ts';
+import type { NeuroNode } from '../../../types/index.ts';
 import { useProjectStore } from '../../../store/useProjectStore.ts';
-import { calculateElkLayout } from '../../../engine/index.ts';
 import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
 import {
   spawnChildNode,
   navigateSelectionDirectionally,
 } from '../../workspace/ShortcutsHandler.tsx';
+
+type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se';
+const MIN_FRAME_WIDTH = 180;
+const MIN_FRAME_HEIGHT = 120;
+const MAX_FRAME_WIDTH = 2400;
+const MAX_FRAME_HEIGHT = 1800;
 
 export function FrameNode({
   id,
@@ -29,6 +34,11 @@ export function FrameNode({
   height = 260,
 }: NodeProps) {
   const data = rawData as unknown as NeuroNode['data'];
+  const storeApi = useStoreApi();
+  const themeMode = useProjectStore((s) => s.themeMode);
+  const isDark = themeMode === 'dark';
+  const storeWidth = useProjectStore((s) => s.nodes[id]?.width);
+  const storeHeight = useProjectStore((s) => s.nodes[id]?.height);
   const isEditingStore = useProjectStore((s) => s.editingNodeId === id);
   const editingInitialValue = useProjectStore((s) => s.editingInitialValue);
   const setEditingNodeId = useProjectStore((s) => s.setEditingNodeId);
@@ -128,89 +138,170 @@ export function FrameNode({
   const handleToggleCollapse = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      const nextCollapsed = !isCollapsed;
+      useProjectStore.getState().toggleFrameCollapse(id);
+    },
+    [id]
+  );
 
-      useProjectStore.setState((state) => {
-        const frameNode = state.nodes[id];
-        if (!frameNode) return;
+  const W = storeWidth || width || 360;
+  const H = storeHeight || height || 260;
 
-        if (nextCollapsed) {
-          // 1. Collapse to 180x44 summary bar
-          frameNode.data = {
-            ...frameNode.data,
-            collapsed: true,
-            minWidth: width || frameNode.width || 360,
-            minHeight: height || frameNode.height || 260,
-          };
-          frameNode.width = 180;
-          frameNode.height = 44;
+  const handleResizeMouseDown = useCallback(
+    (e: React.MouseEvent, dir: ResizeDirection) => {
+      if (e.button !== 0 || isCollapsed) return;
+      e.stopPropagation();
+      e.preventDefault();
 
-          // 2. Hide child nodes
-          for (const node of Object.values(state.nodes)) {
-            if (node.parentId === id) {
-              node.hidden = true;
-            }
-          }
-        } else {
-          // 1. Restore expanded bounds
-          const restoredW = frameNode.data.minWidth || 360;
-          const restoredH = frameNode.data.minHeight || 260;
-          frameNode.data = {
-            ...frameNode.data,
-            collapsed: false,
-          };
-          frameNode.width = restoredW;
-          frameNode.height = restoredH;
+      const state = useProjectStore.getState();
+      const targetFrame = state.nodes[id];
+      if (!targetFrame) return;
 
-          // 2. Unhide child nodes
-          for (const node of Object.values(state.nodes)) {
-            if (node.parentId === id) {
-              node.hidden = false;
-            }
-          }
+      if (!state.selectedNodeIds.includes(id)) {
+        state.setSelectedNodes([id]);
+        state.setSelectedEdges([]);
+      }
+
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startW = targetFrame.width || W;
+      const startH = targetFrame.height || H;
+      const startPosX = targetFrame.position.x;
+      const startPosY = targetFrame.position.y;
+      let prevPosX = startPosX;
+      let prevPosY = startPosY;
+
+      const startSnapshot = {
+        project: state.project,
+        boards: state.boards,
+        pages: state.pages,
+        nodes: JSON.parse(JSON.stringify(state.nodes)),
+        edges: state.edges,
+        activePageId: state.activePageId,
+      };
+
+      useProjectStore.temporal.getState().pause();
+      useProjectStore.setState({ isResizing: true });
+
+      const onMouseMove = (moveEvent: MouseEvent) => {
+        const rfTransform = storeApi.getState().transform;
+        const zoom = rfTransform && rfTransform[2] ? rfTransform[2] : 1;
+        const dx = (moveEvent.clientX - startX) / zoom;
+        const dy = (moveEvent.clientY - startY) / zoom;
+
+        let nextW = startW;
+        let nextH = startH;
+        let nextPosX = startPosX;
+        let nextPosY = startPosY;
+
+        if (dir.includes('e')) {
+          nextW = Math.min(MAX_FRAME_WIDTH, Math.max(MIN_FRAME_WIDTH, Math.round(startW + dx)));
+        }
+        if (dir.includes('s')) {
+          nextH = Math.min(MAX_FRAME_HEIGHT, Math.max(MIN_FRAME_HEIGHT, Math.round(startH + dy)));
+        }
+        if (dir.includes('w')) {
+          nextW = Math.min(MAX_FRAME_WIDTH, Math.max(MIN_FRAME_WIDTH, Math.round(startW - dx)));
+          nextPosX = Math.round(startPosX + (startW - nextW));
+        }
+        if (dir.includes('n')) {
+          nextH = Math.min(MAX_FRAME_HEIGHT, Math.max(MIN_FRAME_HEIGHT, Math.round(startH - dy)));
+          nextPosY = Math.round(startPosY + (startH - nextH));
         }
 
-        const page = state.pages[state.activePageId];
-        if (page) page.updatedAt = Date.now();
-        state.project.updatedAt = Date.now();
-      });
+        const deltaPosX = nextPosX - prevPosX;
+        const deltaPosY = nextPosY - prevPosY;
+        prevPosX = nextPosX;
+        prevPosY = nextPosY;
 
-      // 3. Recalculate global layout to adjust auto-elk root nodes around folded frame
-      const currentStore = useProjectStore.getState();
-      const activePage = currentStore.pages[currentStore.activePageId];
-      const activeNodes = activePage
-        ? activePage.nodeIds
-            .map((nid) => currentStore.nodes[nid])
-            .filter((n): n is NeuroNode => Boolean(n))
-        : Object.values(currentStore.nodes);
-      const activeEdges = activePage
-        ? activePage.edgeIds
-            .map((eid) => currentStore.edges[eid])
-            .filter((ed): ed is NeuroEdge => Boolean(ed))
-        : Object.values(currentStore.edges);
+        useProjectStore.setState((s) => {
+          const n = s.nodes[id];
+          if (!n) return;
+          n.width = nextW;
+          n.height = nextH;
+          n.position = { x: nextPosX, y: nextPosY };
+          n.measured = { width: nextW, height: nextH };
 
-      calculateElkLayout(activeNodes, activeEdges).then(({ nodes: updatedNodes }) => {
-        useProjectStore.setState((state) => {
-          for (const u of updatedNodes) {
-            const existing = state.nodes[u.id];
-            if (existing && existing.layoutMode === 'auto-elk') {
-              existing.position = u.position;
+          // Keep existing children at same absolute coordinates when top/left border moves
+          if (deltaPosX !== 0 || deltaPosY !== 0) {
+            for (const child of Object.values(s.nodes)) {
+              if (child.parentId === id) {
+                child.position = {
+                  x: child.position.x - deltaPosX,
+                  y: child.position.y - deltaPosY,
+                };
+              }
             }
           }
         });
-      });
+      };
+
+      const onMouseUp = () => {
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+
+        useProjectStore.setState((s) => {
+          s.isResizing = false;
+          const page = s.pages[s.activePageId];
+          if (page) page.updatedAt = Date.now();
+          s.project.updatedAt = Date.now();
+        });
+
+        // Auto-capture any enclosed root objects inside the resized Frame
+        useProjectStore.getState().captureNodesInFrame(id);
+
+        const endState = useProjectStore.getState();
+        const endNode = endState.nodes[id];
+        const hasResized =
+          endNode &&
+          (endNode.width !== startW ||
+            endNode.height !== startH ||
+            endNode.position.x !== startPosX ||
+            endNode.position.y !== startPosY);
+
+        useProjectStore.temporal.getState().resume();
+        if (hasResized) {
+          useProjectStore.temporal.setState((t) => {
+            const pastStates = [...t.pastStates, startSnapshot];
+            if (pastStates.length > 100) pastStates.shift();
+            return {
+              pastStates,
+              futureStates: [],
+            };
+          });
+        }
+      };
+
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
     },
-    [id, isCollapsed, width, height]
+    [id, isCollapsed, W, H, storeApi]
   );
+
+  const frameBg =
+    data?.backgroundColor ||
+    (isDark ? 'rgba(30, 41, 59, 0.55)' : 'rgba(226, 232, 240, 0.55)');
+  const frameBorderColor =
+    data?.borderColor || (isDark ? '#475569' : '#94a3b8');
+  const frameBorderWidth = data?.borderWidth ?? 1.5;
+  const frameTextColor =
+    data?.color || (isDark ? '#e2e8f0' : '#0f172a');
 
   if (isCollapsed) {
     return (
       <div
-        style={{ width: 180, height: 44 }}
-        className={`group relative bg-slate-900/95 border border-indigo-500/60 rounded-xl px-3 flex items-center justify-between shadow-xl cursor-pointer ${
+        style={{
+          width: 180,
+          height: 44,
+          backgroundColor: frameBg,
+          borderColor: frameBorderColor,
+          borderWidth: frameBorderWidth,
+        }}
+        data-testid={`frame-node-${id}`}
+        data-collapsed="true"
+        className={`group relative rounded-xl px-3 flex items-center justify-between shadow-xl backdrop-blur-sm cursor-grab active:cursor-grabbing ${
           isNodeSelected ? 'ring-2 ring-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.6)]' : ''
         }`}
-        onClick={handleToggleCollapse}
+        onDoubleClick={handleToggleCollapse}
       >
         {/* Horizontal Floating Quick-Action Menu directly above frame when single frame is selected */}
         {isNodeSelected && selectedNodeCount <= 1 && <NodeFloatingActionBar nodeId={id} />}
@@ -245,37 +336,112 @@ export function FrameNode({
         />
 
         <div className="flex items-center gap-2 overflow-hidden">
-          <Folder className="w-4 h-4 text-indigo-400 shrink-0" />
-          <span className="text-xs font-semibold text-white truncate max-w-[95px]">
-            {data?.title || data?.label || 'Container'}
+          <Frame className="w-4 h-4 text-indigo-400 shrink-0" />
+          <span
+            className="text-xs font-semibold truncate max-w-[85px]"
+            style={{ color: frameTextColor }}
+          >
+            {data?.title || data?.label || 'Container Frame'}
           </span>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <span className="text-[10px] bg-indigo-500/20 text-indigo-300 font-mono px-1.5 py-0.5 rounded-full border border-indigo-500/30">
+          <span className="text-[10px] bg-indigo-500/20 text-indigo-400 font-mono px-1.5 py-0.5 rounded-full border border-indigo-500/30">
             {childrenCount}
           </span>
-          <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+          <button
+            type="button"
+            onClick={handleToggleCollapse}
+            title="Unfold Frame"
+            data-testid="frame-fold-toggle"
+            className="p-0.5 rounded hover:bg-indigo-500/20 cursor-pointer transition"
+          >
+            <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+          </button>
         </div>
       </div>
     );
   }
 
-  const W = width || 360;
-  const H = height || 260;
-
   return (
     <div
-      style={{ width: W, height: H }}
-      className={`group relative bg-slate-900/30 border-2 border-dashed rounded-2xl p-3 flex flex-col transition-all ${
+      style={{
+        width: W,
+        height: H,
+        backgroundColor: frameBg,
+        borderColor: isNodeSelected ? '#06b6d4' : frameBorderColor,
+        borderWidth: frameBorderWidth,
+      }}
+      data-testid={`frame-node-${id}`}
+      data-collapsed="false"
+      className={`group relative border-dashed rounded-2xl p-3 flex flex-col transition-shadow ${
         isNodeSelected
-          ? 'border-indigo-500 shadow-2xl shadow-indigo-500/10 ring-2 ring-cyan-400'
-          : 'border-slate-700/80'
+          ? 'shadow-2xl shadow-cyan-500/10 ring-2 ring-cyan-400'
+          : ''
       }`}
       onDoubleClick={(e) => {
         e.stopPropagation();
         setEditingNodeId(id, null);
       }}
     >
+      {/* 4 Border Resize Strips (n, s, e, w) */}
+      <div
+        data-testid="frame-resize-n"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'n')}
+        className="nodrag nopan absolute -top-1.5 left-3 right-3 h-3 cursor-ns-resize z-20 rounded-full hover:bg-cyan-400/30 transition-colors"
+      />
+      <div
+        data-testid="frame-resize-s"
+        onMouseDown={(e) => handleResizeMouseDown(e, 's')}
+        className="nodrag nopan absolute -bottom-1.5 left-3 right-3 h-3 cursor-ns-resize z-20 rounded-full hover:bg-cyan-400/30 transition-colors"
+      />
+      <div
+        data-testid="frame-resize-w"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'w')}
+        className="nodrag nopan absolute -left-1.5 top-3 bottom-3 w-3 cursor-ew-resize z-20 rounded-full hover:bg-cyan-400/30 transition-colors"
+      />
+      <div
+        data-testid="frame-resize-e"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'e')}
+        className="nodrag nopan absolute -right-1.5 top-3 bottom-3 w-3 cursor-ew-resize z-20 rounded-full hover:bg-cyan-400/30 transition-colors"
+      />
+
+      {/* 4 Corner Resize Handles (nw, ne, sw, se) */}
+      <div
+        data-testid="frame-resize-nw"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'nw')}
+        className={`nodrag nopan absolute -top-2 -left-2 w-4 h-4 cursor-nwse-resize z-30 flex items-center justify-center transition-opacity ${
+          isNodeSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+        }`}
+      >
+        <div className="w-2.5 h-2.5 rounded-full bg-white border-2 border-cyan-400 shadow" />
+      </div>
+      <div
+        data-testid="frame-resize-ne"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'ne')}
+        className={`nodrag nopan absolute -top-2 -right-2 w-4 h-4 cursor-nesw-resize z-30 flex items-center justify-center transition-opacity ${
+          isNodeSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+        }`}
+      >
+        <div className="w-2.5 h-2.5 rounded-full bg-white border-2 border-cyan-400 shadow" />
+      </div>
+      <div
+        data-testid="frame-resize-sw"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'sw')}
+        className={`nodrag nopan absolute -bottom-2 -left-2 w-4 h-4 cursor-nesw-resize z-30 flex items-center justify-center transition-opacity ${
+          isNodeSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+        }`}
+      >
+        <div className="w-2.5 h-2.5 rounded-full bg-white border-2 border-cyan-400 shadow" />
+      </div>
+      <div
+        data-testid="frame-resize-se"
+        onMouseDown={(e) => handleResizeMouseDown(e, 'se')}
+        className={`nodrag nopan absolute -bottom-2 -right-2 w-4 h-4 cursor-nwse-resize z-30 flex items-center justify-center transition-opacity ${
+          isNodeSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+        }`}
+      >
+        <div className="w-2.5 h-2.5 rounded-full bg-white border-2 border-cyan-400 shadow" />
+      </div>
       {/* Horizontal Floating Quick-Action Menu directly above frame when single frame is selected */}
       {isNodeSelected && selectedNodeCount <= 1 && <NodeFloatingActionBar nodeId={id} />}
 
@@ -309,9 +475,9 @@ export function FrameNode({
       />
 
       {/* Frame Header Bar */}
-      <div className="h-8 flex items-center justify-between pb-2 border-b border-slate-800/80 pointer-events-auto gap-2">
+      <div className={`h-8 flex items-center justify-between pb-2 border-b pointer-events-auto gap-2 ${isDark ? 'border-slate-700/80' : 'border-slate-300/80'}`}>
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <Layers className="w-4 h-4 text-indigo-400 shrink-0" />
+          <Frame className="w-4 h-4 text-indigo-400 shrink-0" />
           <input
             ref={inputRef}
             type="text"
@@ -452,10 +618,11 @@ export function FrameNode({
               e.stopPropagation();
               setEditingNodeId(id, null);
             }}
-            className={`text-xs font-semibold text-slate-200 px-1.5 py-0.5 rounded outline-none border transition-colors truncate ${
+            style={{ color: frameTextColor }}
+            className={`text-xs font-semibold px-1.5 py-0.5 rounded outline-none border transition-colors truncate ${
               isEditingStore
                 ? 'border-indigo-500 bg-transparent pointer-events-auto caret-cyan-400 selection:bg-indigo-500/30'
-                : 'border-transparent bg-transparent hover:bg-slate-800/50 focus:border-indigo-500 selection:bg-transparent selection:text-inherit'
+                : 'border-transparent bg-transparent hover:bg-slate-500/15 focus:border-indigo-500 selection:bg-transparent selection:text-inherit'
             }`}
           />
           {data?.direction && (
@@ -472,7 +639,8 @@ export function FrameNode({
           type="button"
           onClick={handleToggleCollapse}
           title="Fold Frame"
-          className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-200 cursor-pointer transition shrink-0"
+          data-testid="frame-fold-toggle"
+          className="p-1 hover:bg-slate-500/20 rounded text-slate-400 hover:text-slate-200 cursor-pointer transition shrink-0"
         >
           <ChevronDown className="w-3.5 h-3.5" />
         </button>

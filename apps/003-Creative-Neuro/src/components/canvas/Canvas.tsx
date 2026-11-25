@@ -520,6 +520,66 @@ export function CanvasContent() {
     }) as unknown as Edge[];
   }, [edges, selectionFilter.edge, selectedEdgeIds, themeMode]);
 
+  const activePageGroupStyles = useProjectStore(
+    (s) => s.pages[s.activePageId]?.groupStyles
+  );
+
+  const styledGroupBoxes = useMemo(() => {
+    if (!activePageGroupStyles) return [];
+    const byGroup = new Map<string, NeuroNode[]>();
+    for (const n of nodes) {
+      const gid = n.groupId || n.data?.groupId;
+      if (!gid || n.hidden) continue;
+      if (!byGroup.has(gid)) byGroup.set(gid, []);
+      byGroup.get(gid)!.push(n);
+    }
+
+    const boxes: Array<{
+      groupId: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      backgroundColor?: string;
+      borderColor?: string;
+      borderWidth?: number;
+    }> = [];
+
+    for (const [gid, members] of byGroup.entries()) {
+      const gStyle = activePageGroupStyles[gid];
+      if (!gStyle) continue;
+      const hasBg = gStyle.backgroundColor && gStyle.backgroundColor !== 'transparent';
+      const hasBorder = gStyle.borderColor && gStyle.borderColor !== 'transparent';
+      if (!hasBg && !hasBorder) continue;
+
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const m of members) {
+        const w = m.width || 160;
+        const h = m.height || 60;
+        minX = Math.min(minX, m.position.x);
+        minY = Math.min(minY, m.position.y);
+        maxX = Math.max(maxX, m.position.x + w);
+        maxY = Math.max(maxY, m.position.y + h);
+      }
+      if (!isFinite(minX)) continue;
+      const pad = 12;
+      boxes.push({
+        groupId: gid,
+        x: minX - pad,
+        y: minY - pad,
+        width: maxX - minX + pad * 2,
+        height: maxY - minY + pad * 2,
+        backgroundColor: gStyle.backgroundColor,
+        borderColor: gStyle.borderColor,
+        borderWidth: gStyle.borderWidth ?? 2,
+      });
+    }
+    return boxes;
+  }, [nodes, activePageGroupStyles]);
+
   // FN-03 & FN-04: Multi-Selection & Group Bounding Box
   const selectionBounds = useMemo(() => {
     const selectedSet = new Set(selectedNodeIds);
@@ -639,6 +699,29 @@ export function CanvasContent() {
         />
 
         <FreehandOverlay />
+
+        {/* Styled Logical Group Backgrounds/Borders (shown when styled; transparent by default when unselected) */}
+        {styledGroupBoxes.length > 0 && !useProjectStore.getState().focusedDiagramId && (
+          <ViewportPortal>
+            {styledGroupBoxes.map((box) => (
+              <div
+                key={box.groupId}
+                data-testid={`logical-group-box-${box.groupId}`}
+                style={{
+                  transform: `translate(${box.x}px, ${box.y}px)`,
+                  width: `${box.width}px`,
+                  height: `${box.height}px`,
+                  backgroundColor: box.backgroundColor || 'transparent',
+                  borderColor: box.borderColor || 'transparent',
+                  borderWidth: box.borderColor ? `${box.borderWidth ?? 2}px` : 0,
+                  borderStyle: 'solid',
+                  zIndex: 0,
+                }}
+                className="absolute top-0 left-0 pointer-events-none rounded-2xl transition-all duration-75"
+              />
+            ))}
+          </ViewportPortal>
+        )}
 
         {/* FN-03 & FN-04: Selection & Group Bounding Box Overlay */}
         {selectionBounds && !useProjectStore.getState().focusedDiagramId && (

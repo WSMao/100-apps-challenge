@@ -1018,6 +1018,288 @@ async function runE2EScenario() {
     fs.writeFileSync(diagMainCanvasSsPath, Buffer.from(diagMainCanvasSs.result.data, 'base64'));
     console.log(`  ✓ Captured DiagramNode main canvas move & resize screenshot: ${path.relative(appRoot, diagMainCanvasSsPath)} (${fs.statSync(diagMainCanvasSsPath).size} bytes)`);
 
+    // -------------------------------------------------------------------------
+    // [E2E Step 10.5] Issue #43: Logical Group, Frame auto-capture & Fold, Style & Z-Order
+    // -------------------------------------------------------------------------
+    console.log('\n[E2E Step 10.5] Testing Logical Group (⌘G & Style), Frame auto-capture & Fold, Style & Z-Order:');
+    const step43Result = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const store = window.__CREATIVE_NEURO_STORE__;
+          if (!store) return { error: 'Store not exposed' };
+          const s = store.getState();
+          // Create a clean page for deterministic #43 E2E verification
+          const pageId = s.addPage('Issue43 E2E');
+          s.setActivePage(pageId);
+
+          const n1 = store.getState().addNode({
+            type: 'shape',
+            position: { x: 100, y: 120 },
+            width: 140,
+            height: 60,
+            zIndex: 1,
+            data: { label: 'Box A', layoutMode: 'manual' },
+          });
+          const n2 = store.getState().addNode({
+            type: 'shape',
+            position: { x: 280, y: 120 },
+            width: 140,
+            height: 60,
+            zIndex: 2,
+            data: { label: 'Box B', layoutMode: 'manual' },
+          });
+          store.getState().setSelectedNodes([n1, n2]);
+          return { pageId, n1, n2 };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const ids43 = step43Result.result?.result?.value;
+    if (!ids43 || ids43.error) {
+      throw new Error(`Step 10.5 setup failed: ${JSON.stringify(ids43)}`);
+    }
+    await new Promise((r) => setTimeout(r, 250));
+
+    // Press Cmd+G to toggle Logical Group ON, then verify floating bar & Style & Z-Order controls
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', metaKey: true, bubbles: true }));
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 200));
+
+    const groupCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const s = window.__CREATIVE_NEURO_STORE__.getState();
+          const gid = s.nodes['${ids43.n1}']?.groupId;
+          const gid2 = s.nodes['${ids43.n2}']?.groupId;
+          const bar = document.querySelector("[data-testid='node-floating-action-bar']");
+          const zIdx = bar ? getComputedStyle(bar).zIndex : null;
+          const hasBg = Boolean(bar?.querySelector("[data-testid='action-style-bg']"));
+          const hasText = Boolean(bar?.querySelector("[data-testid='action-style-text']"));
+          const hasStroke = Boolean(bar?.querySelector("[data-testid='action-style-stroke']"));
+          const hasFront = Boolean(bar?.querySelector("[data-testid='action-bring-to-front']"));
+          const hasUp = Boolean(bar?.querySelector("[data-testid='action-bring-forward']"));
+          const hasDown = Boolean(bar?.querySelector("[data-testid='action-send-backward']"));
+          const hasBack = Boolean(bar?.querySelector("[data-testid='action-send-to-back']"));
+          const hasGroupStyle = Boolean(bar?.querySelector("[data-testid='action-group-style']"));
+          return { gid, gid2, zIdx, hasBg, hasText, hasStroke, hasFront, hasUp, hasDown, hasBack, hasGroupStyle };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const gc = groupCheck.result?.result?.value;
+    console.log('  ✓ Logical Group & Floating Bar check:', JSON.stringify(gc));
+    if (!gc.gid || gc.gid !== gc.gid2) {
+      throw new Error(`Expected ⌘G to assign same groupId to both nodes, got ${JSON.stringify(gc)}`);
+    }
+    if (!gc.hasBg || !gc.hasText || !gc.hasStroke || !gc.hasFront || !gc.hasUp || !gc.hasDown || !gc.hasBack || !gc.hasGroupStyle) {
+      throw new Error(`Missing Style/Z-Order/GroupStyle controls in floating bar: ${JSON.stringify(gc)}`);
+    }
+    if (Number(gc.zIdx) < 99999) {
+      throw new Error(`Expected floating action bar zIndex >= 99999, got ${gc.zIdx}`);
+    }
+
+    // Apply Group Style via UI click, then deselect and verify logical-group-box renders
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          document.querySelector("[data-testid='action-group-style']")?.click();
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          document.querySelector("[data-testid='group-border-cyan']")?.click();
+          window.__CREATIVE_NEURO_STORE__.getState().setSelectedNodes([]);
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 200));
+
+    const styledGroupBoxExists = await pageSend('Runtime.evaluate', {
+      expression: `Boolean(document.querySelector("[data-testid='logical-group-box-${gc.gid}']"))`,
+      returnByValue: true,
+    });
+    if (!styledGroupBoxExists.result?.result?.value) {
+      throw new Error('Expected styled Logical Group box to remain visible when unselected');
+    }
+    console.log('  ✓ Styled Logical Group box rendered while unselected');
+
+    // Re-select one member, verify whole group selects, and press ⌘G to ungroup
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          window.__CREATIVE_NEURO_STORE__.getState().setSelectedNodes(['${ids43.n1}']);
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', metaKey: true, bubbles: true }));
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 150));
+
+    const ungroupedCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const s = window.__CREATIVE_NEURO_STORE__.getState();
+          return { g1: s.nodes['${ids43.n1}']?.groupId, g2: s.nodes['${ids43.n2}']?.groupId };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const ug = ungroupedCheck.result?.result?.value;
+    if (ug.g1 || ug.g2) {
+      throw new Error(`Expected second ⌘G to ungroup nodes, got ${JSON.stringify(ug)}`);
+    }
+    console.log('  ✓ Second ⌘G toggled Logical Group OFF cleanly');
+
+    // Frame: create Frame, resize SE over Box A to auto-capture, then Fold & Unfold
+    const frameIdRes = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const s = window.__CREATIVE_NEURO_STORE__.getState();
+          const fid = s.addNode({
+            type: 'frame',
+            position: { x: 80, y: 80 },
+            width: 180,
+            height: 120,
+            data: { title: 'E2E Frame', layoutMode: 'manual' },
+          });
+          s.setSelectedNodes([fid]);
+          return fid;
+        })()
+      `,
+      returnByValue: true,
+    });
+    const frameId43 = frameIdRes.result?.result?.value;
+    await new Promise((r) => setTimeout(r, 250));
+
+    // Resize Frame SE corner by (+150, +100) so it encloses Box A (at 100,120 140x60)
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const el = document.querySelector("[data-testid='frame-node-${frameId43}']");
+          const se = el?.querySelector("[data-testid='frame-resize-se']");
+          if (!se) return false;
+          const r = se.getBoundingClientRect();
+          const startX = Math.round(r.left + r.width / 2);
+          const startY = Math.round(r.top + r.height / 2);
+          se.dispatchEvent(new MouseEvent('mousedown', { view: window, bubbles: true, cancelable: true, clientX: startX, clientY: startY, button: 0, buttons: 1 }));
+          window.dispatchEvent(new MouseEvent('mousemove', { view: window, bubbles: true, cancelable: true, clientX: startX + 150, clientY: startY + 100, button: 0, buttons: 1 }));
+          window.dispatchEvent(new MouseEvent('mouseup', { view: window, bubbles: true, cancelable: true, clientX: startX + 150, clientY: startY + 100, button: 0, buttons: 0 }));
+          return true;
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 250));
+
+    const captureCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const s = window.__CREATIVE_NEURO_STORE__.getState();
+          return {
+            parentId: s.nodes['${ids43.n1}']?.parentId,
+            frameBg: s.nodes['${frameId43}']?.data?.backgroundColor,
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const cc = captureCheck.result?.result?.value;
+    console.log('  ✓ Frame auto-capture check:', JSON.stringify(cc));
+    if (cc.parentId !== frameId43) {
+      throw new Error(`Expected Frame resize to auto-capture Box A (${ids43.n1}), got parentId=${cc.parentId}`);
+    }
+
+    // Fold Frame, verify collapsed=true, then Unfold
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          document.querySelector("[data-testid='frame-node-${frameId43}'] [data-testid='frame-fold-toggle']")?.click();
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 200));
+    const foldedCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const s = window.__CREATIVE_NEURO_STORE__.getState();
+          return {
+            collapsed: s.nodes['${frameId43}']?.data?.collapsed,
+            childHidden: s.nodes['${ids43.n1}']?.hidden,
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const fc = foldedCheck.result?.result?.value;
+    if (!fc.collapsed || !fc.childHidden) {
+      throw new Error(`Expected Frame fold to collapse and hide child, got ${JSON.stringify(fc)}`);
+    }
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          document.querySelector("[data-testid='frame-node-${frameId43}'] [data-testid='frame-fold-toggle']")?.click();
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 200));
+    console.log('  ✓ Frame fold & unfold verified in real browser');
+
+    // Style & Z-Order UI click check on Box B
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          window.__CREATIVE_NEURO_STORE__.getState().setSelectedNodes(['${ids43.n2}']);
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          document.querySelector("[data-testid='action-style-bg']")?.click();
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 100));
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          document.querySelector("[data-testid='bg-color-cyan']")?.click();
+          document.querySelector("[data-testid='action-bring-to-front']")?.click();
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 150));
+
+    const styleZCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const s = window.__CREATIVE_NEURO_STORE__.getState();
+          const b = s.nodes['${ids43.n2}'];
+          return { bg: b?.data?.backgroundColor, zIndex: b?.zIndex };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const szc = styleZCheck.result?.result?.value;
+    if (szc.bg !== '#06b6d4') {
+      throw new Error(`Expected Box B backgroundColor to update to #06b6d4, got ${JSON.stringify(szc)}`);
+    }
+    console.log('  ✓ Style & Z-Order floating bar actions verified:', JSON.stringify(szc));
+
     // Verify Error Boundary state
     console.log('\n[E2E Step 11] Validating browser crash & error-boundary guarantees:');
     const errorBoundaryCheck = await pageSend('Runtime.evaluate', {
