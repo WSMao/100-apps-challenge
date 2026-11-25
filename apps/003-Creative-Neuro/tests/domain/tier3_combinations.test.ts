@@ -44,10 +44,10 @@ describe('Tier 3: Cross-Feature Combinations', () => {
     const ast1 = parseMermaid(initialCode);
     const step1 = reconcileMermaidAST(ast1, []);
 
-    // Step 2: User manually repositions "Auth" to a custom canvas position
+    // Step 2: User locks "Auth" at a custom canvas position
     const authNode = step1.nodes.find((n) => n.id === 'Auth')!;
     authNode.position = { x: 950, y: 1200 };
-    authNode.layoutMode = 'manual';
+    authNode.locked = true;
 
     // Step 3: User edits Mermaid text: renames "Auth" label and adds "Cache"
     const editedCode = `
@@ -59,10 +59,10 @@ describe('Tier 3: Cross-Feature Combinations', () => {
     const ast2 = parseMermaid(editedCode);
     const step2 = reconcileMermaidAST(ast2, step1.nodes);
 
-    // Assert: Auth node preserved exact manual coordinates & manual mode
+    // Assert: Auth node preserved exact coordinates & locked state
     const reconciledAuth = step2.nodes.find((n) => n.id === 'Auth')!;
     expect(reconciledAuth.position).toEqual({ x: 950, y: 1200 });
-    expect(reconciledAuth.layoutMode).toBe('manual');
+    expect(reconciledAuth.locked).toBe(true);
     expect(reconciledAuth.data.label).toBe('OAuth2 Security Service');
 
     // Assert: Gateway label updated, Cache node added with cylinder shape
@@ -72,26 +72,26 @@ describe('Tier 3: Cross-Feature Combinations', () => {
     const reconciledCache = step2.nodes.find((n) => n.id === 'Cache')!;
     expect(reconciledCache).toBeDefined();
     expect(reconciledCache.data.shapeType).toBe('cylinder');
-    expect(reconciledCache.layoutMode).toBe('auto-elk');
+    expect(reconciledCache.locked).toBe(false);
   });
 
   // =========================================================================
-  // Combination 3.2: Keyboard Brainstorming + Fixed Anchors + Hybrid ELK Layout
+  // Combination 3.2: Keyboard Brainstorming + Locked Anchors + Hybrid ELK Layout
   // =========================================================================
   it('3.2 should perform keyboard brainstorming with locked anchors and hybrid ELK layout', async () => {
     // Step 1: User brainstorms with Tab and Enter
     const centralId = ws.addNode({
       position: { x: 500, y: 500 },
       data: { label: 'Product Strategy' },
-      layoutMode: 'fixed', // Central node is pinned as fixed anchor
+      locked: true, // Central node is locked
     });
 
     const c1 = ws.addChildNode(centralId);
     const c2 = ws.addSiblingNode(c1);
     const c3 = ws.addSiblingNode(c2);
 
-    // Pin c2 as an immovable anchor at fixed coordinates
-    ws.getActivePage().nodes[c2].layoutMode = 'fixed';
+    // Lock c2 at fixed coordinates
+    ws.getActivePage().nodes[c2].locked = true;
     ws.getActivePage().nodes[c2].position = { x: 1200, y: 700 };
 
     // Step 2: Trigger Hybrid ELK layout

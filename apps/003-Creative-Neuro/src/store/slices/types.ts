@@ -26,10 +26,12 @@ import type {
   ThemeMode,
   SpawnDirection,
   ProjectSummary,
-  LayoutMode,
+  FlowDirection,
   EdgeRoutingType,
   SelectionFilter,
+  NodeStyle,
 } from '../../types/index.ts';
+import type { AlignmentActionType, AlignmentGuide } from '../../engine/index.ts';
 
 export interface ProjectRecord extends Omit<Project, 'boards' | 'pages'> {
   boards: Record<string, Board>;
@@ -57,15 +59,16 @@ export interface ProjectState {
   editingInitialValue: string | null;
   isDragging: boolean;
   isResizing: boolean;
+  alignmentGuides: AlignmentGuide[];
 
   // --- Requirements State ---
   themeMode: ThemeMode;
   lastDirection: SpawnDirection;
-  pageLayoutMode: LayoutMode;
   connectorSourceNodeId: string | null;
   defaultEdgeRoutingType: EdgeRoutingType;
   availableProjects: ProjectSummary[];
   selectionFilter: SelectionFilter;
+  lastCreatedNodeType: NeuroNodeType;
 }
 
 export interface ProjectActions {
@@ -112,7 +115,11 @@ export interface ProjectActions {
   deleteNodes: (ids: string[]) => void;
   deleteEdges: (ids: string[]) => void;
   deletePage: (pageId: string) => void;
+  hidePage: (pageId: string) => void;
+  reopenPage: (pageId: string, activate?: boolean) => void;
   updatePageTitle: (pageId: string, title: string) => void;
+  setPageLineJump: (enabled: boolean, pageId?: string) => void;
+  togglePageLineJump: (pageId?: string) => void;
   setViewport: (pageId: string, viewport: Viewport) => void;
   setToolMode: (mode: ToolMode) => void;
   setSelectedNodes: (ids: string[]) => void;
@@ -120,22 +127,30 @@ export interface ProjectActions {
   setEditingNodeId: (id: string | null, initialValue?: string | null) => void;
   setFocusedDiagramId: (id: string | null) => void;
   setHoveredNodeId: (id: string | null) => void;
+  setAlignmentGuides: (guides: AlignmentGuide[]) => void;
+  clearAlignmentGuides: () => void;
+  alignSelectedNodes: (action: AlignmentActionType) => void;
   resetToSeed: () => void;
 
   // Requirements: OP-07, PM, TL, UI-04, FN
   setLastDirection: (dir: SpawnDirection) => void;
   setThemeMode: (mode: ThemeMode) => void;
-  setPageLayoutMode: (mode: LayoutMode) => void;
-  setNodeLayoutMode: (nodeId: string, mode: LayoutMode) => void;
-  batchSetNodeLayoutMode: (nodeIds: string[], mode: LayoutMode) => void;
+  setNodeLocked: (nodeId: string, locked: boolean) => void;
+  batchSetNodeLocked: (nodeIds: string[], locked: boolean) => void;
+  autoLayoutPage: (direction?: string) => void;
   setDefaultEdgeRoutingType: (type: EdgeRoutingType) => void;
   handleConnectorNodeClick: (nodeId: string) => string | null;
   resetConnector: () => void;
   toggleNodeSelection: (nodeId: string) => void;
   bringToFront: (nodeIdOrIds: string | string[]) => void;
   sendToBack: (nodeIdOrIds: string | string[]) => void;
+  bringForward: (nodeIdOrIds: string | string[]) => void;
+  sendBackward: (nodeIdOrIds: string | string[]) => void;
   groupSelectedNodes: (title?: string) => string | null;
   ungroupNodes: (frameId: string) => void;
+  setGroupStyle: (groupId: string, style: Partial<NodeStyle> | null) => void;
+  captureNodesInFrame: (frameId: string) => string[];
+  toggleFrameCollapse: (frameId: string) => void;
 
   // Project Management Actions (PM-01, PM-02)
   createProject: (name?: string) => string;
@@ -148,6 +163,7 @@ export interface ProjectActions {
   toggleSelectionFilterItem: (key: keyof SelectionFilter) => void;
   resetSelectionFilter: () => void;
   clearSelectionFilter: () => void;
+  spawnNodeForLastCreatedType: (centerPos: Point) => string;
 }
 
 export type ProjectStore = ProjectState & ProjectActions;

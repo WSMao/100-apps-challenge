@@ -94,11 +94,11 @@ export function spawnChildNode(sourceNodeId?: string, label: string = 'Child Nod
       height: targetNode.height ?? 60,
       parentId: targetNode.parentId,
       extent: targetNode.extent,
-      layoutMode: targetNode.layoutMode,
+      locked: false,
       data: {
         label,
         shapeType: targetNode.data.shapeType || 'rounded',
-        layoutMode: targetNode.layoutMode,
+        locked: false,
         backgroundColor: targetNode.data.backgroundColor,
         borderColor: targetNode.data.borderColor,
         borderWidth: targetNode.data.borderWidth,
@@ -205,11 +205,11 @@ export function spawnSiblingNode(sourceNodeId?: string, label: string = 'Sibling
       height: targetNode.height ?? 60,
       parentId: targetNode.parentId,
       extent: targetNode.extent,
-      layoutMode: targetNode.layoutMode,
+      locked: false,
       data: {
         label,
         shapeType: targetNode.data.shapeType || 'rounded',
-        layoutMode: targetNode.layoutMode,
+        locked: false,
         backgroundColor: targetNode.data.backgroundColor,
         borderColor: targetNode.data.borderColor,
         borderWidth: targetNode.data.borderWidth,
@@ -282,11 +282,11 @@ export function spawnDirectionalNode(
       height: targetNode.height ?? 60,
       parentId: targetNode.parentId,
       extent: targetNode.extent,
-      layoutMode: targetNode.layoutMode,
+      locked: false,
       data: {
         label: `${labelPrefix} Node`,
         shapeType: targetNode.data.shapeType || 'rounded',
-        layoutMode: targetNode.layoutMode,
+        locked: false,
       },
     },
     {
@@ -422,6 +422,11 @@ export function handleGlobalKeyDown(e: {
     }
   }
 
+  // Guard: When FocusDiagramModal is open, do not fire Page-level shortcuts behind the modal
+  if (state.focusedDiagramId) {
+    return false;
+  }
+
   // Guard: Do not intercept keys when user is typing in an input, textarea, or CodeMirror editor
   if (isEditableTarget(e.target ?? null)) {
     return false;
@@ -455,8 +460,17 @@ export function handleGlobalKeyDown(e: {
         if (state.selectedNodeIds.length > 0) {
           state.ungroupNodes(state.selectedNodeIds[0]);
         }
-      } else {
-        if (state.selectedNodeIds.length > 1) {
+      } else if (state.selectedNodeIds.length > 0) {
+        const selectedNodes = state.selectedNodeIds
+          .map((id) => state.nodes[id])
+          .filter(Boolean);
+        const firstGid = selectedNodes[0]?.groupId || selectedNodes[0]?.data?.groupId;
+        const isAllSameGroup =
+          Boolean(firstGid) &&
+          selectedNodes.every((n) => (n.groupId || n.data?.groupId) === firstGid);
+        if (isAllSameGroup && firstGid) {
+          state.ungroupNodes(firstGid);
+        } else if (state.selectedNodeIds.length > 1) {
           state.groupSelectedNodes();
         }
       }
@@ -593,6 +607,8 @@ export function handleGlobalKeyDown(e: {
       p: 'draw',
       f: 'frame',
       d: 'diagram',
+      m: 'mindmap',
+      i: 'image',
     };
     const mappedMode = keyMap[e.key.toLowerCase()];
     if (mappedMode) {

@@ -42,14 +42,8 @@ export interface Viewport {
 // 2. Enums & Literal Unions
 // ============================================================================
 
-/**
- * Tri-state layout mode:
- * - 'auto-elk': Node position is automatically recalculated by ELKjs.
- * - 'manual': Node was repositioned by user gesture; coordinates are preserved during AST sync.
- * - 'fixed': Node is permanently anchored as an obstacle; ELK routes other nodes around it.
- */
-export type LayoutMode = 'auto-elk' | 'manual' | 'fixed';
-export type NodeLayoutMode = LayoutMode; // Alias for backward compatibility
+// Layout state is a single boolean `locked` on Canvas Objects (`NeuroNode.locked`),
+// while Auto Layout controls live at the container level (Page & Diagram).
 
 /**
  * Supported geometric shapes for flowchart and mindmap nodes.
@@ -76,7 +70,8 @@ export type NeuroNodeType =
   | 'frame'
   | 'diagram'
   | 'freehand'
-  | 'pageCard';
+  | 'pageCard'
+  | 'image';
 
 /**
  * Workspace toolbar interaction modes.
@@ -88,14 +83,16 @@ export type ToolMode =
   | 'connect'
   | 'draw'
   | 'frame'
-  | 'diagram';
+  | 'diagram'
+  | 'mindmap'
+  | 'image';
 
 /**
  * Connector line rendering types.
  */
-export type EdgeType = 'jump' | 'smoothstep' | 'bezier' | 'straight' | 'default';
+export type EdgeType = 'smoothstep' | 'bezier' | 'straight' | 'default';
 
-export type EdgeRoutingType = 'jump' | 'smoothstep' | 'bezier' | 'straight';
+export type EdgeRoutingType = 'smoothstep' | 'bezier' | 'straight';
 
 /**
  * Diagram object interaction modes:
@@ -109,6 +106,7 @@ export type DiagramMode = 'embedded' | 'focused';
  */
 export type DiagramOrientation = 'TB' | 'LR' | 'BT' | 'RL' | 'TD';
 export type FlowDirection = DiagramOrientation;
+export type MindMapDirection = 'radial' | 'right' | 'down';
 
 export type ThemeMode = 'light' | 'dark';
 export type SpawnDirection = 'top' | 'right' | 'bottom' | 'left';
@@ -151,7 +149,7 @@ export interface EdgeStyle {
 export interface NeuroNodeData {
   label: string;
   shapeType?: ShapeType;
-  layoutMode: LayoutMode;
+  locked?: boolean;
 
   // Visual & Presentation Styling
   style?: NodeStyle;
@@ -163,12 +161,18 @@ export interface NeuroNodeData {
   fontSize?: number;
   fontWeight?: 'normal' | 'bold';
   textAlign?: 'left' | 'center' | 'right';
+  opacity?: number;
 
-  // Diagram Node specific properties (Mermaid DSL)
+  // Diagram Node specific properties (Mermaid DSL & MindMap Mode)
   mermaidCode?: string;
   diagramMode?: DiagramMode;
+  diagramKind?: 'flowchart' | 'mindmap';
   diagramOrientation?: DiagramOrientation;
+  mindMapDirection?: MindMapDirection;
+  isMindMapRoot?: boolean;
+  continuousLayout?: boolean;
   isFocused?: boolean;
+  lineJump?: boolean;
 
   // Freehand Doodle specific properties (perfect-freehand)
   freehandPoints?: FreehandPoint[];
@@ -188,6 +192,15 @@ export interface NeuroNodeData {
 
   // Page Card specific properties (inter-page navigation)
   targetPageId?: string;
+
+  // Image Node specific properties (IndexedDB Asset or external URL)
+  assetId?: string;
+  src?: string;
+  alt?: string;
+  fileName?: string;
+  naturalWidth?: number;
+  naturalHeight?: number;
+  objectFit?: 'contain' | 'cover' | 'fill';
 
   // Algorithmic flags
   isUnplaced?: boolean;
@@ -223,7 +236,7 @@ export interface NeuroNode {
   parentId?: string; // Container grouping (FrameNode / DiagramNode)
   extent?: 'parent';
   groupId?: string; // Logical Grouping (FN-04)
-  layoutMode: LayoutMode;
+  locked?: boolean;
   data: NeuroNodeData;
   selected?: boolean;
   dragging?: boolean;
@@ -256,11 +269,14 @@ export interface Page {
   title: string;
   name?: string; // Alias for title
   order: number;
+  hidden?: boolean;
   viewport: Viewport;
+  lineJump?: boolean;
   nodeIds: string[];
   edgeIds: string[];
   nodes?: Record<string, NeuroNode>;
   edges?: Record<string, NeuroEdge>;
+  groupStyles?: Record<string, NodeStyle>;
   createdAt: number;
   updatedAt: number;
 }
@@ -295,6 +311,17 @@ export interface Project {
 // 7. Aggregate & Serialized Schemas (Dexie & Export)
 // ============================================================================
 
+export interface SerializedAsset {
+  id: string;
+  projectId: string;
+  mimeType: string;
+  dataUrl: string;
+  fileName?: string;
+  width?: number;
+  height?: number;
+  createdAt: number;
+}
+
 export interface SerializedProjectPayload {
   version: string;
   project: Project;
@@ -302,6 +329,7 @@ export interface SerializedProjectPayload {
   pages: Record<string, Page>;
   nodes: Record<string, NeuroNode>;
   edges: Record<string, NeuroEdge>;
+  assets?: Record<string, SerializedAsset>;
   exportedAt: number;
 }
 
@@ -359,4 +387,5 @@ export interface SelectionFilter {
   edge: boolean;
   frame: boolean;
   diagram: boolean;
+  image: boolean;
 }

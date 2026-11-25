@@ -116,17 +116,15 @@ describe('Creative-Neuro Layer 1 State Store (projectStore & seedData)', () => {
       expect(updated.pages[activeId].nodeIds).toContain(nodeId);
     });
 
-    it('updates node position and automatically transitions layoutMode from auto-elk to manual', () => {
+    it('updates node position when unlocked and preserves locked: false', () => {
       const store = useProjectStore.getState();
-      // 'mm-root' starts with auto-elk layout mode
-      expect(store.nodes['mm-root'].layoutMode).toBe('auto-elk');
+      expect(store.nodes['mm-root'].locked).toBe(false);
 
       store.updateNodePosition('mm-root', { x: 350, y: 380 });
       const updated = useProjectStore.getState();
 
       expect(updated.nodes['mm-root'].position).toEqual({ x: 350, y: 380 });
-      expect(updated.nodes['mm-root'].layoutMode).toBe('manual');
-      expect(updated.nodes['mm-root'].data.layoutMode).toBe('manual');
+      expect(updated.nodes['mm-root'].locked).toBe(false);
     });
 
     it('updates node data with partial patch', () => {
@@ -269,6 +267,87 @@ describe('Creative-Neuro Layer 1 State Store (projectStore & seedData)', () => {
       cloneA.project.name = 'Mutated Project';
       expect(cloneB.project.name).toBe('Demo');
       expect(cloneA.project.name).not.toBe(cloneB.project.name);
+    });
+  });
+
+  describe('7. Lock & Container-Scoped Auto Layout', () => {
+    it('defaults new nodes to locked: false and toggles lock via setNodeLocked / batchSetNodeLocked', () => {
+      const store = useProjectStore.getState();
+      const id1 = store.addNode({ type: 'shape', position: { x: 10, y: 10 }, data: { label: 'N1' } });
+      const id2 = store.addNode({ type: 'shape', position: { x: 200, y: 10 }, data: { label: 'N2' } });
+
+      expect(useProjectStore.getState().nodes[id1].locked).toBe(false);
+      expect(useProjectStore.getState().nodes[id2].locked).toBe(false);
+
+      store.setNodeLocked(id1, true);
+      expect(useProjectStore.getState().nodes[id1].locked).toBe(true);
+      expect(useProjectStore.getState().nodes[id1].data.locked).toBe(true);
+
+      store.batchSetNodeLocked([id1, id2], false);
+      expect(useProjectStore.getState().nodes[id1].locked).toBe(false);
+      expect(useProjectStore.getState().nodes[id2].locked).toBe(false);
+    });
+
+    it('prevents dragging (onNodesChange position change) when a node is locked', () => {
+      const store = useProjectStore.getState();
+      const lockedId = store.addNode({
+        type: 'shape',
+        position: { x: 120, y: 150 },
+        locked: true,
+        data: { label: 'Locked Box', locked: true },
+      });
+
+      store.onNodesChange([
+        {
+          id: lockedId,
+          type: 'position',
+          position: { x: 999, y: 888 },
+          dragging: true,
+        },
+      ]);
+
+      expect(useProjectStore.getState().nodes[lockedId].position).toEqual({ x: 120, y: 150 });
+    });
+
+    it('autoLayoutPage repositions unlocked Page nodes, skips locked nodes, and does not mutate Diagram internals', () => {
+      const store = useProjectStore.getState();
+      const pageId = store.addPage('Layout Isolation Page');
+      store.setActivePage(pageId);
+
+      const n1 = store.addNode({
+        type: 'shape',
+        position: { x: 500, y: 500 },
+        data: { label: 'Unlocked A' },
+      });
+      const n2 = store.addNode({
+        type: 'shape',
+        position: { x: 600, y: 600 },
+        locked: true,
+        data: { label: 'Locked B', locked: true },
+      });
+      const subNodesSnapshot = [
+        { id: 'sub1', type: 'shape' as const, position: { x: 42, y: 84 }, locked: false, data: { label: 'Sub1' } },
+      ];
+      const diagId = store.addNode({
+        type: 'diagram',
+        position: { x: 700, y: 700 },
+        data: {
+          label: 'Embedded Diagram',
+          mermaidCode: 'flowchart TD\n  sub1 --> sub2',
+          customData: { subNodes: subNodesSnapshot },
+        },
+      });
+      store.addEdge({ source: n1, target: diagId });
+
+      store.autoLayoutPage('TB');
+
+      const after = useProjectStore.getState();
+      // Unlocked node n1 was repositioned by ELK
+      expect(after.nodes[n1].position).not.toEqual({ x: 500, y: 500 });
+      // Locked node n2 stayed at exact coordinates
+      expect(after.nodes[n2].position).toEqual({ x: 600, y: 600 });
+      // Diagram node on Page was repositioned (since unlocked), but its internal subNodes were untouched
+      expect(after.nodes[diagId].data.customData?.subNodes).toEqual(subNodesSnapshot);
     });
   });
 });

@@ -450,17 +450,14 @@ describe('Adversarial Stress Suite: Mermaid Parser, Serializer, Reconciliation &
   // Challenge 4: Reconciliation Stress & Floating-Point Drift Invariance
   // =========================================================================
   describe('4. Reconciliation Stress & Floating-Point Drift Invariance', () => {
-    it('ADV-REC-01: preserves exact floating-point coordinates across 50 consecutive edit-sync cycles', async () => {
-      // Setup 5 fixed nodes and 5 manual nodes with precise floating-point values
-      const fixedCoords = [
+    it('ADV-REC-01: preserves exact floating-point coordinates across 50 consecutive edit-sync cycles for locked nodes', async () => {
+      // Setup 10 locked nodes with precise floating-point values
+      const lockedCoords = [
         { id: 'fix_1', x: 123.456789123, y: 987.654321987 },
         { id: 'fix_2', x: 314.159265358, y: 271.828182845 },
         { id: 'fix_3', x: 0.123456789, y: 0.987654321 },
         { id: 'fix_4', x: 1000.000000001, y: 2000.000000002 },
         { id: 'fix_5', x: -456.789012345, y: -789.012345678 },
-      ];
-
-      const manualCoords = [
         { id: 'man_1', x: 555.555555555, y: 444.444444444 },
         { id: 'man_2', x: 111.111111111, y: 222.222222222 },
         { id: 'man_3', x: 888.888888888, y: 999.999999999 },
@@ -469,33 +466,24 @@ describe('Adversarial Stress Suite: Mermaid Parser, Serializer, Reconciliation &
       ];
 
       let currentNodes: NeuroNode[] = [
-        ...fixedCoords.map((c) => ({
+        ...lockedCoords.map((c) => ({
           id: c.id,
           type: 'shape' as const,
           position: { x: c.x, y: c.y },
           width: 160,
           height: 60,
-          layoutMode: 'fixed' as const,
-          data: { label: `Fixed ${c.id}`, layoutMode: 'fixed' as const },
+          locked: true,
+          data: { label: `Locked ${c.id}`, locked: true },
         })),
-        ...manualCoords.map((c) => ({
-          id: c.id,
-          type: 'shape' as const,
-          position: { x: c.x, y: c.y },
-          width: 160,
-          height: 60,
-          layoutMode: 'manual' as const,
-          data: { label: `Manual ${c.id}`, layoutMode: 'manual' as const },
-        })),
-        // 5 auto-elk nodes
+        // 5 unlocked nodes
         ...Array.from({ length: 5 }, (_, i) => ({
           id: `auto_${i}`,
           type: 'shape' as const,
           position: { x: 0, y: 0 },
           width: 160,
           height: 60,
-          layoutMode: 'auto-elk' as const,
-          data: { label: `Auto ${i}`, layoutMode: 'auto-elk' as const },
+          locked: false,
+          data: { label: `Unlocked ${i}`, locked: false },
         })),
       ];
 
@@ -510,66 +498,33 @@ describe('Adversarial Stress Suite: Mermaid Parser, Serializer, Reconciliation &
       const NUM_CYCLES = 50;
 
       for (let cycle = 0; cycle < NUM_CYCLES; cycle++) {
-        // 1. Serialize current state to Mermaid DSL
         const mermaidDsl = serializeMermaid(currentNodes, currentEdges, 'TB');
-
-        // 2. Synthesize an edit in the Mermaid code:
-        // Modify label of auto_0, or add a comment/edge
         const modifiedDsl = mermaidDsl + `\n  auto_1 -->|step_${cycle}| auto_2`;
-
-        // 3. Parse Mermaid DSL
         const ast = parseMermaid(modifiedDsl);
-
-        // 4. Reconcile with existing nodes
-        const reconcileRes = reconcileMermaidAST(ast, currentNodes, 'auto-elk');
-
-        // 5. Layout with ELK
+        const reconcileRes = reconcileMermaidAST(ast, currentNodes);
         const layoutRes = await calculateElkLayout(reconcileRes.nodes, reconcileRes.edges, { direction: 'DOWN' });
 
         currentNodes = layoutRes.nodes;
         currentEdges = layoutRes.edges;
 
-        // 6. Check invariants at every 10th cycle and at final cycle
         if (cycle % 10 === 0 || cycle === NUM_CYCLES - 1) {
-          // Verify Fixed nodes
-          for (const target of fixedCoords) {
+          for (const target of lockedCoords) {
             const found = currentNodes.find((n) => n.id === target.id);
-            assert.ok(found, `Fixed node ${target.id} must exist at cycle ${cycle}`);
+            assert.ok(found, `Locked node ${target.id} must exist at cycle ${cycle}`);
             assert.strictEqual(
-              found.layoutMode,
-              'fixed',
-              `Fixed node ${target.id} must preserve 'fixed' layoutMode at cycle ${cycle}`
+              found.locked,
+              true,
+              `Locked node ${target.id} must preserve locked=true at cycle ${cycle}`
             );
             assert.strictEqual(
               found.position.x,
               target.x,
-              `Fixed node ${target.id} X must have ZERO floating point drift (expected ${target.x}, got ${found.position.x}) at cycle ${cycle}`
+              `Locked node ${target.id} X must have ZERO floating point drift (expected ${target.x}, got ${found.position.x}) at cycle ${cycle}`
             );
             assert.strictEqual(
               found.position.y,
               target.y,
-              `Fixed node ${target.id} Y must have ZERO floating point drift (expected ${target.y}, got ${found.position.y}) at cycle ${cycle}`
-            );
-          }
-
-          // Verify Manual nodes
-          for (const target of manualCoords) {
-            const found = currentNodes.find((n) => n.id === target.id);
-            assert.ok(found, `Manual node ${target.id} must exist at cycle ${cycle}`);
-            assert.strictEqual(
-              found.layoutMode,
-              'manual',
-              `Manual node ${target.id} must preserve 'manual' layoutMode at cycle ${cycle}`
-            );
-            assert.strictEqual(
-              found.position.x,
-              target.x,
-              `Manual node ${target.id} X must have ZERO floating point drift (expected ${target.x}, got ${found.position.x}) at cycle ${cycle}`
-            );
-            assert.strictEqual(
-              found.position.y,
-              target.y,
-              `Manual node ${target.id} Y must have ZERO floating point drift (expected ${target.y}, got ${found.position.y}) at cycle ${cycle}`
+              `Locked node ${target.id} Y must have ZERO floating point drift (expected ${target.y}, got ${found.position.y}) at cycle ${cycle}`
             );
           }
         }

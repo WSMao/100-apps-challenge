@@ -3,7 +3,7 @@
  * Authoritative Source: PROJECT.md, specs.md, ORIGINAL_REQUEST.md
  */
 
-export type LayoutMode = 'auto-elk' | 'manual' | 'fixed';
+// Lock boolean replaces tri-state LayoutMode
 
 export type ShapeType =
   | 'rectangle'
@@ -87,7 +87,7 @@ export interface NeuroNode {
   width?: number;
   height?: number;
   parentId?: string;
-  layoutMode: LayoutMode;
+  locked?: boolean;
   data: NeuroNodeData;
   selected?: boolean;
   zIndex?: number;

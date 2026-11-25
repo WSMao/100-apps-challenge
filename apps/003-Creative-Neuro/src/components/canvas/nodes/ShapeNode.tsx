@@ -22,6 +22,8 @@ import {
   type PlacementDirection,
 } from '../../../engine/index.ts';
 import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
+import { ResizeHandles, useNodeResize } from './ResizeHandles.tsx';
+import { resolveNodeStyle } from './nodeStyleUtils.ts';
 import {
   spawnChildNode,
   spawnSiblingNode,
@@ -134,7 +136,7 @@ export function quickAddDirectionalNode(
   };
 
   const { sourceHandle, targetHandle } = opposites[direction];
-  const defaultRouting = store.defaultEdgeRoutingType || 'jump';
+  const defaultRouting = store.defaultEdgeRoutingType || 'smoothstep';
 
   // Atomically create the connected node and edge
   const result = store.addConnectedNode(
@@ -145,10 +147,10 @@ export function quickAddDirectionalNode(
       height: H,
       parentId: targetNode.parentId,
       extent: targetNode.extent,
-      layoutMode: 'manual',
+      locked: false,
       data: {
         label: 'New Node',
-        layoutMode: 'manual',
+        locked: false,
         shapeType: targetNode.data?.shapeType || 'rounded',
         backgroundColor: targetNode.data?.backgroundColor || '#1e293b',
         borderColor: targetNode.data?.borderColor || '#475569',
@@ -163,7 +165,6 @@ export function quickAddDirectionalNode(
       type: defaultRouting,
       data: {
         routingType: defaultRouting,
-        jumpArc: defaultRouting === 'jump',
       },
     }
   );
@@ -199,9 +200,19 @@ export function ShapeNode({
   const selectedNodeCount = useProjectStore((s) => s.selectedNodeIds.length);
   const isStoreSelected = useProjectStore((s) => s.selectedNodeIds.includes(id));
   const isConnectorSource = connectorSourceNodeId === id;
-  const isNodeSelected = selected || isStoreSelected;
+  const isNodeSelected = Boolean(selected || isStoreSelected);
   const isSingleSelected = isNodeSelected && selectedNodeCount === 1;
   const shouldRenderInput = isSingleSelected || isEditing;
+
+  const storeWidth = useProjectStore((s) => s.nodes[id]?.width);
+  const storeHeight = useProjectStore((s) => s.nodes[id]?.height);
+  const handleResizeMouseDown = useNodeResize({
+    id,
+    defaultWidth: storeWidth || width || 160,
+    defaultHeight: storeHeight || height || 60,
+    minWidth: 64,
+    minHeight: 36,
+  });
 
   useEffect(() => {
     if (!isEditing) {
@@ -424,9 +435,11 @@ export function ShapeNode({
     }
   }, [id, label, data?.label, isEditingStore, setEditingNodeId, updateNodeData]);
 
+  const resolvedStyle = resolveNodeStyle(data, { fontSize: 13, textAlign: 'center' });
+
   return (
     <div
-      style={{ width: W, height: H }}
+      style={{ width: W, height: H, opacity: resolvedStyle.opacity }}
       className={`relative group flex items-center justify-center cursor-pointer transition-shadow ${
         isConnectorSource
           ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-900 shadow-[0_0_15px_rgba(52,211,153,0.7)] animate-pulse rounded-lg'
@@ -442,6 +455,13 @@ export function ShapeNode({
     >
       {/* Horizontal Floating Quick-Action Menu directly above node when single node is selected */}
       {isNodeSelected && selectedNodeCount <= 1 && <NodeFloatingActionBar nodeId={id} />}
+
+      {/* 8-Direction Corner & Edge Resize Handles */}
+      <ResizeHandles
+        isSelected={isNodeSelected}
+        testIdPrefix="shape"
+        onResizeMouseDown={handleResizeMouseDown}
+      />
 
       {/* Connector Source Selection Badge */}
       {isConnectorSource && (
@@ -610,25 +630,27 @@ export function ShapeNode({
                 }
               }
             }}
-            className={`w-full text-center outline-none transition-all ${
+            className={`w-full outline-none transition-all ${
               isEditing
                 ? 'bg-transparent text-white text-xs px-1.5 py-0.5 rounded border border-cyan-400 pointer-events-auto caret-cyan-400 shadow-sm selection:bg-cyan-500/30'
                 : 'bg-transparent border-none pointer-events-none caret-transparent leading-tight select-none shadow-none ring-0 focus:ring-0 focus:outline-none selection:bg-transparent selection:text-inherit'
             }`}
             style={{
               color: data?.color || '#f8fafc',
-              fontSize: data?.fontSize || 13,
+              fontSize: resolvedStyle.fontSize,
               fontWeight: data?.fontWeight || 'normal',
+              textAlign: resolvedStyle.textAlign,
             }}
           />
         ) : (
           <span
             style={{
               color: data?.color || '#f8fafc',
-              fontSize: data?.fontSize || 12,
+              fontSize: data?.fontSize ?? data?.style?.fontSize ?? 12,
               fontWeight: data?.fontWeight || 'normal',
+              textAlign: resolvedStyle.textAlign,
             }}
-            className="select-none whitespace-pre-line leading-snug block break-words"
+            className="w-full select-none whitespace-pre-line leading-snug block break-words"
           >
             {label || 'Empty Node'}
           </span>

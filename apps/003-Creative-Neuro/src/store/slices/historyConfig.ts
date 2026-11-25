@@ -30,7 +30,7 @@ export function areNodesEqualExcludingTransient(
       na.parentId !== nb.parentId ||
       na.extent !== nb.extent ||
       na.groupId !== nb.groupId ||
-      na.layoutMode !== nb.layoutMode ||
+      Boolean(na.locked) !== Boolean(nb.locked) ||
       na.zIndex !== nb.zIndex ||
       na.hidden !== nb.hidden ||
       na.data !== nb.data

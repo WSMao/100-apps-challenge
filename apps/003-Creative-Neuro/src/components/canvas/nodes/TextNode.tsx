@@ -14,12 +14,14 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { NeuroNode } from '../../../types/index.ts';
 import { useProjectStore } from '../../../store/useProjectStore.ts';
 import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
+import { ResizeHandles, useNodeResize } from './ResizeHandles.tsx';
+import { resolveNodeStyle } from './nodeStyleUtils.ts';
 import {
   spawnChildNode,
   navigateSelectionDirectionally,
 } from '../../workspace/ShortcutsHandler.tsx';
 
-export function TextNode({ id, data: rawData, selected, width }: NodeProps) {
+export function TextNode({ id, data: rawData, selected, width, height }: NodeProps) {
   const data = rawData as unknown as NeuroNode['data'];
   const isEditingStore = useProjectStore((s) => s.editingNodeId === id);
   const editingInitialValue = useProjectStore((s) => s.editingInitialValue);
@@ -35,9 +37,21 @@ export function TextNode({ id, data: rawData, selected, width }: NodeProps) {
   const isDark = themeMode === 'dark';
   const isStoreSelected = useProjectStore((s) => s.selectedNodeIds.includes(id));
   const selectedNodeCount = useProjectStore((s) => s.selectedNodeIds.length);
-  const isNodeSelected = selected || isStoreSelected;
+  const isNodeSelected = Boolean(selected || isStoreSelected);
   const isSingleSelected = isNodeSelected && selectedNodeCount === 1;
   const shouldRenderInput = isSingleSelected || isEditing;
+
+  const storeWidth = useProjectStore((s) => s.nodes[id]?.width);
+  const storeHeight = useProjectStore((s) => s.nodes[id]?.height);
+  const W = storeWidth || width || 160;
+  const H = storeHeight || height || 40;
+  const handleResizeMouseDown = useNodeResize({
+    id,
+    defaultWidth: W,
+    defaultHeight: H,
+    minWidth: 100,
+    minHeight: 32,
+  });
 
   useEffect(() => {
     if (!isEditing) {
@@ -108,15 +122,18 @@ export function TextNode({ id, data: rawData, selected, width }: NodeProps) {
     }
   }, [id, text, data?.label, isEditingStore, setEditingNodeId, updateNodeData]);
 
+  const resolvedStyle = resolveNodeStyle(data, { fontSize: 14, textAlign: 'left' });
+
   return (
     <div
       style={{
         minWidth: 100,
-        minHeight: 32,
-        width: width ? Math.max(100, width) : undefined,
+        minHeight: H ? Math.max(32, H) : 32,
+        width: W ? Math.max(100, W) : undefined,
         backgroundColor: data?.backgroundColor || 'transparent',
         borderColor: data?.borderColor || 'transparent',
         borderWidth: data?.borderWidth || 0,
+        opacity: resolvedStyle.opacity,
       }}
       className={`relative group px-3 py-2 rounded-lg transition-all ${
         isNodeSelected
@@ -131,6 +148,13 @@ export function TextNode({ id, data: rawData, selected, width }: NodeProps) {
     >
       {/* Horizontal Floating Quick-Action Menu directly above node when single node is selected */}
       {isNodeSelected && selectedNodeCount <= 1 && <NodeFloatingActionBar nodeId={id} />}
+
+      {/* 8-Direction Corner & Edge Resize Handles */}
+      <ResizeHandles
+        isSelected={isNodeSelected}
+        testIdPrefix="text"
+        onResizeMouseDown={handleResizeMouseDown}
+      />
 
       {shouldRenderInput ? (
         <textarea
@@ -272,9 +296,9 @@ export function TextNode({ id, data: rawData, selected, width }: NodeProps) {
           }}
           style={{
             color: data?.color || (isDark ? '#f1f5f9' : '#0f172a'),
-            fontSize: data?.fontSize || 14,
+            fontSize: resolvedStyle.fontSize,
             fontWeight: data?.fontWeight || 'normal',
-            textAlign: data?.textAlign || 'left',
+            textAlign: resolvedStyle.textAlign,
           }}
           className={`w-full text-sm px-1.5 py-0.5 rounded outline-none resize-none overflow-hidden leading-relaxed bg-transparent transition-all ${
             isEditing
@@ -286,9 +310,9 @@ export function TextNode({ id, data: rawData, selected, width }: NodeProps) {
         <p
           style={{
             color: data?.color || (isDark ? '#f1f5f9' : '#0f172a'),
-            fontSize: data?.fontSize || 14,
+            fontSize: resolvedStyle.fontSize,
             fontWeight: data?.fontWeight || 'normal',
-            textAlign: data?.textAlign || 'left',
+            textAlign: resolvedStyle.textAlign,
           }}
           className="whitespace-pre-wrap break-words leading-relaxed select-none"
         >

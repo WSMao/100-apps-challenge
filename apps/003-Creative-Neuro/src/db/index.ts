@@ -41,6 +41,18 @@ export interface SettingRecord {
   value: unknown;
 }
 
+export interface AssetRecord {
+  id: string;
+  projectId: string;
+  mimeType: string;
+  blob?: Blob;
+  dataUrl?: string;
+  fileName?: string;
+  width?: number;
+  height?: number;
+  createdAt: number;
+}
+
 // ============================================================================
 // 2. Dexie Database Definition (with In-Memory Fallback for Node/Private Modes)
 // ============================================================================
@@ -84,6 +96,7 @@ function createInMemoryTable<T extends object, K extends string>(
 export class CreativeNeuroDB extends Dexie {
   projects!: Table<ProjectRecord, string>;
   settings!: Table<SettingRecord, string>;
+  assets!: Table<AssetRecord, string>;
 
   constructor() {
     super('CreativeNeuroDB');
@@ -91,10 +104,16 @@ export class CreativeNeuroDB extends Dexie {
       projects: 'id, name, updatedAt, createdAt',
       settings: 'key',
     });
+    this.version(2).stores({
+      projects: 'id, name, updatedAt, createdAt',
+      settings: 'key',
+      assets: 'id, projectId, createdAt',
+    });
 
     if (!hasNativeIndexedDB()) {
       this.projects = createInMemoryTable<ProjectRecord, string>('id');
       this.settings = createInMemoryTable<SettingRecord, string>('key');
+      this.assets = createInMemoryTable<AssetRecord, string>('id');
       Object.assign(this, {
         transaction: async (...args: unknown[]) => {
           const callback = args[args.length - 1];
@@ -326,7 +345,12 @@ export function validateAndSanitizeProjectRecord(record: unknown): ProjectRecord
   if (isNodesValidObject) {
     for (const node of Object.values(sanitizedNodes)) {
       if (node && node.type === 'text') {
-        if (!node.data) node.data = { label: '', layoutMode: 'manual' };
+        if (!node.data) node.data = { label: '', locked: false };
+        const legacyLayoutMode = (node as any).layoutMode ?? (node.data as any).layoutMode;
+        if (node.locked === undefined) {
+          node.locked = legacyLayoutMode === 'fixed';
+        }
+        node.data.locked = Boolean(node.locked);
         if (
           !node.data.backgroundColor ||
           node.data.backgroundColor === '#ffffff' ||
@@ -557,4 +581,99 @@ export async function resetDatabaseToSeed(
 
   // Clear temporal history to prevent undoing into wiped state
   useProjectStore.temporal.getState().clear();
+}
+
+// ============================================================================
+// 5. Binary Asset Store Helpers (IndexedDB 'assets' Table)
+// ============================================================================
+
+export function dataUrlToBlob(dataUrl: string): { blob: Blob; mimeType: string } {
+  const match = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(dataUrl);
+  if (!match) {
+    throw new Error('Invalid Data URL format');
+  }
+  const mimeType = match[1] || 'application/octet-stream';
+  const isBase64 = Boolean(match[2]);
+  const payload = match[3] || '';
+
+  let bytes: Uint8Array;
+  if (isBase64) {
+    if (typeof atob === 'function') {
+      const bin = atob(payload);
+      bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) {
+        bytes[i] = bin.charCodeAt(i);
+      }
+    } else {
+      bytes = new Uint8Array(Buffer.from(payload, 'base64'));
+    }
+  } else {
+    const decoded = decodeURIComponent(payload);
+    bytes = new TextEncoder().encode(decoded);
+  }
+
+  return {
+    blob: new Blob([bytes.buffer as ArrayBuffer], { type: mimeType }),
+    mimeType,
+  };
+}
+
+export async function blobToDataUrl(blob: Blob, fallbackMimeType?: string): Promise<string> {
+  const mimeType = blob.type || fallbackMimeType || 'application/octet-stream';
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+
+  let base64: string;
+  if (typeof Buffer !== 'undefined') {
+    base64 = Buffer.from(bytes).toString('base64');
+  } else {
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+    base64 = btoa(binary);
+  }
+
+  return `data:${mimeType};base64,${base64}`;
+}
+
+export async function assetToDataUrl(asset: AssetRecord): Promise<string> {
+  if (asset.dataUrl) {
+    return asset.dataUrl;
+  }
+  if (asset.blob) {
+    return blobToDataUrl(asset.blob, asset.mimeType);
+  }
+  throw new Error(`Asset ${asset.id} has neither blob nor dataUrl`);
+}
+
+export async function saveAsset(
+  asset: AssetRecord,
+  database: CreativeNeuroDB = db
+): Promise<string> {
+  await database.assets.put(asset);
+  return asset.id;
+}
+
+export async function getAsset(
+  assetId: string,
+  database: CreativeNeuroDB = db
+): Promise<AssetRecord | undefined> {
+  return database.assets.get(assetId);
+}
+
+export async function deleteAsset(
+  assetId: string,
+  database: CreativeNeuroDB = db
+): Promise<void> {
+  await database.assets.delete(assetId);
+}
+
+export async function getAssetsForProject(
+  projectId: string,
+  database: CreativeNeuroDB = db
+): Promise<AssetRecord[]> {
+  const all = await database.assets.toArray();
+  return all.filter((a) => a.projectId === projectId);
 }

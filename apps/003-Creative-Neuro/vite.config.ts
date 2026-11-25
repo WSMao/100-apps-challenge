@@ -37,6 +37,13 @@ export default defineConfig({
       'tests/adversarialPersistence.test.ts',
       'tests/requirements.test.ts',
       'tests/integration_canvas_lifecycle.test.ts',
+      'tests/groupFrameStyleZOrder.test.ts',
+      'tests/lineJumpConnector.test.ts',
+      'tests/importExport.test.ts',
+      'tests/pageLifecycle.test.ts',
+      'tests/imageAssetResizeDblClick.test.ts',
+      'tests/mindmapMode.test.ts',
+      'tests/alignmentGuides.test.ts',
     ],
   },
 });

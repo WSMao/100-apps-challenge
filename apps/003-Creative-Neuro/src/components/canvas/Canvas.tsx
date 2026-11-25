@@ -8,7 +8,7 @@
  * - Custom edge types registration: JumpConnectorEdge
  * - FreehandOverlay portaled inside ReactFlow + FocusDiagramModal overlay
  * - Dragging lifecycle & Zundo history suppression (isDragging flag)
- * - Automatic layoutMode transition ('auto-elk' -> 'manual') on user drag
+ * - Lock state enforcement (`draggable: !locked`) on user drag
  * - Dynamic FrameNode parenting & auto-expansion via calculateFrameAutoGrowth
  * - Click-to-create toolbar node spawning (shape, text, frame, diagram)
  */
@@ -24,6 +24,7 @@ import {
   ViewportPortal,
   PanOnScrollMode,
   SelectionMode,
+  ConnectionMode,
   MarkerType,
   type Node,
   type Edge,
@@ -57,12 +58,21 @@ import ShapeNode from './nodes/ShapeNode.tsx';
 import TextNode from './nodes/TextNode.tsx';
 import FrameNode from './nodes/FrameNode.tsx';
 import DiagramNode from './nodes/DiagramNode.tsx';
+import ImageNode from './nodes/ImageNode.tsx';
 import JumpConnectorEdge from './edges/JumpConnectorEdge.tsx';
+import {
+  importImageFileAsNode,
+  importImageUrlAsNode,
+  isImageFile,
+  isImageUrlCandidate,
+} from '../../utils/imageImport.ts';
 import FreehandOverlay from './freehand/FreehandOverlay.tsx';
 import FocusDiagramModal from '../editor/FocusDiagramModal.tsx';
 import { ContextMenu } from './ContextMenu.tsx';
 import { NodeFloatingActionBar } from './NodeFloatingActionBar.tsx';
 import { EdgeFloatingActionBar } from './edges/EdgeFloatingActionBar.tsx';
+import { AlignmentGuidesOverlay } from './AlignmentGuidesOverlay.tsx';
+import { computeDragSnap, type SnapRect } from '../../engine/index.ts';
 
 // Stable top-level module constants to prevent React Flow StoreUpdater infinite re-renders
 const SNAP_GRID: [number, number] = [16, 16];
@@ -93,6 +103,7 @@ const nodeTypes: NodeTypes = {
   text: TextNode,
   frame: FrameNode,
   diagram: DiagramNode,
+  image: ImageNode,
 };
 
 const edgeTypes: EdgeTypes = {
@@ -112,6 +123,7 @@ export function CanvasContent() {
     onEdgesChange,
     onConnect,
     addNode,
+    spawnNodeForLastCreatedType,
     toolMode,
     setToolMode,
     setSelectedNodes,
@@ -139,6 +151,8 @@ export function CanvasContent() {
     zoomIn,
     zoomOut,
     fitView,
+    getViewport,
+    setViewport,
   } = useReactFlow();
 
   const lastDoubleClickSpawnRef = useRef<number>(0);
@@ -156,27 +170,9 @@ export function CanvasContent() {
         x: clientX,
         y: clientY,
       });
-      const newNodeId = addNode({
-        type: 'shape',
-        position: {
-          x: Math.round(flowPos.x - 80),
-          y: Math.round(flowPos.y - 30),
-        },
-        width: 160,
-        height: 60,
-        layoutMode: 'manual',
-        data: {
-          label: 'New Idea',
-          layoutMode: 'manual',
-          shapeType: 'rounded',
-          backgroundColor: isDark ? '#1e293b' : '#ffffff',
-          borderColor: isDark ? '#475569' : '#cbd5e1',
-          color: isDark ? '#f8fafc' : '#0f172a',
-        },
-      });
-      setSelectedNodes([newNodeId]);
+      spawnNodeForLastCreatedType(flowPos);
     },
-    [screenToFlowPosition, addNode, setSelectedNodes, isDark]
+    [screenToFlowPosition, spawnNodeForLastCreatedType]
   );
 
   // Interaction coordinator hooks (Candidate 3)
@@ -241,6 +237,50 @@ export function CanvasContent() {
     [spawnFloatingNodeAtClientPos]
   );
 
+  // Drag-and-drop image files or image URLs onto the canvas
+  const handleCanvasDragOver = useCallback((event: React.DragEvent) => {
+    if (
+      event.dataTransfer?.types?.includes('Files') ||
+      event.dataTransfer?.types?.includes('text/uri-list') ||
+      event.dataTransfer?.types?.includes('text/plain')
+    ) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    }
+  }, []);
+
+  const handleCanvasDrop = useCallback(
+    async (event: React.DragEvent) => {
+      const files = Array.from(event.dataTransfer?.files || []).filter(isImageFile);
+      if (files.length > 0) {
+        event.preventDefault();
+        event.stopPropagation();
+        const basePos = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+        const store = useProjectStore.getState();
+        for (let i = 0; i < files.length; i++) {
+          await importImageFileAsNode(
+            files[i],
+            { x: Math.round(basePos.x + i * 24), y: Math.round(basePos.y + i * 24) },
+            store
+          );
+        }
+        return;
+      }
+
+      const uri =
+        event.dataTransfer?.getData('text/uri-list') ||
+        event.dataTransfer?.getData('text/plain') ||
+        '';
+      if (isImageUrlCandidate(uri)) {
+        event.preventDefault();
+        event.stopPropagation();
+        const pos = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+        importImageUrlAsNode(uri, pos, useProjectStore.getState());
+      }
+    },
+    [screenToFlowPosition]
+  );
+
   // Connector Tool Node Click Handler (TL-01) & Single/Group Node Selection Click (FN-04)
   const handleNodeClick = useCallback(
     (event: React.MouseEvent, node: Node) => {
@@ -282,9 +322,13 @@ export function CanvasContent() {
   // Single/Multi Edge Selection Click Handler
   const handleEdgeClick = useCallback(
     (event: React.MouseEvent, edge: Edge) => {
-      if (toolMode === 'select') {
-        const isSelectable = selectionFilter.edge ?? true;
-        if (!isSelectable) return;
+      if (toolMode === 'select' || toolMode === 'connect') {
+        if (toolMode === 'select') {
+          const isSelectable = selectionFilter.edge ?? true;
+          if (!isSelectable) return;
+        } else {
+          useProjectStore.getState().resetConnector();
+        }
 
         const isMulti = event.metaKey || event.ctrlKey || event.shiftKey;
         if (isMulti) {
@@ -347,7 +391,8 @@ export function CanvasContent() {
           edgeIdSet.add(e.id);
         }
 
-        // If user is actively box selecting, check if userSelectionRect intersects any active page edges
+        // OP-08: Only select a Connector during box selection when BOTH source and target nodes
+        // are fully enclosed inside the selection rectangle.
         if (
           userSelectionActive &&
           userSelectionRect &&
@@ -367,8 +412,21 @@ export function CanvasContent() {
             nodeMap.set(n.id, n);
           }
 
+          const isNodeFullyInRect = (n: NeuroNode) => {
+            const w = n.width ?? n.measured?.width ?? 160;
+            const h = n.height ?? n.measured?.height ?? 60;
+            return (
+              n.position.x >= rect.minX &&
+              n.position.y >= rect.minY &&
+              n.position.x + w <= rect.maxX &&
+              n.position.y + h <= rect.maxY
+            );
+          };
+
           for (const e of edges) {
-            if (isEdgeInSelectionRect(e, nodeMap, rect)) {
+            const src = nodeMap.get(e.source);
+            const tgt = nodeMap.get(e.target);
+            if (src && tgt && isNodeFullyInRect(src) && isNodeFullyInRect(tgt)) {
               edgeIdSet.add(e.id);
             }
           }
@@ -419,9 +477,71 @@ export function CanvasContent() {
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
       const nonSelectChanges = changes.filter((c) => c.type !== 'select');
-      if (nonSelectChanges.length > 0) {
-        (onNodesChange as unknown as (changes: NodeChange[]) => void)(nonSelectChanges);
+      if (nonSelectChanges.length === 0) return;
+
+      const draggingPosChanges = nonSelectChanges.filter(
+        (c): c is Extract<NodeChange, { type: 'position' }> =>
+          c.type === 'position' && Boolean(c.dragging) && Boolean(c.position)
+      );
+
+      let finalChanges = nonSelectChanges;
+      if (draggingPosChanges.length > 0) {
+        const store = useProjectStore.getState();
+        const activePage = store.pages[store.activePageId];
+        const draggedIds = new Set(draggingPosChanges.map((c) => c.id));
+        const primaryChange = draggingPosChanges[0];
+        const primaryNode = store.nodes[primaryChange.id];
+
+        if (primaryNode && primaryChange.position && !(primaryNode.locked || primaryNode.data?.locked)) {
+          const parent = primaryNode.parentId ? store.nodes[primaryNode.parentId] : null;
+          const absX = parent ? parent.position.x + primaryChange.position.x : primaryChange.position.x;
+          const absY = parent ? parent.position.y + primaryChange.position.y : primaryChange.position.y;
+          const w = primaryNode.width ?? primaryNode.measured?.width ?? 160;
+          const h = primaryNode.height ?? primaryNode.measured?.height ?? 60;
+
+          const otherRects: SnapRect[] = [];
+          const pageNodeIds = activePage?.nodeIds ?? Object.keys(store.nodes);
+          for (const nid of pageNodeIds) {
+            if (draggedIds.has(nid)) continue;
+            const n = store.nodes[nid];
+            if (!n || n.hidden || n.type === 'freehand') continue;
+            const nParent = n.parentId ? store.nodes[n.parentId] : null;
+            otherRects.push({
+              id: n.id,
+              x: nParent ? nParent.position.x + n.position.x : n.position.x,
+              y: nParent ? nParent.position.y + n.position.y : n.position.y,
+              width: n.width ?? n.measured?.width ?? 160,
+              height: n.height ?? n.measured?.height ?? 60,
+            });
+          }
+
+          const snap = computeDragSnap(
+            { id: primaryNode.id, x: absX, y: absY, width: w, height: h },
+            otherRects,
+            { snapThreshold: 6, gridSize: SNAP_GRID[0] }
+          );
+          const dx = snap.x - absX;
+          const dy = snap.y - absY;
+
+          if (dx !== 0 || dy !== 0) {
+            finalChanges = nonSelectChanges.map((c) => {
+              if (c.type === 'position' && c.dragging && c.position) {
+                return {
+                  ...c,
+                  position: {
+                    x: c.position.x + dx,
+                    y: c.position.y + dy,
+                  },
+                };
+              }
+              return c;
+            });
+          }
+          store.setAlignmentGuides(snap.guides);
+        }
       }
+
+      (onNodesChange as unknown as (changes: NodeChange[]) => void)(finalChanges);
     },
     [onNodesChange]
   );
@@ -472,7 +592,7 @@ export function CanvasContent() {
           ...n,
           width: w,
           height: h,
-          draggable: true,
+          draggable: !Boolean(n.locked || n.data?.locked),
           selected: selectedSet.has(n.id),
           selectable: isSelectable,
           measured,
@@ -519,6 +639,66 @@ export function CanvasContent() {
       };
     }) as unknown as Edge[];
   }, [edges, selectionFilter.edge, selectedEdgeIds, themeMode]);
+
+  const activePageGroupStyles = useProjectStore(
+    (s) => s.pages[s.activePageId]?.groupStyles
+  );
+
+  const styledGroupBoxes = useMemo(() => {
+    if (!activePageGroupStyles) return [];
+    const byGroup = new Map<string, NeuroNode[]>();
+    for (const n of nodes) {
+      const gid = n.groupId || n.data?.groupId;
+      if (!gid || n.hidden) continue;
+      if (!byGroup.has(gid)) byGroup.set(gid, []);
+      byGroup.get(gid)!.push(n);
+    }
+
+    const boxes: Array<{
+      groupId: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      backgroundColor?: string;
+      borderColor?: string;
+      borderWidth?: number;
+    }> = [];
+
+    for (const [gid, members] of byGroup.entries()) {
+      const gStyle = activePageGroupStyles[gid];
+      if (!gStyle) continue;
+      const hasBg = gStyle.backgroundColor && gStyle.backgroundColor !== 'transparent';
+      const hasBorder = gStyle.borderColor && gStyle.borderColor !== 'transparent';
+      if (!hasBg && !hasBorder) continue;
+
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const m of members) {
+        const w = m.width || 160;
+        const h = m.height || 60;
+        minX = Math.min(minX, m.position.x);
+        minY = Math.min(minY, m.position.y);
+        maxX = Math.max(maxX, m.position.x + w);
+        maxY = Math.max(maxY, m.position.y + h);
+      }
+      if (!isFinite(minX)) continue;
+      const pad = 12;
+      boxes.push({
+        groupId: gid,
+        x: minX - pad,
+        y: minY - pad,
+        width: maxX - minX + pad * 2,
+        height: maxY - minY + pad * 2,
+        backgroundColor: gStyle.backgroundColor,
+        borderColor: gStyle.borderColor,
+        borderWidth: gStyle.borderWidth ?? 2,
+      });
+    }
+    return boxes;
+  }, [nodes, activePageGroupStyles]);
 
   // FN-03 & FN-04: Multi-Selection & Group Bounding Box
   const selectionBounds = useMemo(() => {
@@ -580,8 +760,33 @@ export function CanvasContent() {
         }
       }}
       onDoubleClick={handlePaneDoubleClick}
+      onDragOver={handleCanvasDragOver}
+      onDrop={handleCanvasDrop}
       onMouseDown={handleMouseDown}
       onMouseUp={handleMouseUp}
+      onWheelCapture={(e) => {
+        if (e.metaKey || e.ctrlKey) {
+          e.stopPropagation();
+          const vp = getViewport();
+          const factor = Math.exp(-e.deltaY * 0.002);
+          const nextZoom = Math.min(2.5, Math.max(0.1, vp.zoom * factor));
+          const rect = e.currentTarget.getBoundingClientRect();
+          const px = e.clientX - rect.left;
+          const py = e.clientY - rect.top;
+          const ratio = nextZoom / vp.zoom;
+          setViewport({
+            x: px - (px - vp.x) * ratio,
+            y: py - (py - vp.y) * ratio,
+            zoom: nextZoom,
+          });
+          return;
+        }
+        if (e.shiftKey && e.deltaX === 0 && e.deltaY !== 0) {
+          e.stopPropagation();
+          const vp = getViewport();
+          setViewport({ x: vp.x - e.deltaY * 0.5, y: vp.y, zoom: vp.zoom });
+        }
+      }}
     >
       <ReactFlow
         nodes={reactFlowNodes}
@@ -591,8 +796,9 @@ export function CanvasContent() {
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
+        connectionMode={ConnectionMode.Loose}
         edgesReconnectable={true}
-        reconnectRadius={0}
+        reconnectRadius={12}
         onReconnect={handleReconnect}
         onNodeDragStart={handleNodeDragStart}
         onNodeDragStop={handleNodeDragStop}
@@ -604,7 +810,7 @@ export function CanvasContent() {
         onNodeContextMenu={handleNodeContextMenu}
         onSelectionChange={handleSelectionChange}
         onSelectionEnd={handleSelectionEnd}
-        snapToGrid={true}
+        snapToGrid={false}
         snapGrid={SNAP_GRID}
         minZoom={0.1}
         maxZoom={2.5}
@@ -639,6 +845,30 @@ export function CanvasContent() {
         />
 
         <FreehandOverlay />
+        <AlignmentGuidesOverlay />
+
+        {/* Styled Logical Group Backgrounds/Borders (shown when styled; transparent by default when unselected) */}
+        {styledGroupBoxes.length > 0 && !useProjectStore.getState().focusedDiagramId && (
+          <ViewportPortal>
+            {styledGroupBoxes.map((box) => (
+              <div
+                key={box.groupId}
+                data-testid={`logical-group-box-${box.groupId}`}
+                style={{
+                  transform: `translate(${box.x}px, ${box.y}px)`,
+                  width: `${box.width}px`,
+                  height: `${box.height}px`,
+                  backgroundColor: box.backgroundColor || 'transparent',
+                  borderColor: box.borderColor || 'transparent',
+                  borderWidth: box.borderColor ? `${box.borderWidth ?? 2}px` : 0,
+                  borderStyle: 'solid',
+                  zIndex: 0,
+                }}
+                className="absolute top-0 left-0 pointer-events-none rounded-2xl transition-all duration-75"
+              />
+            ))}
+          </ViewportPortal>
+        )}
 
         {/* FN-03 & FN-04: Selection & Group Bounding Box Overlay */}
         {selectionBounds && !useProjectStore.getState().focusedDiagramId && (

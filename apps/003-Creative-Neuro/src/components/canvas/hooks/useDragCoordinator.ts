@@ -59,6 +59,7 @@ export function useDragCoordinator() {
       try {
         useProjectStore.setState((state) => {
           state.isDragging = false;
+          state.alignmentGuides = [];
           for (const node of Object.values(state.nodes)) {
             if (node && 'dragging' in node) {
               delete node.dragging;
@@ -72,32 +73,31 @@ export function useDragCoordinator() {
 
             delete storeNode.dragging;
 
-            // 1. Force layoutMode to manual on user drag
-            if (storeNode.layoutMode === 'auto-elk') {
-              storeNode.layoutMode = 'manual';
-            }
-            if (storeNode.data && storeNode.data.layoutMode === 'auto-elk') {
-              storeNode.data.layoutMode = 'manual';
-            }
-
-            // 2. Frame container attachment check (exclude frame and macro diagram cards)
+            // 1. Frame container attachment check (exclude frame and macro diagram cards)
             if (dn.type !== 'frame' && dn.type !== 'diagram') {
               const frames = currentNodes.filter(
                 (n) => n.type === 'frame' && n.id !== dn.id && !n.data?.collapsed
               );
 
-              const nodePos = dn.position;
+              const oldParent = storeNode.parentId ? state.nodes[storeNode.parentId] : null;
+              const absPos = oldParent
+                ? {
+                    x: oldParent.position.x + dn.position.x,
+                    y: oldParent.position.y + dn.position.y,
+                  }
+                : dn.position;
+
               const nodeW = dn.width ?? storeNode.width ?? 160;
               const nodeH = dn.height ?? storeNode.height ?? 60;
               const nodeCenter = {
-                x: nodePos.x + nodeW / 2,
-                y: nodePos.y + nodeH / 2,
+                x: absPos.x + nodeW / 2,
+                y: absPos.y + nodeH / 2,
               };
 
               let matchedFrame: NeuroNode | null = null;
               for (const frame of frames) {
-                const fw = frame.width ?? 320;
-                const fh = frame.height ?? 240;
+                const fw = frame.width ?? 360;
+                const fh = frame.height ?? 260;
                 if (
                   nodeCenter.x >= frame.position.x &&
                   nodeCenter.x <= frame.position.x + fw &&
@@ -110,8 +110,13 @@ export function useDragCoordinator() {
               }
 
               if (matchedFrame && storeNode.parentId !== matchedFrame.id) {
-                // Attach to frame
+                // Attach to frame and convert position to relative coordinates
                 storeNode.parentId = matchedFrame.id;
+                storeNode.position = {
+                  x: absPos.x - matchedFrame.position.x,
+                  y: absPos.y - matchedFrame.position.y,
+                };
+                storeNode.zIndex = Math.max(storeNode.zIndex ?? 1, (matchedFrame.zIndex ?? 0) + 1);
                 // Auto expand frame if near border
                 const children = currentNodes.filter(
                   (n) => n.parentId === matchedFrame!.id
@@ -119,7 +124,7 @@ export function useDragCoordinator() {
                 const newDims = calculateFrameAutoGrowth(
                   matchedFrame,
                   children,
-                  nodePos,
+                  storeNode.position,
                   { width: nodeW, height: nodeH },
                   40
                 );
@@ -129,7 +134,8 @@ export function useDragCoordinator() {
                   targetFrame.height = newDims.height;
                 }
               } else if (!matchedFrame && storeNode.parentId) {
-                // Detached from frame
+                // Detached from frame: convert relative position back to absolute
+                storeNode.position = absPos;
                 delete storeNode.parentId;
                 delete storeNode.extent;
               }
@@ -179,6 +185,7 @@ export function useDragCoordinator() {
         if (state.isDragging || dragStartSnapshotRef.current) {
           useProjectStore.setState((s) => {
             s.isDragging = false;
+            s.alignmentGuides = [];
             for (const node of Object.values(s.nodes)) {
               if (node && 'dragging' in node) {
                 delete node.dragging;

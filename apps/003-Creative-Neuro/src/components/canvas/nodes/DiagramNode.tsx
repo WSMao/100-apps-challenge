@@ -13,10 +13,15 @@
 
 import React, { useMemo, useCallback } from 'react';
 import { Handle, Position, useStoreApi, type NodeProps } from '@xyflow/react';
-import { Workflow, Maximize2, Layers } from 'lucide-react';
-import type { NeuroNode, NeuroEdge, FlowDirection } from '../../../types/index.ts';
+import { Workflow, Maximize2, Layers, Network, LayoutGrid } from 'lucide-react';
+import type { NeuroNode, NeuroEdge, NeuroNodeData, FlowDirection, MindMapDirection } from '../../../types/index.ts';
 import { useProjectStore } from '../../../store/useProjectStore.ts';
-import { DiagramPipeline, calculateElkLayoutSync } from '../../../engine/index.ts';
+import {
+  DiagramPipeline,
+  calculateElkLayoutSync,
+  calculateMindMapLayout,
+  serializeMindMapMermaid,
+} from '../../../engine/index.ts';
 import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
 
 type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se';
@@ -25,6 +30,53 @@ const MIN_DIAGRAM_WIDTH = 220;
 const MIN_DIAGRAM_HEIGHT = 160;
 const MAX_DIAGRAM_WIDTH = 1600;
 const MAX_DIAGRAM_HEIGHT = 1200;
+
+/**
+ * Computes a one-shot Auto Layout patch for an embedded DiagramNode (State A),
+ * supporting both Flowchart (ELK) and MindMap Mode.
+ */
+export function runDiagramNodeAutoLayout(
+  data: Partial<NeuroNodeData> | undefined
+): Partial<NeuroNodeData> {
+  const mermaidCode =
+    data?.mermaidCode || 'flowchart TD\n  Start([Start]) --> End([End])';
+  const isMindMap =
+    data?.diagramKind === 'mindmap' || mermaidCode.trimStart().startsWith('mindmap');
+  const compiled = DiagramPipeline.compile({
+    mermaidCode,
+    savedSubNodes: data?.customData?.subNodes as NeuroNode[] | undefined,
+    savedSubEdges: data?.customData?.subEdges as NeuroEdge[] | undefined,
+    direction: data?.diagramOrientation as FlowDirection | undefined,
+    diagramKind: isMindMap ? 'mindmap' : 'flowchart',
+    mindMapDirection: (data?.mindMapDirection as MindMapDirection) || 'radial',
+    continuousLayout: true,
+  });
+
+  if (isMindMap) {
+    const res = calculateMindMapLayout(compiled.nodes, compiled.edges, {
+      direction: (data?.mindMapDirection as MindMapDirection) || 'radial',
+    });
+    return {
+      customData: {
+        ...data?.customData,
+        subNodes: res.nodes,
+        subEdges: res.edges,
+      },
+      mermaidCode: serializeMindMapMermaid(res.nodes, res.edges, res.rootId || undefined),
+    };
+  }
+
+  const layoutResult = calculateElkLayoutSync(compiled.nodes, compiled.edges, {
+    direction: (data?.diagramOrientation as FlowDirection) || 'TB',
+  });
+  return {
+    customData: {
+      ...data?.customData,
+      subNodes: layoutResult.nodes,
+      subEdges: layoutResult.edges,
+    },
+  };
+}
 
 export function DiagramNode({
   id,
@@ -45,7 +97,9 @@ export function DiagramNode({
 
   const mermaidCode =
     data?.mermaidCode || 'flowchart TD\n  Start([Start]) --> End([End])';
-  const title = data?.title || data?.label || 'Sub-Diagram Flow';
+  const isMindMap =
+    data?.diagramKind === 'mindmap' || mermaidCode.trimStart().startsWith('mindmap');
+  const title = data?.title || data?.label || (isMindMap ? 'MindMap Diagram' : 'Sub-Diagram Flow');
 
   // Compile Mermaid diagram via pure DiagramPipeline
   const compiled = useMemo(() => {
@@ -54,12 +108,18 @@ export function DiagramNode({
       savedSubNodes: data?.customData?.subNodes as NeuroNode[] | undefined,
       savedSubEdges: data?.customData?.subEdges as NeuroEdge[] | undefined,
       direction: data?.diagramOrientation as FlowDirection | undefined,
+      diagramKind: isMindMap ? 'mindmap' : 'flowchart',
+      mindMapDirection: (data?.mindMapDirection as MindMapDirection) || 'radial',
+      continuousLayout: data?.continuousLayout ?? true,
     });
   }, [
     mermaidCode,
+    isMindMap,
     data?.customData?.subNodes,
     data?.customData?.subEdges,
     data?.diagramOrientation,
+    data?.mindMapDirection,
+    data?.continuousLayout,
   ]);
 
   const nodeCount = compiled.ast.nodes.length;
@@ -155,12 +215,6 @@ export function DiagramNode({
           n.height = nextH;
           n.position = { x: nextPosX, y: nextPosY };
           n.measured = { width: nextW, height: nextH };
-          if (n.layoutMode === 'auto-elk') {
-            n.layoutMode = 'manual';
-          }
-          if (n.data && n.data.layoutMode === 'auto-elk') {
-            n.data.layoutMode = 'manual';
-          }
         });
       };
 
@@ -312,11 +366,23 @@ export function DiagramNode({
         <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-800 bg-slate-950/60 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-6 h-6 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center shrink-0">
-              <Workflow className="w-3.5 h-3.5 text-indigo-400" />
+              {isMindMap ? (
+                <Network className="w-3.5 h-3.5 text-emerald-400" />
+              ) : (
+                <Workflow className="w-3.5 h-3.5 text-indigo-400" />
+              )}
             </div>
             <span className="text-xs font-semibold text-slate-200 truncate" title={title}>
               {title}
             </span>
+            {isMindMap && (
+              <span
+                data-testid="diagram-mindmap-badge"
+                className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shrink-0"
+              >
+                MindMap
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
@@ -427,9 +493,44 @@ export function DiagramNode({
         </div>
 
         {/* Card Footer */}
-        <div className="px-3 py-1.5 bg-slate-950/80 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-500 shrink-0">
-          <span className="font-mono">Dir: {compiled.ast.direction || 'TB'}</span>
-          <span className="text-indigo-400/80 font-medium">{Math.round(W)} × {Math.round(H)}</span>
+        <div className="px-3 py-1.5 bg-slate-950/80 border-t border-slate-800/80 flex items-center justify-between gap-2 text-[10px] text-slate-500 shrink-0">
+          <span className="font-mono shrink-0">Dir: {compiled.ast.direction || 'TB'}</span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                updateNodeData(id, runDiagramNodeAutoLayout(data));
+              }}
+              title="Run Auto Layout"
+              data-testid="diagram-card-auto-layout"
+              className="nodrag nopan flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-800 hover:bg-indigo-600/80 text-slate-200 border border-slate-700/70 transition-colors cursor-pointer"
+            >
+              <LayoutGrid className="w-2.5 h-2.5" />
+              <span>Auto Layout</span>
+            </button>
+            <label
+              onClick={(e) => e.stopPropagation()}
+              title="Continuous Auto Layout"
+              className="nodrag nopan flex items-center gap-1 text-slate-300 cursor-pointer select-none"
+            >
+              <input
+                type="checkbox"
+                checked={data?.continuousLayout ?? true}
+                onChange={(e) => {
+                  const next = e.target.checked;
+                  updateNodeData(id, {
+                    continuousLayout: next,
+                    ...(next ? runDiagramNodeAutoLayout(data) : {}),
+                  });
+                }}
+                data-testid="diagram-card-continuous-layout"
+                className="nodrag nopan w-3 h-3 accent-indigo-500 cursor-pointer"
+              />
+              <span>Continuous</span>
+            </label>
+          </div>
+          <span className="text-indigo-400/80 font-medium shrink-0">{Math.round(W)} × {Math.round(H)}</span>
         </div>
       </div>
     </div>

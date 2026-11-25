@@ -17,6 +17,7 @@ import type {
   NeuroNode,
   NeuroEdge,
   FlowDirection,
+  SerializedAsset,
   SerializedProjectPayload,
 } from '../types/index.ts';
 import type {
@@ -24,19 +25,22 @@ import type {
   ProjectState,
   ProjectActions,
 } from '../store/projectStore.ts';
+import {
+  db,
+  CreativeNeuroDB,
+  getAsset,
+  saveAsset,
+  assetToDataUrl,
+  dataUrlToBlob,
+} from '../db/index.ts';
 import { createSeedProject } from '../store/seedData.ts';
 import { serializeMermaid, calculateLineJumps } from '../engine/index.ts';
 import {
   compressPayload,
-  decompressPayload,
   deflateToBytes,
   embedPayloadInPngDataUrl,
   embedPayloadInSvg,
-  extractPayloadFromPngDataUrl,
-  extractPngTextChunk,
-  extractPayloadFromSvg,
   FALLBACK_1X1_PNG_BASE64,
-  isValidPng,
 } from './pakoUtils.ts';
 
 export interface UnifiedExportPayload extends SerializedProjectPayload, ProjectRecord {}
@@ -238,6 +242,14 @@ export function buildUnifiedProjectPayload(
     updatedAt: rawProject.updatedAt || Date.now(),
   };
 
+  const rawAssets =
+    'assets' in storeState &&
+    storeState.assets &&
+    typeof storeState.assets === 'object' &&
+    !Array.isArray(storeState.assets)
+      ? (storeState.assets as Record<string, SerializedAsset>)
+      : undefined;
+
   return {
     ...projectObj,
     version: projectObj.version,
@@ -246,6 +258,7 @@ export function buildUnifiedProjectPayload(
     pages: normalizedPages,
     nodes: flatNodes,
     edges: flatEdges,
+    ...(rawAssets ? { assets: rawAssets } : {}),
     exportedAt: Date.now(),
   };
 }
@@ -262,6 +275,84 @@ export function exportProjectAsJson(
 ): string {
   const payload = buildUnifiedProjectPayload(source);
   return JSON.stringify(payload, null, 2);
+}
+
+/**
+ * Serializes the project into `.neuro.json` and embeds any referenced IndexedDB assets
+ * as Base64 Data URLs for single-file portability (ADR-0003).
+ */
+export async function exportProjectAsJsonWithAssets(
+  source?: Partial<ProjectState> | Partial<SerializedProjectPayload> | Partial<ProjectRecord>,
+  database: CreativeNeuroDB = db
+): Promise<string> {
+  const payload = buildUnifiedProjectPayload(source);
+  const embeddedAssets: Record<string, SerializedAsset> = {
+    ...(payload.assets ?? {}),
+  };
+
+  const referencedAssetIds = new Set<string>();
+  for (const node of Object.values(payload.nodes)) {
+    const aid = node?.data?.assetId;
+    if (typeof aid === 'string' && aid) {
+      referencedAssetIds.add(aid);
+    }
+  }
+
+  for (const assetId of referencedAssetIds) {
+    if (embeddedAssets[assetId]) continue;
+    const record = await getAsset(assetId, database);
+    if (!record) continue;
+    const dataUrl = await assetToDataUrl(record);
+    embeddedAssets[assetId] = {
+      id: record.id,
+      projectId: record.projectId,
+      mimeType: record.mimeType,
+      dataUrl,
+      fileName: record.fileName,
+      width: record.width,
+      height: record.height,
+      createdAt: record.createdAt,
+    };
+  }
+
+  if (Object.keys(embeddedAssets).length > 0) {
+    payload.assets = embeddedAssets;
+  }
+
+  return JSON.stringify(payload, null, 2);
+}
+
+/**
+ * Restores any embedded Base64 Data URL assets from an imported `.neuro.json` payload
+ * back into the IndexedDB `assets` table as binary Blobs.
+ */
+export async function restoreAssetsFromPayload(
+  payload: SerializedProjectPayload,
+  database: CreativeNeuroDB = db
+): Promise<void> {
+  if (!payload.assets || typeof payload.assets !== 'object') {
+    return;
+  }
+
+  for (const asset of Object.values(payload.assets)) {
+    if (!asset || typeof asset.id !== 'string' || typeof asset.dataUrl !== 'string') {
+      continue;
+    }
+    const { blob, mimeType } = dataUrlToBlob(asset.dataUrl);
+    await saveAsset(
+      {
+        id: asset.id,
+        projectId: asset.projectId || payload.project.id,
+        mimeType: asset.mimeType || mimeType,
+        blob,
+        fileName: asset.fileName,
+        width: asset.width,
+        height: asset.height,
+        createdAt: asset.createdAt || Date.now(),
+      },
+      database
+    );
+  }
 }
 
 /**
@@ -298,6 +389,7 @@ export function importProjectFromJson(jsonString: string): UnifiedExportPayload 
  * Applies an imported project payload directly into `useProjectStore`.
  */
 export function applyImportedProjectToStore(payload: UnifiedExportPayload): void {
+  void restoreAssetsFromPayload(payload);
   if (activeStoreAccessor) {
     const state = activeStoreAccessor.getState();
     if (typeof state.setProject === 'function') {
@@ -435,8 +527,13 @@ export function exportCanvasAsSvg(
   const viewWidth = Math.max(800, Math.round(maxX - minX));
   const viewHeight = Math.max(600, Math.round(maxY - minY));
 
-  // Compute line jumps for edges
-  const jumpMap = calculateLineJumps(edges, nodeMapRecord);
+  // Compute line jumps for edges when page-level lineJump is enabled
+  const resolvedPage =
+    pageOrSource && 'id' in pageOrSource
+      ? (pageOrSource as Page)
+      : state.pages?.[state.activePageId || ''];
+  const pageLineJump = resolvedPage?.lineJump ?? true;
+  const jumpMap = pageLineJump ? calculateLineJumps(edges, nodeMapRecord) : new Map();
 
   // Render edges
   const edgeSvgs = edges.map((e) => {
@@ -504,6 +601,10 @@ export function exportCanvasAsSvg(
         .join(' ');
       const freehandColor = n.data.strokeColor || n.data.color || '#ef4444';
       return `<polyline points="${pts}" fill="none" stroke="${freehandColor}" stroke-width="${n.data.strokeWidth || 3}" stroke-linecap="round" stroke-linejoin="round"/>`;
+    }
+
+    if (n.type === 'image' && n.data.src) {
+      return `<g data-node-id="${escapeXml(n.id)}"><image href="${escapeXml(n.data.src)}" x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="xMidYMid meet"/></g>`;
     }
 
     const rx =
@@ -588,102 +689,46 @@ export async function exportCanvasAsPngWithMetadata(
   return exportPngWithPako(source, capturedDataUrl);
 }
 
-/**
- * Restores a normalized project payload from PNG metadata bytes or base64 string.
- */
-export function restoreProjectFromPngMetadata(
-  compressedOrPng: Uint8Array | string
-): UnifiedExportPayload {
-  if (compressedOrPng instanceof Uint8Array) {
-    if (isValidPng(compressedOrPng)) {
-      const extractedBase64 = extractPngTextChunk(compressedOrPng);
-      if (!extractedBase64) {
-        throw new Error('No Creative-Neuro metadata chunk found in PNG file');
-      }
-      const jsonStr = decompressPayload(extractedBase64);
-      return importProjectFromJson(jsonStr);
-    }
-    const jsonStr = decompressPayload(compressedOrPng);
-    return importProjectFromJson(jsonStr);
-  }
-
-  if (compressedOrPng.startsWith('data:image/png')) {
-    const extracted = extractPayloadFromPngDataUrl(compressedOrPng);
-    if (!extracted) {
-      throw new Error('No Creative-Neuro metadata found in PNG Data URL');
-    }
-    const jsonStr = decompressPayload(extracted);
-    return importProjectFromJson(jsonStr);
-  }
-
-  const jsonStr = decompressPayload(compressedOrPng);
-  return importProjectFromJson(jsonStr);
-}
-
 // ============================================================================
-// 6. Universal Importer (.neuro.json, .neuro.svg, .neuro.png)
+// 6. JSON-Only Project File Importer (.neuro.json)
 // ============================================================================
 
 /**
- * Universal import parser accepting a File, Blob, Uint8Array, or string
- * from `.neuro.json`, `.neuro.svg`, or `.neuro.png`.
+ * Parses and validates a `.neuro.json` project file or JSON string.
+ * PNG and SVG project-restoration imports are intentionally not supported (ADR-0003).
  */
-export async function importFromPngOrSvgMetadata(
-  input: File | Blob | Uint8Array | string
+export async function importProjectFromFile(
+  input: File | Blob | string
 ): Promise<UnifiedExportPayload> {
-  if (input instanceof Uint8Array) {
-    return restoreProjectFromPngMetadata(input);
-  }
-
   if (typeof input === 'string') {
     const trimmed = input.trim();
-    if (trimmed.startsWith('{')) {
-      return importProjectFromJson(trimmed);
+    if (
+      trimmed.startsWith('<svg') ||
+      trimmed.includes('<svg') ||
+      trimmed.startsWith('data:image/png')
+    ) {
+      throw new Error(
+        'PNG and SVG project import is not supported. Please import a .neuro.json file.'
+      );
     }
-    if (trimmed.startsWith('<svg') || trimmed.includes('<svg')) {
-      const svgPayload = extractPayloadFromSvg(trimmed);
-      if (!svgPayload) {
-        throw new Error('SVG file does not contain embedded Creative-Neuro metadata');
-      }
-      const jsonStr = decompressPayload(svgPayload);
-      return importProjectFromJson(jsonStr);
-    }
-    if (trimmed.startsWith('data:image/png')) {
-      return restoreProjectFromPngMetadata(trimmed);
-    }
-    // Otherwise assume base64 compressed payload
-    const jsonStr = decompressPayload(trimmed);
-    return importProjectFromJson(jsonStr);
+    return importProjectFromJson(trimmed);
   }
 
-  // Handle File / Blob
   const fileName = 'name' in input ? input.name.toLowerCase() : '';
   const mimeType = input.type.toLowerCase();
 
   if (
     fileName.endsWith('.png') ||
-    mimeType === 'image/png'
+    fileName.endsWith('.svg') ||
+    mimeType === 'image/png' ||
+    mimeType === 'image/svg+xml'
   ) {
-    const arrayBuffer = await input.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
-    return restoreProjectFromPngMetadata(bytes);
+    throw new Error(
+      'PNG and SVG project import is not supported. Please import a .neuro.json file.'
+    );
   }
 
   const textContent = await input.text();
-  if (
-    fileName.endsWith('.svg') ||
-    mimeType === 'image/svg+xml' ||
-    textContent.trim().startsWith('<svg') ||
-    textContent.includes('<svg')
-  ) {
-    const svgPayload = extractPayloadFromSvg(textContent);
-    if (!svgPayload) {
-      throw new Error('SVG file does not contain embedded Creative-Neuro metadata');
-    }
-    const jsonStr = decompressPayload(svgPayload);
-    return importProjectFromJson(jsonStr);
-  }
-
   return importProjectFromJson(textContent);
 }
 

@@ -5,7 +5,7 @@
  * Conforms to specifications in algorithms.md §3.1 - §3.4.
  * Features:
  * - Direction mapping: TB/TD/DOWN, LR/RIGHT, BT/UP, RL/LEFT
- * - Tri-state layout modes: 'auto-elk' (hierarchical layout), 'manual' (user coordinates preserved), 'fixed' (immovable anchor preserved)
+ * - Lock state: locked nodes (`locked === true`) preserve their coordinates and are skipped by Auto Layout; unlocked nodes are laid out by ELKjs
  * - Nested subgraphs with isolated directional control (e.g. LR subgraph inside TB graph)
  * - Subgraph fold / collapse with descendant pruning, collapsed bounds (180x44), and external edge retargeting
  * - Robust cycle breaking (Greedy feedback arc set / Kahn's algorithm) preventing infinite recursion on cyclic diagrams
@@ -15,7 +15,6 @@
 import type {
   ElkLayoutOptions,
   FlowDirection,
-  LayoutMode,
   NeuroEdge,
   NeuroNode,
   Point,
@@ -547,10 +546,10 @@ export function calculateElkLayoutSync(
     let maxY = -Infinity;
 
     for (const child of subChildren) {
-      const pos =
-        child.layoutMode === 'fixed' || child.layoutMode === 'manual'
-          ? child.position
-          : childPositions.get(child.id) || child.position;
+      const isLocked = Boolean(child.locked || child.data?.locked);
+      const pos = isLocked
+        ? child.position
+        : childPositions.get(child.id) || child.position;
 
       subgraphCalculatedPositions.set(child.id, pos);
 
@@ -635,16 +634,17 @@ export function calculateElkLayoutSync(
     { x: 100, y: 100 }
   );
 
-  // 6. Assemble final result nodes, strictly preserving 'fixed' and 'manual' positions
+  // 6. Assemble final result nodes, strictly preserving locked node positions
   const resultNodes: NeuroNode[] = [];
 
   for (const node of activeNodes) {
     let finalPos: Point;
     let finalWidth = node.width ?? 160;
     let finalHeight = node.height ?? 60;
+    const isLocked = Boolean(node.locked || node.data?.locked);
 
-    if (node.layoutMode === 'fixed' || node.layoutMode === 'manual') {
-      // PRESERVE user coordinates
+    if (isLocked) {
+      // PRESERVE locked node coordinates
       finalPos = { ...node.position };
     } else if (node.parentId) {
       // Child of a subgraph

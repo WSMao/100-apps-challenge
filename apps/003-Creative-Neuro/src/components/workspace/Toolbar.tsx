@@ -34,9 +34,12 @@ import {
   Minus,
   Check,
   X,
+  Image as ImageIcon,
+  Network,
 } from 'lucide-react';
 import type { EdgeRoutingType, ShapeType, ToolMode, SelectionFilter } from '../../types/index.ts';
 import { useProjectStore } from '../../store/projectStore.ts';
+import { importImageFileAsNode, isImageFile } from '../../utils/imageImport.ts';
 
 export interface ToolbarProps {
   activeShapeType?: ShapeType;
@@ -59,6 +62,8 @@ const TOOL_ITEMS: ToolItemConfig[] = [
   { mode: 'draw', label: 'Freehand Pen', shortcut: 'P', icon: PenTool },
   { mode: 'frame', label: 'Container Frame', shortcut: 'F', icon: Frame },
   { mode: 'diagram', label: 'Mermaid Diagram', shortcut: 'D', icon: FileCode2 },
+  { mode: 'mindmap', label: 'MindMap Diagram', shortcut: 'M', icon: Network },
+  { mode: 'image', label: 'Image Asset', shortcut: 'I', icon: ImageIcon },
 ];
 
 interface ShapeOptionConfig {
@@ -88,17 +93,10 @@ export interface ConnectorOptionConfig {
 
 export const CONNECTOR_OPTIONS: ConnectorOptionConfig[] = [
   {
-    type: 'jump',
-    label: 'Jump Arc (避障跳線)',
-    tag: 'Jump',
-    description: '自動跳過相交連線 (推薦)',
-    icon: GitCommit,
-  },
-  {
     type: 'smoothstep',
     label: 'Smoothstep (直角折線)',
     tag: 'Step',
-    description: '標準正交折線幾何',
+    description: '標準正交折線幾何 (推薦)',
     icon: CornerDownRight,
   },
   {
@@ -118,7 +116,6 @@ export const CONNECTOR_OPTIONS: ConnectorOptionConfig[] = [
 ];
 
 const CONNECTOR_ICON_MAP: Record<EdgeRoutingType, React.ComponentType<{ className?: string }>> = {
-  jump: GitCommit,
   smoothstep: CornerDownRight,
   bezier: Spline,
   straight: Minus,
@@ -130,6 +127,7 @@ const FILTER_ITEMS: { key: keyof SelectionFilter; label: string; icon: React.Com
   { key: 'text', label: '文字區塊 (Text Blocks)', icon: Type },
   { key: 'frame', label: '容器外框 (Frames)', icon: Frame },
   { key: 'diagram', label: 'Mermaid 圖表 (Diagrams)', icon: FileCode2 },
+  { key: 'image', label: '圖片物件 (Images)', icon: ImageIcon },
 ];
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -143,7 +141,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const setSelectedNodes = useProjectStore((s) => s.setSelectedNodes);
   const themeMode = useProjectStore((s) => s.themeMode);
   const isDark = themeMode === 'dark';
-  const defaultEdgeRoutingType = useProjectStore((s) => s.defaultEdgeRoutingType || 'jump');
+  const defaultEdgeRoutingType = useProjectStore((s) => s.defaultEdgeRoutingType || 'smoothstep');
   const setDefaultEdgeRoutingType = useProjectStore((s) => s.setDefaultEdgeRoutingType);
   const selectionFilter = useProjectStore((s) => s.selectionFilter);
   const toggleSelectionFilterItem = useProjectStore((s) => s.toggleSelectionFilterItem);
@@ -151,6 +149,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const clearSelectionFilter = useProjectStore((s) => s.clearSelectionFilter);
 
   const toolbarRef = useRef<HTMLElement | null>(null);
+  const imageFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [internalShape, setInternalShape] = useState<ShapeType>('rounded');
   const [showShapeMenu, setShowShapeMenu] = useState<boolean>(false);
@@ -190,6 +189,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       setShowConnectorMenu((prev) => !prev);
       setShowShapeMenu(false);
       setShowSelectFilterMenu(false);
+    } else if (mode === 'image') {
+      setShowShapeMenu(false);
+      setShowConnectorMenu(false);
+      setShowSelectFilterMenu(false);
+      imageFileInputRef.current?.click();
     } else {
       setShowShapeMenu(false);
       setShowConnectorMenu(false);
@@ -212,11 +216,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         position: { x: 260 + offset, y: 200 + offset },
         width: targetShape === 'diamond' ? 150 : 160,
         height: targetShape === 'diamond' ? 90 : 60,
-        layoutMode: 'manual',
+        locked: false,
         data: {
           label: `${targetShape.charAt(0).toUpperCase() + targetShape.slice(1)} Node`,
           shapeType: targetShape,
-          layoutMode: 'manual',
+          locked: false,
         },
       });
       setSelectedNodes([newId]);
@@ -226,10 +230,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         position: { x: 280 + offset, y: 220 + offset },
         width: 200,
         height: 60,
-        layoutMode: 'manual',
+        locked: false,
         data: {
           label: 'Double-click to edit note...',
-          layoutMode: 'manual',
+          locked: false,
           backgroundColor: 'transparent',
           borderColor: 'transparent',
           borderWidth: 0,
@@ -242,13 +246,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         position: { x: 220 + offset, y: 160 + offset },
         width: 360,
         height: 260,
-        layoutMode: 'manual',
+        locked: false,
         data: {
           label: 'Container Group',
           title: 'Container Group',
           collapsed: false,
           direction: 'TB',
-          layoutMode: 'manual',
+          locked: false,
         },
       });
       setSelectedNodes([newId]);
@@ -258,14 +262,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         position: { x: 240 + offset, y: 180 + offset },
         width: 340,
         height: 260,
-        layoutMode: 'manual',
+        locked: false,
         data: {
           label: 'Mermaid Diagram',
           title: 'Mermaid Diagram',
           diagramMode: 'embedded',
           diagramOrientation: 'TB',
           mermaidCode: 'flowchart TD\n  Start([Start]) --> Process[Action]\n  Process --> End([Done])',
-          layoutMode: 'manual',
+          locked: false,
         },
       });
       setSelectedNodes([newId]);
@@ -349,6 +353,31 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       >
         <Plus className="w-4 h-4" />
       </button>
+
+      {/* Hidden File Picker for Image Asset Import */}
+      <input
+        ref={imageFileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        data-testid="toolbar-image-file-input"
+        onChange={async (e) => {
+          const files = Array.from(e.target.files || []).filter(isImageFile);
+          const store = useProjectStore.getState();
+          for (let i = 0; i < files.length; i++) {
+            await importImageFileAsNode(
+              files[i],
+              { x: 260 + i * 32, y: 200 + i * 32 },
+              store
+            );
+          }
+          if (files.length > 0) {
+            setToolMode('select');
+          }
+          e.target.value = '';
+        }}
+      />
 
       {/* Floating Selection Filter Popover (TL-06) */}
       {showSelectFilterMenu && (

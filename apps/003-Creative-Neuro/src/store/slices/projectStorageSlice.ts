@@ -35,7 +35,14 @@ export const createProjectStorageSlice = (
       let resolvedEdges: Record<string, NeuroEdge> = {};
       let resolvedBoards: Record<string, Board> = {};
 
+      const hasExplicitCollections =
+        pages !== undefined ||
+        nodes !== undefined ||
+        edges !== undefined ||
+        boards !== undefined;
+
       if (
+        !hasExplicitCollections &&
         'pages' in projectOrRecord &&
         projectOrRecord.pages &&
         typeof projectOrRecord.pages === 'object' &&
@@ -99,13 +106,21 @@ export const createProjectStorageSlice = (
       } else {
         const proj = projectOrRecord as Project;
         resolvedPages =
-          pages && typeof pages === 'object' && !Array.isArray(pages) ? pages : {};
+          pages && typeof pages === 'object' && !Array.isArray(pages)
+            ? pages
+            : proj?.pages && typeof proj.pages === 'object' && !Array.isArray(proj.pages)
+              ? proj.pages
+              : {};
         resolvedNodes =
           nodes && typeof nodes === 'object' && !Array.isArray(nodes) ? nodes : {};
         resolvedEdges =
           edges && typeof edges === 'object' && !Array.isArray(edges) ? edges : {};
         resolvedBoards =
-          boards && typeof boards === 'object' && !Array.isArray(boards) ? boards : {};
+          boards && typeof boards === 'object' && !Array.isArray(boards)
+            ? boards
+            : proj?.boards && typeof proj.boards === 'object' && !Array.isArray(proj.boards)
+              ? proj.boards
+              : {};
 
         const pageKeys = Object.keys(resolvedPages);
         const validPageIds =
@@ -152,7 +167,7 @@ export const createProjectStorageSlice = (
       // Sanitize text nodes to guarantee transparent background and border
       for (const node of Object.values(state.nodes)) {
         if (node && node.type === 'text') {
-          if (!node.data) node.data = { label: '', layoutMode: 'manual' };
+          if (!node.data) node.data = { label: '', locked: false };
           if (
             !node.data.backgroundColor ||
             node.data.backgroundColor === '#ffffff' ||
@@ -169,6 +184,7 @@ export const createProjectStorageSlice = (
 
       // Ephemeral UI State Sanitization
       state.toolMode = 'select';
+      state.lastCreatedNodeType = 'shape';
       state.hoveredNodeId = null;
       state.selectedNodeIds = [];
       state.selectedEdgeIds = [];

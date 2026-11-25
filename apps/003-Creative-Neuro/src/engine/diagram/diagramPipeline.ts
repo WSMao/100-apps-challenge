@@ -15,6 +15,7 @@ import type {
   NeuroNode,
   NeuroEdge,
   FlowDirection,
+  MindMapDirection,
   EdgeRoutingType,
   ElkSpacingPreset,
   Point,
@@ -23,6 +24,10 @@ import { parseMermaid, type ParsedMermaidAST } from '../mermaid/parser.ts';
 import { reconcileMermaidAST } from '../mermaid/reconciliation.ts';
 import { serializeMermaid } from '../mermaid/serializer.ts';
 import { calculateElkLayoutSync } from '../layout/elkEngine.ts';
+import {
+  calculateMindMapLayout,
+  parseMindMapMermaid,
+} from '../mindmap/mindmapEngine.ts';
 
 export const SPACING_PRESETS: Record<
   ElkSpacingPreset,
@@ -38,6 +43,9 @@ export interface DiagramCompilationOptions {
   savedSubNodes?: NeuroNode[];
   savedSubEdges?: NeuroEdge[];
   direction?: FlowDirection;
+  diagramKind?: 'flowchart' | 'mindmap';
+  mindMapDirection?: MindMapDirection;
+  continuousLayout?: boolean;
   spacingPreset?: ElkSpacingPreset;
   edgeRouting?: EdgeRoutingType;
   paddingX?: number;
@@ -111,22 +119,107 @@ export function flattenNestedCoordinates(nodes: NeuroNode[]): Map<string, Point>
 export function applyEdgeRouting(
   edges: NeuroEdge[],
   routing: EdgeRoutingType,
-  forceOverwrite = false
+  forceOverwrite = false,
+  lineJump?: boolean
 ): NeuroEdge[] {
   return edges.map((e) => {
-    const effectiveRouting = forceOverwrite
+    const rawRouting = forceOverwrite
       ? routing
       : e.data?.routingType || routing;
+    const effectiveRouting: EdgeRoutingType =
+      (rawRouting as string) === 'jump' ? 'straight' : rawRouting;
     return {
       ...e,
-      type: 'jump',
+      type: effectiveRouting,
       data: {
         ...e.data,
         routingType: effectiveRouting,
-        jumpArc: effectiveRouting === 'jump',
+        ...(lineJump !== undefined ? { jumpArc: lineJump } : {}),
       },
     };
   });
+}
+
+function buildPreviewData(
+  nodes: NeuroNode[],
+  edges: NeuroEdge[],
+  isHorizontal: boolean,
+  paddingX: number,
+  paddingY: number
+): {
+  absolutePositions: Map<string, Point>;
+  preview: DiagramCompilationResult['preview'];
+} {
+  const absPosMap = flattenNestedCoordinates(nodes);
+  const leafNodes = nodes.filter((n) => n.type !== 'frame');
+  const previewTargetNodes = leafNodes.length > 0 ? leafNodes : nodes;
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const n of previewTargetNodes) {
+    const abs = absPosMap.get(n.id) || n.position;
+    minX = Math.min(minX, abs.x);
+    minY = Math.min(minY, abs.y);
+    maxX = Math.max(maxX, abs.x + 70);
+    maxY = Math.max(maxY, abs.y + 28);
+  }
+
+  if (!Number.isFinite(minX)) {
+    minX = 0;
+    maxX = 200;
+    minY = 0;
+    maxY = 140;
+  }
+
+  const svgWidth = Math.max(180, maxX - minX + paddingX * 2);
+  const svgHeight = Math.max(120, maxY - minY + paddingY * 2);
+
+  const miniMapPositions = new Map<string, Point>();
+  for (const n of nodes) {
+    const abs = absPosMap.get(n.id) || n.position;
+    miniMapPositions.set(n.id, {
+      x: paddingX + (abs.x - minX),
+      y: paddingY + (abs.y - minY),
+    });
+  }
+
+  const previewNodes: DiagramPreviewNode[] = previewTargetNodes.map((node) => {
+    const pos = miniMapPositions.get(node.id) || { x: paddingX, y: paddingY };
+    return {
+      id: node.id,
+      label: node.data?.label || node.id,
+      shape: node.data?.shapeType,
+      x: pos.x,
+      y: pos.y,
+    };
+  });
+
+  const previewEdges: DiagramPreviewEdge[] = edges.map((edge, idx) => {
+    const src = miniMapPositions.get(edge.source) || { x: paddingX, y: paddingY };
+    const tgt = miniMapPositions.get(edge.target) || { x: paddingX, y: paddingY };
+    return {
+      id: edge.id || `preview-edge-${idx}`,
+      source: edge.source,
+      target: edge.target,
+      src,
+      tgt,
+      label: edge.label as string | undefined,
+    };
+  });
+
+  return {
+    absolutePositions: absPosMap,
+    preview: {
+      svgWidth,
+      svgHeight,
+      isHorizontal,
+      nodes: previewNodes,
+      edges: previewEdges,
+    },
+  };
 }
 
 export const DiagramPipeline = {
@@ -139,11 +232,67 @@ export const DiagramPipeline = {
       savedSubNodes = [],
       savedSubEdges = [],
       direction: explicitDirection,
+      diagramKind,
+      mindMapDirection = 'radial',
+      continuousLayout = true,
       spacingPreset = 'normal',
-      edgeRouting = 'jump',
+      edgeRouting = 'smoothstep',
       paddingX = 24,
       paddingY = 20,
     } = options;
+
+    const isMindMap =
+      diagramKind === 'mindmap' || mermaidCode.trimStart().startsWith('mindmap');
+
+    if (isMindMap) {
+      const parsed =
+        savedSubNodes.length > 0
+          ? { nodes: savedSubNodes, edges: savedSubEdges }
+          : parseMindMapMermaid(mermaidCode);
+      const spacingCfg = SPACING_PRESETS[spacingPreset] || SPACING_PRESETS.normal;
+      const layoutRes =
+        continuousLayout || savedSubNodes.length === 0
+          ? calculateMindMapLayout(parsed.nodes, parsed.edges, {
+              direction: mindMapDirection,
+              nodeSpacing: spacingCfg.nodeSpacing,
+              layerSpacing: spacingCfg.layerSpacing,
+            })
+          : { nodes: parsed.nodes, edges: parsed.edges };
+      const finalEdges = applyEdgeRouting(layoutRes.edges, edgeRouting || 'bezier');
+      const { absolutePositions, preview } = buildPreviewData(
+        layoutRes.nodes,
+        finalEdges,
+        mindMapDirection !== 'down',
+        paddingX,
+        paddingY
+      );
+      const ast: ParsedMermaidAST = {
+        diagramType: 'flowchart',
+        direction: mindMapDirection === 'down' ? 'TB' : 'LR',
+        nodes: layoutRes.nodes.map((n) => ({
+          id: n.id,
+          label: n.data?.label || n.id,
+          shapeType: n.data?.shapeType || 'rounded',
+        })),
+        edges: finalEdges.map((e) => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          stroke: 'solid',
+          arrowHead: 'none',
+        })),
+        subgraphs: [],
+      };
+      return {
+        ast,
+        direction: ast.direction,
+        nodes: layoutRes.nodes,
+        edges: finalEdges,
+        absolutePositions,
+        preview,
+        syntaxError: null,
+      };
+    }
 
     let ast: ParsedMermaidAST;
     let syntaxError: string | null = null;
@@ -177,81 +326,21 @@ export const DiagramPipeline = {
     });
 
     const finalEdges = applyEdgeRouting(layoutResult.edges, edgeRouting);
-    const absPosMap = flattenNestedCoordinates(layoutResult.nodes);
-
-    // Compute bounding box of laid out leaf nodes (or all nodes if empty)
-    const leafNodes = layoutResult.nodes.filter((n) => n.type !== 'frame');
-    const previewTargetNodes = leafNodes.length > 0 ? leafNodes : layoutResult.nodes;
-
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-
-    for (const n of previewTargetNodes) {
-      const abs = absPosMap.get(n.id) || n.position;
-      minX = Math.min(minX, abs.x);
-      minY = Math.min(minY, abs.y);
-      maxX = Math.max(maxX, abs.x + 70);
-      maxY = Math.max(maxY, abs.y + 28);
-    }
-
-    if (!Number.isFinite(minX)) {
-      minX = 0;
-      maxX = 200;
-      minY = 0;
-      maxY = 140;
-    }
-
-    const svgWidth = Math.max(180, maxX - minX + paddingX * 2);
-    const svgHeight = Math.max(120, maxY - minY + paddingY * 2);
-
-    const miniMapPositions = new Map<string, Point>();
-    for (const n of layoutResult.nodes) {
-      const abs = absPosMap.get(n.id) || n.position;
-      miniMapPositions.set(n.id, {
-        x: paddingX + (abs.x - minX),
-        y: paddingY + (abs.y - minY),
-      });
-    }
-
-    const previewNodes: DiagramPreviewNode[] = previewTargetNodes.map((node) => {
-      const pos = miniMapPositions.get(node.id) || { x: paddingX, y: paddingY };
-      return {
-        id: node.id,
-        label: node.data?.label || node.id,
-        shape: node.data?.shapeType,
-        x: pos.x,
-        y: pos.y,
-      };
-    });
-
-    const previewEdges: DiagramPreviewEdge[] = finalEdges.map((edge, idx) => {
-      const src = miniMapPositions.get(edge.source) || { x: paddingX, y: paddingY };
-      const tgt = miniMapPositions.get(edge.target) || { x: paddingX, y: paddingY };
-      return {
-        id: edge.id || `preview-edge-${idx}`,
-        source: edge.source,
-        target: edge.target,
-        src,
-        tgt,
-        label: edge.label as string | undefined,
-      };
-    });
+    const { absolutePositions, preview } = buildPreviewData(
+      layoutResult.nodes,
+      finalEdges,
+      isHorizontal,
+      paddingX,
+      paddingY
+    );
 
     return {
       ast,
       direction: effectiveDir,
       nodes: layoutResult.nodes,
       edges: finalEdges,
-      absolutePositions: absPosMap,
-      preview: {
-        svgWidth,
-        svgHeight,
-        isHorizontal,
-        nodes: previewNodes,
-        edges: previewEdges,
-      },
+      absolutePositions,
+      preview,
       syntaxError,
     };
   },

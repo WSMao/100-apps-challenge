@@ -94,21 +94,19 @@ export const createReactFlowSlice = (
               }
             }
           } else if (change.type === 'position') {
+            const existing = state.nodes[change.id];
+            if (existing && (existing.locked || existing.data?.locked)) {
+              // Locked objects cannot be dragged or repositioned by user gesture
+              continue;
+            }
             if (change.dragging) {
               isCurrentlyDragging = true;
             }
-            const existing = state.nodes[change.id];
             if (existing) {
               if (change.dragging === false) {
                 delete existing.dragging;
               } else if (change.dragging === true) {
                 existing.dragging = true;
-                if (existing.layoutMode === 'auto-elk') {
-                  existing.layoutMode = 'manual';
-                }
-                if (existing.data && existing.data.layoutMode === 'auto-elk') {
-                  existing.data.layoutMode = 'manual';
-                }
               }
             }
             if (change.position) {
@@ -191,12 +189,6 @@ export const createReactFlowSlice = (
             if (change.type === 'position' && change.position) {
               const node = state.nodes[change.id];
               if (node) {
-                if (node.layoutMode === 'auto-elk') {
-                  node.layoutMode = 'manual';
-                }
-                if (node.data && node.data.layoutMode === 'auto-elk') {
-                  node.data.layoutMode = 'manual';
-                }
                 if (change.dragging === false) {
                   delete node.dragging;
                 }
@@ -334,7 +326,7 @@ export const createReactFlowSlice = (
 
   onConnect: (connection: Connection) => {
     if (!connection.source || !connection.target) return;
-    const routing = get().defaultEdgeRoutingType || 'jump';
+    const routing = get().defaultEdgeRoutingType || 'smoothstep';
     get().addEdge({
       source: connection.source,
       target: connection.target,
@@ -343,7 +335,6 @@ export const createReactFlowSlice = (
       type: routing,
       data: {
         routingType: routing,
-        jumpArc: routing === 'jump',
       },
     });
   },

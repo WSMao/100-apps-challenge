@@ -67,6 +67,15 @@ export const createSelectionSlice = (set: StoreSet, get: StoreGet) => ({
   setHoveredNodeId: (hoveredNodeId: string | null) =>
     set({ hoveredNodeId }),
 
+  setAlignmentGuides: (alignmentGuides: ProjectStore['alignmentGuides']) =>
+    set({ alignmentGuides }),
+
+  clearAlignmentGuides: () =>
+    set((state) => {
+      if (state.alignmentGuides.length === 0) return;
+      state.alignmentGuides = [];
+    }),
+
   setLastDirection: (lastDirection: ProjectStore['lastDirection']) =>
     set({ lastDirection }),
 
@@ -96,6 +105,7 @@ export const createSelectionSlice = (set: StoreSet, get: StoreGet) => ({
         edge: true,
         frame: true,
         diagram: true,
+        image: true,
       };
     });
   },
@@ -108,6 +118,7 @@ export const createSelectionSlice = (set: StoreSet, get: StoreGet) => ({
         edge: false,
         frame: false,
         diagram: false,
+        image: false,
       };
     });
   },

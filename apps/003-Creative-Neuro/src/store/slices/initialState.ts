@@ -25,12 +25,12 @@ export const initialState: ProjectState = {
   editingInitialValue: null,
   isDragging: false,
   isResizing: false,
+  alignmentGuides: [],
 
   themeMode: 'light',
   lastDirection: 'right',
-  pageLayoutMode: 'auto-elk',
   connectorSourceNodeId: null,
-  defaultEdgeRoutingType: 'jump',
+  defaultEdgeRoutingType: 'smoothstep',
   availableProjects: [
     {
       id: initialSeed.project.id,
@@ -45,6 +45,8 @@ export const initialState: ProjectState = {
     edge: true,
     frame: true,
     diagram: true,
+    image: true,
   },
+  lastCreatedNodeType: 'shape',
 };
 

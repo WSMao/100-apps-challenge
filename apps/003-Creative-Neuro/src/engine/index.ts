@@ -88,8 +88,44 @@ export {
   findEdgesInSelectionRect,
   computeJumpArcsForEdge,
   buildJumpSvgPath,
+  sampleEdgePolyline,
+  computeJumpArcsForPolyline,
+  buildPolylineJumpSvgPath,
   computeSmartLabelPosition,
   type BoundingRect,
   type JumpArcData,
   type LeafRect,
+  type HandleSide,
 } from './geometry/graphRoutingEngine.ts';
+
+// 5. MindMap Mode Engine
+export {
+  resolveMindMapRootId,
+  buildMindMapTree,
+  calculateMindMapLayout,
+  canAttachMindMapNode,
+  attachMindMapNode,
+  detachMindMapNode,
+  swapMindMapNodes,
+  findAttachTargetNode,
+  serializeMindMapMermaid,
+  parseMindMapMermaid,
+  createMindMapDiagramPayload,
+  type MindMapLayoutOptions,
+  type MindMapLayoutResult,
+  type MindMapTreeStructure,
+} from './mindmap/mindmapEngine.ts';
+
+// 6. Alignment & Snapping Engine
+export {
+  calculateAlignmentPositions,
+  computeDragSnap,
+  computeResizeSnap,
+  type AlignmentActionType,
+  type AlignmentGuide,
+  type SnapRect,
+  type SnapOptions,
+  type DragSnapResult,
+  type ResizeSnapConstraints,
+  type ResizeSnapResult,
+} from './geometry/alignmentEngine.ts';

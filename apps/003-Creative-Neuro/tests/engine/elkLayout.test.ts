@@ -68,29 +68,29 @@ describe('Engine 2: ELKjs Hybrid Layout Engine Unit Tests', () => {
     });
   });
 
-  describe('2. Tri-State Layout Mode Preservation', () => {
-    it('M2-ELK-02: strictly preserves fixed anchor node coordinates at exact location', async () => {
+  describe('2. Lock State Preservation', () => {
+    it('M2-ELK-02: strictly preserves locked node coordinates at exact location', async () => {
       const nodes: NeuroNode[] = [
         {
           id: 'F',
           type: 'shape',
           position: { x: 555, y: 777 },
-          layoutMode: 'fixed',
-          data: { label: 'Fixed Anchor', layoutMode: 'fixed' },
+          locked: true,
+          data: { label: 'Locked Anchor', locked: true },
         },
         {
           id: 'A',
           type: 'shape',
           position: { x: 0, y: 0 },
-          layoutMode: 'auto-elk',
-          data: { label: 'Auto Node A', layoutMode: 'auto-elk' },
+          locked: false,
+          data: { label: 'Unlocked Node A', locked: false },
         },
         {
           id: 'B',
           type: 'shape',
           position: { x: 0, y: 0 },
-          layoutMode: 'auto-elk',
-          data: { label: 'Auto Node B', layoutMode: 'auto-elk' },
+          locked: false,
+          data: { label: 'Unlocked Node B', locked: false },
         },
       ];
       const edges: NeuroEdge[] = [
@@ -100,35 +100,38 @@ describe('Engine 2: ELKjs Hybrid Layout Engine Unit Tests', () => {
 
       const res = await calculateElkLayout(nodes, edges, { direction: 'DOWN' });
       const nodeF = res.nodes.find((n) => n.id === 'F')!;
+      const nodeA = res.nodes.find((n) => n.id === 'A')!;
+      const nodeB = res.nodes.find((n) => n.id === 'B')!;
       assert.strictEqual(nodeF.position.x, 555);
       assert.strictEqual(nodeF.position.y, 777);
-      assert.strictEqual(nodeF.layoutMode, 'fixed');
+      assert.strictEqual(nodeF.locked, true);
+      assert.ok(nodeA.position.y < nodeB.position.y, 'Unlocked nodes A and B are laid out');
     });
 
-    it('M2-ELK-03: strictly preserves manual mode node coordinates', async () => {
+    it('M2-ELK-03: repositions unlocked nodes even if previously moved manually', async () => {
       const nodes: NeuroNode[] = [
         {
-          id: 'M',
+          id: 'U',
           type: 'shape',
-          position: { x: 420, y: 360 }, // User dragged
-          layoutMode: 'manual',
-          data: { label: 'Manual Node', layoutMode: 'manual' },
+          position: { x: 420, y: 360 }, // Previously moved, but unlocked
+          locked: false,
+          data: { label: 'Unlocked Node', locked: false },
         },
         {
           id: 'A',
           type: 'shape',
           position: { x: 0, y: 0 },
-          layoutMode: 'auto-elk',
-          data: { label: 'Auto Node', layoutMode: 'auto-elk' },
+          locked: false,
+          data: { label: 'Root Node', locked: false },
         },
       ];
-      const edges: NeuroEdge[] = [{ id: 'e1', source: 'A', target: 'M' }];
+      const edges: NeuroEdge[] = [{ id: 'e1', source: 'A', target: 'U' }];
 
       const res = await calculateElkLayout(nodes, edges, { direction: 'DOWN' });
-      const nodeM = res.nodes.find((n) => n.id === 'M')!;
-      assert.strictEqual(nodeM.position.x, 420);
-      assert.strictEqual(nodeM.position.y, 360);
-      assert.strictEqual(nodeM.layoutMode, 'manual');
+      const nodeU = res.nodes.find((n) => n.id === 'U')!;
+      const nodeA = res.nodes.find((n) => n.id === 'A')!;
+      assert.notStrictEqual(nodeU.position.x, 420);
+      assert.ok(nodeA.position.y < nodeU.position.y, 'Unlocked node U is laid out below A');
     });
   });
 

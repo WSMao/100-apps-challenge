@@ -12,6 +12,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import type { ToolMode, Point } from '../../../types/index.ts';
+import { createMindMapDiagramPayload } from '../../../engine/index.ts';
 
 export interface ContextMenuState {
   x: number;
@@ -261,6 +262,31 @@ export function useCanvasGestures({
         return;
       }
 
+      if (toolMode === 'mindmap') {
+        const now = Date.now();
+        const prev = lastPaneClickRef.current;
+        if (
+          prev &&
+          now - prev.time < 380 &&
+          Math.hypot(event.clientX - prev.x, event.clientY - prev.y) < 12
+        ) {
+          lastPaneClickRef.current = null;
+          const position = screenToFlowPosition({
+            x: event.clientX,
+            y: event.clientY,
+          });
+          addNode(createMindMapDiagramPayload(position, isDark));
+          setToolMode('select');
+          return;
+        }
+        lastPaneClickRef.current = {
+          time: now,
+          x: event.clientX,
+          y: event.clientY,
+        };
+        return;
+      }
+
       const position = screenToFlowPosition({
         x: event.clientX,
         y: event.clientY,
@@ -272,10 +298,10 @@ export function useCanvasGestures({
           position,
           width: 160,
           height: 60,
-          layoutMode: 'manual',
+          locked: false,
           data: {
             label: 'New Node',
-            layoutMode: 'manual',
+            locked: false,
             shapeType: 'rounded',
             backgroundColor: isDark ? '#1e293b' : '#ffffff',
             borderColor: isDark ? '#475569' : '#cbd5e1',
@@ -289,10 +315,10 @@ export function useCanvasGestures({
           position,
           width: 160,
           height: 40,
-          layoutMode: 'manual',
+          locked: false,
           data: {
             label: 'Text Note',
-            layoutMode: 'manual',
+            locked: false,
             backgroundColor: 'transparent',
             borderColor: 'transparent',
             color: isDark ? '#f8fafc' : '#0f172a',
@@ -305,10 +331,10 @@ export function useCanvasGestures({
           position,
           width: 400,
           height: 300,
-          layoutMode: 'manual',
+          locked: false,
           data: {
             label: 'New Frame',
-            layoutMode: 'manual',
+            locked: false,
             backgroundColor: isDark ? 'rgba(30, 41, 59, 0.5)' : 'rgba(241, 245, 249, 0.5)',
             borderColor: isDark ? '#475569' : '#cbd5e1',
           },
@@ -320,16 +346,29 @@ export function useCanvasGestures({
           position,
           width: 320,
           height: 260,
-          layoutMode: 'manual',
+          locked: false,
           data: {
             label: 'Architecture Diagram',
             title: 'Architecture Diagram',
-            layoutMode: 'manual',
+            locked: false,
             mermaidCode:
               'flowchart TD\n  Start([Start]) --> Process[Process]\n  Process --> End([End])',
             diagramOrientation: 'TB',
             diagramMode: 'embedded',
             isFocused: false,
+          },
+        });
+        setToolMode('select');
+      } else if (toolMode === 'image') {
+        addNode({
+          type: 'image',
+          position,
+          width: 240,
+          height: 180,
+          locked: false,
+          data: {
+            label: 'Image',
+            locked: false,
           },
         });
         setToolMode('select');
