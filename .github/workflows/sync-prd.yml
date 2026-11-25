@@ -1,0 +1,48 @@
+name: Sync Issue #39 to App003 PRD
+
+on:
+  issues:
+    types: [edited]
+
+permissions:
+  contents: write
+  issues: read
+
+jobs:
+  sync:
+    # 只處理 Issue #39，而且必須是 Description 有變更
+    if: github.event.issue.number == 39 && github.event.changes.body
+
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout 目標開發分支
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          ref: 003-Creative-Neuro
+
+      # 2. 將 Issue Description 寫入 PRD
+      - name: Update PRD
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body || '' }}
+        run: |
+          python3 -c "import os; from pathlib import Path; Path('apps/003-Creative-Neuro/docs/PRD.md').write_text(os.environ['ISSUE_BODY'], encoding='utf-8')"
+
+      # 3. 設定 Git 作者
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # 4. 建立 commit 並推送
+      - name: Commit and push
+        run: |
+          if git diff --quiet -- apps/003-Creative-Neuro/docs/PRD.md; then
+            echo "PRD is already up to date."
+            exit 0
+          fi
+
+          git add apps/003-Creative-Neuro/docs/PRD.md
+          git commit -m "docs(003): sync PRD from issue #39"
+          git push origin HEAD:003-Creative-Neuro
