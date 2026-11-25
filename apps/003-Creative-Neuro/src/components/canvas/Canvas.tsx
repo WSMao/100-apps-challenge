@@ -24,6 +24,7 @@ import {
   ViewportPortal,
   PanOnScrollMode,
   SelectionMode,
+  ConnectionMode,
   MarkerType,
   type Node,
   type Edge,
@@ -150,6 +151,8 @@ export function CanvasContent() {
     zoomIn,
     zoomOut,
     fitView,
+    getViewport,
+    setViewport,
   } = useReactFlow();
 
   const lastDoubleClickSpawnRef = useRef<number>(0);
@@ -388,7 +391,8 @@ export function CanvasContent() {
           edgeIdSet.add(e.id);
         }
 
-        // If user is actively box selecting, check if userSelectionRect intersects any active page edges
+        // OP-08: Only select a Connector during box selection when BOTH source and target nodes
+        // are fully enclosed inside the selection rectangle.
         if (
           userSelectionActive &&
           userSelectionRect &&
@@ -408,8 +412,21 @@ export function CanvasContent() {
             nodeMap.set(n.id, n);
           }
 
+          const isNodeFullyInRect = (n: NeuroNode) => {
+            const w = n.width ?? n.measured?.width ?? 160;
+            const h = n.height ?? n.measured?.height ?? 60;
+            return (
+              n.position.x >= rect.minX &&
+              n.position.y >= rect.minY &&
+              n.position.x + w <= rect.maxX &&
+              n.position.y + h <= rect.maxY
+            );
+          };
+
           for (const e of edges) {
-            if (isEdgeInSelectionRect(e, nodeMap, rect)) {
+            const src = nodeMap.get(e.source);
+            const tgt = nodeMap.get(e.target);
+            if (src && tgt && isNodeFullyInRect(src) && isNodeFullyInRect(tgt)) {
               edgeIdSet.add(e.id);
             }
           }
@@ -747,6 +764,29 @@ export function CanvasContent() {
       onDrop={handleCanvasDrop}
       onMouseDown={handleMouseDown}
       onMouseUp={handleMouseUp}
+      onWheelCapture={(e) => {
+        if (e.metaKey || e.ctrlKey) {
+          e.stopPropagation();
+          const vp = getViewport();
+          const factor = Math.exp(-e.deltaY * 0.002);
+          const nextZoom = Math.min(2.5, Math.max(0.1, vp.zoom * factor));
+          const rect = e.currentTarget.getBoundingClientRect();
+          const px = e.clientX - rect.left;
+          const py = e.clientY - rect.top;
+          const ratio = nextZoom / vp.zoom;
+          setViewport({
+            x: px - (px - vp.x) * ratio,
+            y: py - (py - vp.y) * ratio,
+            zoom: nextZoom,
+          });
+          return;
+        }
+        if (e.shiftKey && e.deltaX === 0 && e.deltaY !== 0) {
+          e.stopPropagation();
+          const vp = getViewport();
+          setViewport({ x: vp.x - e.deltaY * 0.5, y: vp.y, zoom: vp.zoom });
+        }
+      }}
     >
       <ReactFlow
         nodes={reactFlowNodes}
@@ -756,6 +796,7 @@ export function CanvasContent() {
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
+        connectionMode={ConnectionMode.Loose}
         edgesReconnectable={true}
         reconnectRadius={12}
         onReconnect={handleReconnect}

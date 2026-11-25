@@ -16,6 +16,17 @@ import { spawn, execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  runStep16RightDragAndContextMenu,
+  runStep17WheelAndZoomControls,
+  runStep18FullEnclosureBoxSelection,
+  runStep19HoverPlusDragToConnect,
+  runStep20ArrowShortcutsAndNavigation,
+  runStep21InlineTextEditAndDelete,
+  runStep22FreehandAndEraserUndo,
+  runStep23ThemeAndLogoDropdown,
+  runStep24DiagramInlineAndAtomicUndo,
+} from './steps/phase1GapSteps.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(__dirname, '../..');
@@ -1958,6 +1969,16 @@ async function runE2EScenario() {
       throw new Error(`Expected alignment guide lines to clear after mouseup, got ${JSON.stringify(afterDrag)}`);
     }
     console.log('  ✓ Live drag auto-snapping & alignment guide lines verified:', JSON.stringify({ duringDrag, afterDrag }));
+
+    await runStep16RightDragAndContextMenu(pageSend);
+    await runStep17WheelAndZoomControls(pageSend);
+    await runStep18FullEnclosureBoxSelection(pageSend);
+    await runStep19HoverPlusDragToConnect(pageSend);
+    await runStep20ArrowShortcutsAndNavigation(pageSend);
+    await runStep21InlineTextEditAndDelete(pageSend);
+    await runStep22FreehandAndEraserUndo(pageSend);
+    await runStep23ThemeAndLogoDropdown(pageSend);
+    await runStep24DiagramInlineAndAtomicUndo(pageSend);
 
     // Verify Error Boundary state
     console.log('\n[E2E Step 11] Validating browser crash & error-boundary guarantees:');
