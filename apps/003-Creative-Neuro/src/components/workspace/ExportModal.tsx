@@ -33,7 +33,7 @@ import {
   exportCanvasAsSvg,
   exportCanvasAsPngWithMetadata,
   exportPngWithPako,
-  importFromPngOrSvgMetadata,
+  importProjectFromFile,
   applyImportedProjectToStore,
   downloadTextFile,
   downloadDataUrl,
@@ -171,7 +171,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const processImportedFile = async (file: File) => {
     setImportStatus(null);
     try {
-      const restored = await importFromPngOrSvgMetadata(file);
+      const restored = await importProjectFromFile(file);
       applyImportedProjectToStore(restored);
       const pageCount = Object.keys(restored.pages).length;
       const nodeCount = Object.keys(restored.nodes).length;
@@ -185,7 +185,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         message:
           err instanceof Error
             ? err.message
-            : 'Failed to import file. Ensure it is a valid .neuro.json, .neuro.svg, or .neuro.png.',
+            : 'Failed to import file. Ensure it is a valid .neuro.json project file.',
       });
     }
   };
@@ -534,7 +534,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".json,.neuro.json,.svg,.neuro.svg,.png,.neuro.png"
+                  accept=".json,.neuro.json"
                   onChange={handleFileInputChange}
                   className="hidden"
                   data-testid="import-file-input"
@@ -544,12 +544,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-white">
-                    Drop a <span className="text-indigo-400">.neuro.png</span>,{' '}
-                    <span className="text-sky-400">.neuro.svg</span>, or{' '}
-                    <span className="text-emerald-400">.neuro.json</span> file here
+                    Drop a <span className="text-emerald-400">.neuro.json</span> file here
                   </p>
                   <p className="text-xs text-slate-400 mt-1">
-                    Or click to browse local files — embedded Pako zlib chunks are extracted automatically
+                    Or click to browse local .neuro.json project files
                   </p>
                 </div>
               </div>
