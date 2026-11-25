@@ -97,3 +97,17 @@ export {
   type LeafRect,
   type HandleSide,
 } from './geometry/graphRoutingEngine.ts';
+
+// 5. Alignment & Snapping Engine
+export {
+  calculateAlignmentPositions,
+  computeDragSnap,
+  computeResizeSnap,
+  type AlignmentActionType,
+  type AlignmentGuide,
+  type SnapRect,
+  type SnapOptions,
+  type DragSnapResult,
+  type ResizeSnapConstraints,
+  type ResizeSnapResult,
+} from './geometry/alignmentEngine.ts';

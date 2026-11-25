@@ -42,6 +42,7 @@ export default defineConfig({
       'tests/importExport.test.ts',
       'tests/pageLifecycle.test.ts',
       'tests/imageAssetResizeDblClick.test.ts',
+      'tests/alignmentGuides.test.ts',
     ],
   },
 });

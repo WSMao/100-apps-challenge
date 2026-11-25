@@ -31,6 +31,7 @@ import type {
   SelectionFilter,
   NodeStyle,
 } from '../../types/index.ts';
+import type { AlignmentActionType, AlignmentGuide } from '../../engine/index.ts';
 
 export interface ProjectRecord extends Omit<Project, 'boards' | 'pages'> {
   boards: Record<string, Board>;
@@ -58,6 +59,7 @@ export interface ProjectState {
   editingInitialValue: string | null;
   isDragging: boolean;
   isResizing: boolean;
+  alignmentGuides: AlignmentGuide[];
 
   // --- Requirements State ---
   themeMode: ThemeMode;
@@ -125,6 +127,9 @@ export interface ProjectActions {
   setEditingNodeId: (id: string | null, initialValue?: string | null) => void;
   setFocusedDiagramId: (id: string | null) => void;
   setHoveredNodeId: (id: string | null) => void;
+  setAlignmentGuides: (guides: AlignmentGuide[]) => void;
+  clearAlignmentGuides: () => void;
+  alignSelectedNodes: (action: AlignmentActionType) => void;
   resetToSeed: () => void;
 
   // Requirements: OP-07, PM, TL, UI-04, FN

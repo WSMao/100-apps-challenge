@@ -16,6 +16,10 @@ import type {
   NodeStyle,
 } from '../../types/index.ts';
 import { calculateElkLayoutSync } from '../../engine/layout/elkEngine.ts';
+import {
+  calculateAlignmentPositions,
+  type AlignmentActionType,
+} from '../../engine/geometry/alignmentEngine.ts';
 import type { StoreSet, StoreGet } from './types.ts';
 
 /**
@@ -1173,6 +1177,46 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
         }
       }
 
+      const activePage = state.pages[state.activePageId];
+      if (activePage) activePage.updatedAt = Date.now();
+      state.project.updatedAt = Date.now();
+    });
+  },
+
+  alignSelectedNodes: (action: AlignmentActionType) => {
+    const stateSnapshot = get();
+    const selectedNodes = stateSnapshot.selectedNodeIds
+      .map((id) => stateSnapshot.nodes[id])
+      .filter((n): n is NeuroNode => Boolean(n));
+    if (selectedNodes.length < 2) return;
+
+    // Normalize to absolute canvas coordinates if any selected node is inside a Frame
+    const absNodes: NeuroNode[] = selectedNodes.map((n) => {
+      const parent = n.parentId ? stateSnapshot.nodes[n.parentId] : null;
+      if (!parent) return n;
+      return {
+        ...n,
+        position: {
+          x: parent.position.x + n.position.x,
+          y: parent.position.y + n.position.y,
+        },
+      };
+    });
+
+    const updates = calculateAlignmentPositions(absNodes, action);
+    const updatedIds = Object.keys(updates);
+    if (updatedIds.length === 0) return;
+
+    set((state) => {
+      for (const id of updatedIds) {
+        const node = state.nodes[id];
+        if (!node || node.locked || node.data?.locked) continue;
+        const absPos = updates[id];
+        const parent = node.parentId ? state.nodes[node.parentId] : null;
+        node.position = parent
+          ? { x: absPos.x - parent.position.x, y: absPos.y - parent.position.y }
+          : absPos;
+      }
       const activePage = state.pages[state.activePageId];
       if (activePage) activePage.updatedAt = Date.now();
       state.project.updatedAt = Date.now();

@@ -70,6 +70,8 @@ import FocusDiagramModal from '../editor/FocusDiagramModal.tsx';
 import { ContextMenu } from './ContextMenu.tsx';
 import { NodeFloatingActionBar } from './NodeFloatingActionBar.tsx';
 import { EdgeFloatingActionBar } from './edges/EdgeFloatingActionBar.tsx';
+import { AlignmentGuidesOverlay } from './AlignmentGuidesOverlay.tsx';
+import { computeDragSnap, type SnapRect } from '../../engine/index.ts';
 
 // Stable top-level module constants to prevent React Flow StoreUpdater infinite re-renders
 const SNAP_GRID: [number, number] = [16, 16];
@@ -458,9 +460,71 @@ export function CanvasContent() {
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
       const nonSelectChanges = changes.filter((c) => c.type !== 'select');
-      if (nonSelectChanges.length > 0) {
-        (onNodesChange as unknown as (changes: NodeChange[]) => void)(nonSelectChanges);
+      if (nonSelectChanges.length === 0) return;
+
+      const draggingPosChanges = nonSelectChanges.filter(
+        (c): c is Extract<NodeChange, { type: 'position' }> =>
+          c.type === 'position' && Boolean(c.dragging) && Boolean(c.position)
+      );
+
+      let finalChanges = nonSelectChanges;
+      if (draggingPosChanges.length > 0) {
+        const store = useProjectStore.getState();
+        const activePage = store.pages[store.activePageId];
+        const draggedIds = new Set(draggingPosChanges.map((c) => c.id));
+        const primaryChange = draggingPosChanges[0];
+        const primaryNode = store.nodes[primaryChange.id];
+
+        if (primaryNode && primaryChange.position && !(primaryNode.locked || primaryNode.data?.locked)) {
+          const parent = primaryNode.parentId ? store.nodes[primaryNode.parentId] : null;
+          const absX = parent ? parent.position.x + primaryChange.position.x : primaryChange.position.x;
+          const absY = parent ? parent.position.y + primaryChange.position.y : primaryChange.position.y;
+          const w = primaryNode.width ?? primaryNode.measured?.width ?? 160;
+          const h = primaryNode.height ?? primaryNode.measured?.height ?? 60;
+
+          const otherRects: SnapRect[] = [];
+          const pageNodeIds = activePage?.nodeIds ?? Object.keys(store.nodes);
+          for (const nid of pageNodeIds) {
+            if (draggedIds.has(nid)) continue;
+            const n = store.nodes[nid];
+            if (!n || n.hidden || n.type === 'freehand') continue;
+            const nParent = n.parentId ? store.nodes[n.parentId] : null;
+            otherRects.push({
+              id: n.id,
+              x: nParent ? nParent.position.x + n.position.x : n.position.x,
+              y: nParent ? nParent.position.y + n.position.y : n.position.y,
+              width: n.width ?? n.measured?.width ?? 160,
+              height: n.height ?? n.measured?.height ?? 60,
+            });
+          }
+
+          const snap = computeDragSnap(
+            { id: primaryNode.id, x: absX, y: absY, width: w, height: h },
+            otherRects,
+            { snapThreshold: 6, gridSize: SNAP_GRID[0] }
+          );
+          const dx = snap.x - absX;
+          const dy = snap.y - absY;
+
+          if (dx !== 0 || dy !== 0) {
+            finalChanges = nonSelectChanges.map((c) => {
+              if (c.type === 'position' && c.dragging && c.position) {
+                return {
+                  ...c,
+                  position: {
+                    x: c.position.x + dx,
+                    y: c.position.y + dy,
+                  },
+                };
+              }
+              return c;
+            });
+          }
+          store.setAlignmentGuides(snap.guides);
+        }
       }
+
+      (onNodesChange as unknown as (changes: NodeChange[]) => void)(finalChanges);
     },
     [onNodesChange]
   );
@@ -705,7 +769,7 @@ export function CanvasContent() {
         onNodeContextMenu={handleNodeContextMenu}
         onSelectionChange={handleSelectionChange}
         onSelectionEnd={handleSelectionEnd}
-        snapToGrid={true}
+        snapToGrid={false}
         snapGrid={SNAP_GRID}
         minZoom={0.1}
         maxZoom={2.5}
@@ -740,6 +804,7 @@ export function CanvasContent() {
         />
 
         <FreehandOverlay />
+        <AlignmentGuidesOverlay />
 
         {/* Styled Logical Group Backgrounds/Borders (shown when styled; transparent by default when unselected) */}
         {styledGroupBoxes.length > 0 && !useProjectStore.getState().focusedDiagramId && (
