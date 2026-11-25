@@ -109,8 +109,16 @@ export function FocusDiagramModal() {
   const [direction, setDirection] = useState<FlowDirection>(
     (parentNode?.data?.diagramOrientation as FlowDirection) || 'TB'
   );
-  const [edgeRouting, setEdgeRouting] = useState<EdgeRoutingType>(
-    (parentNode?.data?.customData?.edgeRouting as EdgeRoutingType) || 'jump'
+  const [edgeRouting, setEdgeRouting] = useState<EdgeRoutingType>(() => {
+    const saved = parentNode?.data?.customData?.edgeRouting as string | undefined;
+    if (saved === 'jump') return 'straight';
+    return (saved as EdgeRoutingType) || 'smoothstep';
+  });
+  const [lineJump, setLineJump] = useState<boolean>(
+    () =>
+      parentNode?.data?.lineJump ??
+      (parentNode?.data?.customData?.lineJump as boolean | undefined) ??
+      true
   );
   const [spacingPreset, setSpacingPreset] = useState<ElkSpacingPreset>(
     (parentNode?.data?.customData?.spacingPreset as ElkSpacingPreset) || 'normal'
@@ -124,8 +132,9 @@ export function FocusDiagramModal() {
     (
       edgeList: NeuroEdge[],
       routing: EdgeRoutingType,
-      forceOverwrite = false
-    ): NeuroEdge[] => applyEdgeRouting(edgeList, routing, forceOverwrite),
+      forceOverwrite = false,
+      jumpEnabled?: boolean
+    ): NeuroEdge[] => applyEdgeRouting(edgeList, routing, forceOverwrite, jumpEnabled),
     []
   );
 
@@ -146,8 +155,14 @@ export function FocusDiagramModal() {
       parentNode.data?.title || parentNode.data?.label || 'Sub-Diagram';
     const orient =
       (parentNode.data?.diagramOrientation as FlowDirection) || 'TB';
-    const savedRouting =
-      (parentNode.data?.customData?.edgeRouting as EdgeRoutingType) || 'jump';
+    const rawRouting = parentNode.data?.customData?.edgeRouting as string | undefined;
+    const savedRouting: EdgeRoutingType =
+      rawRouting === 'jump' ? 'straight' : ((rawRouting as EdgeRoutingType) || 'smoothstep');
+    const savedLineJump =
+      parentNode.data?.lineJump ??
+      (parentNode.data?.customData?.lineJump as boolean | undefined) ??
+      true;
+    setLineJump(savedLineJump);
     const savedSpacing =
       (parentNode.data?.customData?.spacingPreset as ElkSpacingPreset) || 'normal';
 
@@ -194,11 +209,13 @@ export function FocusDiagramModal() {
       isFocused: false,
       diagramMode: 'embedded',
       diagramOrientation: direction,
+      lineJump,
       customData: {
         ...parentNode?.data?.customData,
         subNodes: nodes,
         subEdges: edges,
         edgeRouting,
+        lineJump,
         spacingPreset,
       },
     });
@@ -209,6 +226,7 @@ export function FocusDiagramModal() {
     code,
     direction,
     edgeRouting,
+    lineJump,
     spacingPreset,
     nodes,
     edges,
@@ -307,14 +325,30 @@ export function FocusDiagramModal() {
     [nodes, edges, spacingPreset, edgeRouting, applyRoutingToEdges, scheduleFitView]
   );
 
-  // Edge Routing Type Change (Jump / Smoothstep / Bezier / Straight)
+  // Edge Routing Type Change (Smoothstep / Bezier / Straight)
   const handleEdgeRoutingChange = useCallback(
     (newRouting: EdgeRoutingType) => {
       setEdgeRouting(newRouting);
-      setEdges((eds) => applyRoutingToEdges(eds, newRouting, true));
+      setEdges((eds) => applyRoutingToEdges(eds, newRouting, true, lineJump));
     },
-    [applyRoutingToEdges]
+    [applyRoutingToEdges, lineJump]
   );
+
+  // Diagram-level Line Jump Toggle
+  const handleLineJumpToggle = useCallback(() => {
+    const next = !lineJump;
+    setLineJump(next);
+    setEdges((eds) => applyRoutingToEdges(eds, edgeRouting, false, next));
+    if (focusedDiagramId) {
+      updateNodeData(focusedDiagramId, {
+        lineJump: next,
+        customData: {
+          ...parentNode?.data?.customData,
+          lineJump: next,
+        },
+      });
+    }
+  }, [lineJump, edgeRouting, applyRoutingToEdges, focusedDiagramId, updateNodeData, parentNode?.data?.customData]);
 
   // ELK Spacing Preset Change (Compact / Normal / Spacious)
   const handleSpacingChange = useCallback(
@@ -373,10 +407,10 @@ export function FocusDiagramModal() {
         target: params.target,
         sourceHandle: params.sourceHandle || undefined,
         targetHandle: params.targetHandle || undefined,
-        type: 'jump',
+        type: edgeRouting,
         data: {
           routingType: edgeRouting,
-          jumpArc: edgeRouting === 'jump',
+          jumpArc: lineJump,
         },
       };
       const nextEdges = [...edges, newEdge];
@@ -385,7 +419,7 @@ export function FocusDiagramModal() {
       const nextMermaid = DiagramPipeline.serialize(nodes, nextEdges, direction);
       setCode(nextMermaid);
     },
-    [edges, nodes, direction, edgeRouting]
+    [edges, nodes, direction, edgeRouting, lineJump]
   );
 
   if (!focusedDiagramId || !parentNode) return null;
@@ -434,18 +468,17 @@ export function FocusDiagramModal() {
             </span>
           )}
 
-          {/* Edge Routing Type Selector (Jump / Smoothstep / Bezier / Straight) */}
+          {/* Edge Routing Type Selector (Smoothstep / Bezier / Straight) */}
           <div
             data-testid="focus-diagram-edge-routing"
             className="flex items-center bg-slate-800/90 border border-slate-700 rounded-lg p-0.5 gap-0.5"
-            title="連接線種類 (Edge Routing Type)"
+            title="連接線種類 (Connector Type)"
           >
             {(
               [
-                { id: 'jump', label: 'Jump', title: '跳線直線 (Jump Arc)' },
                 { id: 'smoothstep', label: 'Step', title: '正交直角折線 (Smoothstep)' },
                 { id: 'bezier', label: 'Curve', title: '平滑貝茲曲線 (Bezier)' },
-                { id: 'straight', label: 'Line', title: '無跳線直線 (Straight)' },
+                { id: 'straight', label: 'Line', title: '直線 (Straight)' },
               ] as const
             ).map((opt) => {
               const active = edgeRouting === opt.id;
@@ -467,6 +500,22 @@ export function FocusDiagramModal() {
               );
             })}
           </div>
+
+          {/* Diagram-level Line Jump Toggle */}
+          <button
+            type="button"
+            data-testid="focus-diagram-line-jump-toggle"
+            aria-pressed={lineJump}
+            onClick={handleLineJumpToggle}
+            title="Toggle Line Jump arcs for intersecting connectors in this Diagram"
+            className={`px-2.5 py-1 text-[11px] font-medium rounded-lg border transition cursor-pointer ${
+              lineJump
+                ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40 hover:bg-cyan-500/25'
+                : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
+            }`}
+          >
+            Line Jump
+          </button>
 
           {/* ELK Spacing Preset Selector (nodeSpacing / layerSpacing) */}
           <select

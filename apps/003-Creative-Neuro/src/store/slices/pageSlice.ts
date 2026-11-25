@@ -28,6 +28,7 @@ export const createPageSlice = (
         name: title,
         order: state.project.pageIds.length,
         viewport: { x: 0, y: 0, zoom: 1 },
+        lineJump: true,
         nodeIds: [],
         edgeIds: [],
         createdAt: Date.now(),
@@ -135,6 +136,31 @@ export const createPageSlice = (
       if (page) {
         page.title = title;
         page.name = title;
+        page.updatedAt = Date.now();
+        state.project.updatedAt = Date.now();
+      }
+    });
+  },
+
+  setPageLineJump: (enabled: boolean, pageId?: string) => {
+    set((state) => {
+      const targetId = pageId || state.activePageId;
+      const page = state.pages[targetId];
+      if (page) {
+        page.lineJump = enabled;
+        page.updatedAt = Date.now();
+        state.project.updatedAt = Date.now();
+      }
+    });
+  },
+
+  togglePageLineJump: (pageId?: string) => {
+    set((state) => {
+      const targetId = pageId || state.activePageId;
+      const page = state.pages[targetId];
+      if (page) {
+        const current = page.lineJump ?? true;
+        page.lineJump = !current;
         page.updatedAt = Date.now();
         state.project.updatedAt = Date.now();
       }

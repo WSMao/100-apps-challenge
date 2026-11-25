@@ -222,7 +222,7 @@ export function reconcileMermaidAST(
       source: astEdge.source,
       target: astEdge.target,
       label: astEdge.label,
-      type: 'jump',
+      type: 'smoothstep',
       data: {
         label: astEdge.label,
         lineStyle: astEdge.stroke === 'dotted' ? 'dotted' : 'solid',

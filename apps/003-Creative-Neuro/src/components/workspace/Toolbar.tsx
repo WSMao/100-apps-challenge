@@ -88,17 +88,10 @@ export interface ConnectorOptionConfig {
 
 export const CONNECTOR_OPTIONS: ConnectorOptionConfig[] = [
   {
-    type: 'jump',
-    label: 'Jump Arc (避障跳線)',
-    tag: 'Jump',
-    description: '自動跳過相交連線 (推薦)',
-    icon: GitCommit,
-  },
-  {
     type: 'smoothstep',
     label: 'Smoothstep (直角折線)',
     tag: 'Step',
-    description: '標準正交折線幾何',
+    description: '標準正交折線幾何 (推薦)',
     icon: CornerDownRight,
   },
   {
@@ -118,7 +111,6 @@ export const CONNECTOR_OPTIONS: ConnectorOptionConfig[] = [
 ];
 
 const CONNECTOR_ICON_MAP: Record<EdgeRoutingType, React.ComponentType<{ className?: string }>> = {
-  jump: GitCommit,
   smoothstep: CornerDownRight,
   bezier: Spline,
   straight: Minus,
@@ -143,7 +135,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const setSelectedNodes = useProjectStore((s) => s.setSelectedNodes);
   const themeMode = useProjectStore((s) => s.themeMode);
   const isDark = themeMode === 'dark';
-  const defaultEdgeRoutingType = useProjectStore((s) => s.defaultEdgeRoutingType || 'jump');
+  const defaultEdgeRoutingType = useProjectStore((s) => s.defaultEdgeRoutingType || 'smoothstep');
   const setDefaultEdgeRoutingType = useProjectStore((s) => s.setDefaultEdgeRoutingType);
   const selectionFilter = useProjectStore((s) => s.selectionFilter);
   const toggleSelectionFilterItem = useProjectStore((s) => s.toggleSelectionFilterItem);

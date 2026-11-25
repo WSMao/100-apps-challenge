@@ -14,6 +14,7 @@ import React, { useMemo } from 'react';
 import {
   BaseEdge,
   EdgeLabelRenderer,
+  Position,
   type EdgeProps,
   useEdges,
   useNodes,
@@ -24,13 +25,14 @@ import {
 } from '@xyflow/react';
 import type { NeuroEdge, Point } from '../../../types/index.ts';
 import {
-  crossProduct2D,
   GraphRoutingEngine,
   computeSmartLabelPosition,
-  computeJumpArcsForEdge,
-  buildJumpSvgPath,
+  sampleEdgePolyline,
+  computeJumpArcsForPolyline,
+  buildPolylineJumpSvgPath,
   type JumpArcData,
   type LeafRect,
+  type HandleSide,
 } from '../../../engine/index.ts';
 import { useProjectStore } from '../../../store/useProjectStore.ts';
 import { EdgeFloatingActionBar } from './EdgeFloatingActionBar.tsx';
@@ -82,8 +84,18 @@ export function JumpConnectorEdge({
     !hasMultiNodeSelection;
 
   const jumpRadius = data?.strokeWidth ? Math.max(6, data.strokeWidth * 2.5) : 6;
-  const isJumpEnabled = data?.jumpArc !== false;
-  const routingType = data?.routingType;
+  const pageLineJump = useProjectStore((s) => s.pages[s.activePageId]?.lineJump ?? true);
+  const diagramLineJump = useProjectStore((s) =>
+    s.focusedDiagramId ? s.nodes[s.focusedDiagramId]?.data?.lineJump : undefined
+  );
+  const isJumpEnabled = isInStore
+    ? pageLineJump
+    : (diagramLineJump ?? data?.jumpArc ?? true);
+  const rawRouting = data?.routingType || 'smoothstep';
+  const routingType: 'smoothstep' | 'bezier' | 'straight' =
+    (rawRouting as string) === 'jump'
+      ? 'straight'
+      : (rawRouting as 'smoothstep' | 'bezier' | 'straight');
 
   // Build quick lookup for node centers/handles to resolve other edges' endpoints (resolving parentId relative coordinates)
   const nodeMap = useMemo(() => {
@@ -171,6 +183,74 @@ export function JumpConnectorEdge({
       midY = labelPt.y;
     }
 
+    const posToSide = (pos?: Position): HandleSide => {
+      switch (pos) {
+        case Position.Top:
+          return 'top';
+        case Position.Right:
+          return 'right';
+        case Position.Left:
+          return 'left';
+        default:
+          return 'bottom';
+      }
+    };
+
+    const handleToSide = (handleId?: string | null, fallback: HandleSide = 'bottom'): HandleSide => {
+      if (!handleId) return fallback;
+      const clean = handleId.replace('-plus', '');
+      if (clean === 'top' || clean === 'right' || clean === 'bottom' || clean === 'left') {
+        return clean;
+      }
+      return fallback;
+    };
+
+    if (isJumpEnabled) {
+      const myPolyline = sampleEdgePolyline({
+        p1,
+        p2,
+        sourceSide: posToSide(sourcePosition),
+        targetSide: posToSide(targetPosition),
+        routingType,
+      });
+
+      const otherPolylines: Array<{ id: string; points: Point[] }> = [];
+      for (const other of allEdges) {
+        if (other.id === id) continue;
+        const q1 = getHandlePoint(other.source, other.sourceHandle, 'bottom');
+        const q2 = getHandlePoint(other.target, other.targetHandle, 'top');
+        if (!q1 || !q2) continue;
+        const otherData = other.data as NeuroEdge['data'] | undefined;
+        const otherRaw = otherData?.routingType || (other.type !== 'jump' && other.type !== 'default' ? other.type : undefined) || 'smoothstep';
+        const otherRouting = otherRaw === 'jump' ? 'straight' : otherRaw;
+        otherPolylines.push({
+          id: other.id,
+          points: sampleEdgePolyline({
+            p1: q1,
+            p2: q2,
+            sourceSide: handleToSide(other.sourceHandle, 'bottom'),
+            targetSide: handleToSide(other.targetHandle, 'top'),
+            routingType: otherRouting,
+          }),
+        });
+      }
+
+      const segmentJumps = computeJumpArcsForPolyline(
+        id,
+        myPolyline,
+        otherPolylines,
+        jumpRadius
+      );
+
+      if (segmentJumps.size > 0) {
+        return {
+          path: buildPolylineJumpSvgPath(myPolyline, segmentJumps),
+          labelX: midX,
+          labelY: midY,
+        };
+      }
+    }
+
     // 1. Smoothstep (Orthogonal Step Line)
     if (routingType === 'smoothstep') {
       const [path] = getSmoothStepPath({
@@ -199,35 +279,12 @@ export function JumpConnectorEdge({
     }
 
     // 3. Straight Line
-    if (routingType === 'straight') {
-      const [path] = getStraightPath({
-        sourceX,
-        sourceY,
-        targetX,
-        targetY,
-      });
-      return { path, labelX: midX, labelY: midY };
-    }
-
-    // 4. Default: Jump Arc Intersection Path
-    if (!isJumpEnabled) {
-      return {
-        path: `M ${p1.x.toFixed(2)} ${p1.y.toFixed(2)} L ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`,
-        labelX: midX,
-        labelY: midY,
-      };
-    }
-
-    const jumps = computeJumpArcsForEdge(
-      id,
-      p1,
-      p2,
-      allEdges,
-      getHandlePoint,
-      jumpRadius
-    );
-
-    const path = buildJumpSvgPath(p1, p2, jumps);
+    const [path] = getStraightPath({
+      sourceX,
+      sourceY,
+      targetX,
+      targetY,
+    });
     return { path, labelX: midX, labelY: midY };
   }, [
     id,

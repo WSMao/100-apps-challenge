@@ -282,9 +282,13 @@ export function CanvasContent() {
   // Single/Multi Edge Selection Click Handler
   const handleEdgeClick = useCallback(
     (event: React.MouseEvent, edge: Edge) => {
-      if (toolMode === 'select') {
-        const isSelectable = selectionFilter.edge ?? true;
-        if (!isSelectable) return;
+      if (toolMode === 'select' || toolMode === 'connect') {
+        if (toolMode === 'select') {
+          const isSelectable = selectionFilter.edge ?? true;
+          if (!isSelectable) return;
+        } else {
+          useProjectStore.getState().resetConnector();
+        }
 
         const isMulti = event.metaKey || event.ctrlKey || event.shiftKey;
         if (isMulti) {
@@ -592,7 +596,7 @@ export function CanvasContent() {
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
         edgesReconnectable={true}
-        reconnectRadius={0}
+        reconnectRadius={12}
         onReconnect={handleReconnect}
         onNodeDragStart={handleNodeDragStart}
         onNodeDragStop={handleNodeDragStop}

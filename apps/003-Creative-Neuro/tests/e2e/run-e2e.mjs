@@ -748,15 +748,22 @@ async function runE2EScenario() {
           const curveBtn = modal.querySelector("[data-testid='focus-routing-bezier']");
           const jumpBtn = modal.querySelector("[data-testid='focus-routing-jump']");
           const lineBtn = modal.querySelector("[data-testid='focus-routing-straight']");
+          const lineJumpToggle = modal.querySelector("[data-testid='focus-diagram-line-jump-toggle']");
           const spacingSelect = modal.querySelector("[data-testid='focus-diagram-spacing']");
 
-          if (!stepBtn || !curveBtn || !jumpBtn || !lineBtn || !spacingSelect) {
-            return { success: false, reason: "Routing buttons or spacing selector missing" };
+          if (!stepBtn || !curveBtn || jumpBtn || !lineBtn || !lineJumpToggle || !spacingSelect) {
+            return { success: false, reason: "Routing buttons, Diagram Line Jump toggle, or spacing selector mismatch" };
           }
+
+          // Toggle Diagram Line Jump off and back on
+          const ljBefore = lineJumpToggle.getAttribute('aria-pressed');
+          lineJumpToggle.click();
+          const ljAfterOff = lineJumpToggle.getAttribute('aria-pressed');
+          lineJumpToggle.click();
 
           // Switch to Step (Smoothstep orthogonal routing)
           stepBtn.click();
-          return { success: true };
+          return { success: true, ljBefore, ljAfterOff };
         })()
       `,
       returnByValue: true,
@@ -1017,6 +1024,119 @@ async function runE2EScenario() {
     const diagMainCanvasSsPath = path.join(screenshotsDir, '09_diagram_drag_and_resize_main_canvas.png');
     fs.writeFileSync(diagMainCanvasSsPath, Buffer.from(diagMainCanvasSs.result.data, 'base64'));
     console.log(`  ✓ Captured DiagramNode main canvas move & resize screenshot: ${path.relative(appRoot, diagMainCanvasSsPath)} (${fs.statSync(diagMainCanvasSsPath).size} bytes)`);
+
+    // Step 10.5: Issue #41 - Canvas-level Line Jump Toggle & Connector Mode Edge Selection + Unified Action Bar
+    console.log('\n[E2E Step 10.5] Testing Page-level Line Jump toggle and Connector mode edge selection/styling:');
+    const lineJumpToggleCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const toggle = document.querySelector("[data-testid='page-line-jump-toggle']");
+          if (!toggle) return { found: false };
+          const before = toggle.getAttribute('aria-pressed');
+          toggle.click();
+          return { found: true, before };
+        })()
+      `,
+      returnByValue: true,
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    const lineJumpAfter = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const toggle = document.querySelector("[data-testid='page-line-jump-toggle']");
+          const afterOff = toggle?.getAttribute('aria-pressed');
+          toggle?.click();
+          return { afterOff };
+        })()
+      `,
+      returnByValue: true,
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    const ljInit = lineJumpToggleCheck.result?.result?.value;
+    const ljOff = lineJumpAfter.result?.result?.value;
+    if (!ljInit?.found || ljInit.before !== 'true' || ljOff?.afterOff !== 'false') {
+      throw new Error(`Page Line Jump toggle check failed: ${JSON.stringify({ ljInit, ljOff })}`);
+    }
+    console.log('  ✓ Page-level Line Jump toggle verified (true -> false -> true)');
+
+    // Switch to Connector mode and click an existing edge
+    const connectorSelectCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const store = window.__CREATIVE_NEURO_STORE__?.getState();
+          if (!store) return { ok: false, reason: 'store missing' };
+          store.setToolMode('connect');
+          return { ok: true };
+        })()
+      `,
+      returnByValue: true,
+    });
+    await new Promise((r) => setTimeout(r, 150));
+
+    const edgeClickInConnectMode = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const store = window.__CREATIVE_NEURO_STORE__?.getState();
+          const firstEdgeId = Object.keys(store.edges).find((id) => id.startsWith('e-fc-'));
+          if (!firstEdgeId) return { ok: false, reason: 'no e-fc edge' };
+          store.setSelectedEdges([firstEdgeId]);
+          store.setSelectedNodes([]);
+          return { ok: true, edgeId: firstEdgeId };
+        })()
+      `,
+      returnByValue: true,
+    });
+    await new Promise((r) => setTimeout(r, 250));
+
+    const actionBarCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const edgeId = ${JSON.stringify(edgeClickInConnectMode.result?.result?.value?.edgeId || '')};
+          const bar = document.querySelector("[data-testid='edge-floating-action-bar']");
+          const hasJumpBtn = Boolean(bar?.querySelector("[data-testid='edge-route-jump']"));
+          const hasStep = Boolean(bar?.querySelector("[data-testid='edge-route-smoothstep']"));
+          const hasBezier = Boolean(bar?.querySelector("[data-testid='edge-route-bezier']"));
+          const hasStraight = Boolean(bar?.querySelector("[data-testid='edge-route-straight']"));
+          const thickBtn = bar?.querySelector("[data-testid='edge-width-thick']");
+          const cyanBtn = bar?.querySelector("[data-testid='edge-color-cyan']");
+          const updaters = document.querySelectorAll('.react-flow__edge.selected .react-flow__edgeupdater').length;
+          if (thickBtn) thickBtn.click();
+          if (cyanBtn) cyanBtn.click();
+          return {
+            hasBar: Boolean(bar),
+            hasJumpBtn,
+            hasStep,
+            hasBezier,
+            hasStraight,
+            hasThick: Boolean(thickBtn),
+            hasCyan: Boolean(cyanBtn),
+            updaters,
+            edgeId,
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+    await new Promise((r) => setTimeout(r, 200));
+
+    const abVal = actionBarCheck.result?.result?.value;
+    if (!abVal?.hasBar || abVal.hasJumpBtn || !abVal.hasStep || !abVal.hasBezier || !abVal.hasStraight || !abVal.hasThick || !abVal.hasCyan) {
+      throw new Error(`EdgeFloatingActionBar check failed: ${JSON.stringify(abVal)}`);
+    }
+    const updatedEdgeCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const edge = window.__CREATIVE_NEURO_STORE__?.getState()?.edges?.[${JSON.stringify(abVal.edgeId)}];
+          return { strokeWidth: edge?.data?.strokeWidth, color: edge?.data?.color };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const edgeStyleVal = updatedEdgeCheck.result?.result?.value;
+    if (edgeStyleVal?.strokeWidth !== 4 || edgeStyleVal?.color !== '#06b6d4') {
+      throw new Error(`Edge style update failed: ${JSON.stringify(edgeStyleVal)}`);
+    }
+    console.log(`  ✓ Unified EdgeFloatingActionBar verified (3 types, no Jump btn, strokeWidth=${edgeStyleVal.strokeWidth}, color=${edgeStyleVal.color}, updaters=${abVal.updaters})`);
 
     // Verify Error Boundary state
     console.log('\n[E2E Step 11] Validating browser crash & error-boundary guarantees:');

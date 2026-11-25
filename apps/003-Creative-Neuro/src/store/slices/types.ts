@@ -113,6 +113,8 @@ export interface ProjectActions {
   deleteEdges: (ids: string[]) => void;
   deletePage: (pageId: string) => void;
   updatePageTitle: (pageId: string, title: string) => void;
+  setPageLineJump: (enabled: boolean, pageId?: string) => void;
+  togglePageLineJump: (pageId?: string) => void;
   setViewport: (pageId: string, viewport: Viewport) => void;
   setToolMode: (mode: ToolMode) => void;
   setSelectedNodes: (ids: string[]) => void;

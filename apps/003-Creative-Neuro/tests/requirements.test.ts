@@ -1193,12 +1193,12 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
     it('TL-05: Connector tool provides connector type menu and uses active preset continuously', () => {
       const store = useProjectStore.getState();
 
-      // 1. Verify connector options metadata
+      // 1. Verify connector options metadata (simplified to 3 geometry types)
       const optionTypes = CONNECTOR_OPTIONS.map((o) => o.type);
-      expect(optionTypes).toEqual(['jump', 'smoothstep', 'bezier', 'straight']);
+      expect(optionTypes).toEqual(['smoothstep', 'bezier', 'straight']);
 
-      // 2. Default preset is jump
-      expect(useProjectStore.getState().defaultEdgeRoutingType).toBe('jump');
+      // 2. Default preset is smoothstep
+      expect(useProjectStore.getState().defaultEdgeRoutingType).toBe('smoothstep');
 
       // 3. User switches preset to smoothstep
       store.setDefaultEdgeRoutingType('smoothstep');
@@ -1214,7 +1214,6 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
       const edgeStep = useProjectStore.getState().edges[edgeStepId!];
       expect(edgeStep.type).toBe('smoothstep');
       expect(edgeStep.data?.routingType).toBe('smoothstep');
-      expect(edgeStep.data?.jumpArc).toBe(false);
 
       // 5. User switches preset to bezier
       store.setDefaultEdgeRoutingType('bezier');
@@ -2359,7 +2358,7 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
 
       for (const { dir, expectedSourceHandle, expectedTargetHandle } of directions) {
         const store = useProjectStore.getState();
-        store.setDefaultEdgeRoutingType('jump');
+        store.setDefaultEdgeRoutingType('smoothstep');
         const rootId = 'mm-root';
         const rootNode = store.nodes[rootId];
         expect(rootNode).toBeDefined();
@@ -2390,8 +2389,8 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
         expect(edge.target).toBe(newNodeId);
         expect(edge.sourceHandle).toBe(expectedSourceHandle);
         expect(edge.targetHandle).toBe(expectedTargetHandle);
-        expect(edge.type).toBe('jump');
-        expect(edge.data?.jumpArc).toBe(true);
+        expect(edge.type).toBe('smoothstep');
+        expect(edge.data?.routingType).toBe('smoothstep');
         expect(activePage.edgeIds).toContain(edgeId);
 
         // 3. Verify newly created node is exclusively selected, clearing previous selection
@@ -2943,10 +2942,10 @@ describe('TDD Requirements Test Suite (tests/docs/requirements.md)', () => {
       );
       const focusModalCode = fs.readFileSync(focusModalPath, 'utf8');
 
-      // 1. Edge Routing Type Selector (jump, smoothstep, bezier, straight)
+      // 1. Edge Routing Type Selector (smoothstep, bezier, straight) + Diagram Line Jump toggle
       expect(focusModalCode).toContain('data-testid="focus-diagram-edge-routing"');
       expect(focusModalCode).toContain('focus-routing-${opt.id}');
-      expect(focusModalCode).toContain("id: 'jump'");
+      expect(focusModalCode).toContain('data-testid="focus-diagram-line-jump-toggle"');
       expect(focusModalCode).toContain("id: 'smoothstep'");
       expect(focusModalCode).toContain("id: 'bezier'");
       expect(focusModalCode).toContain("id: 'straight'");
