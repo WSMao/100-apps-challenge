@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useProjectStore } from '../src/store/projectStore.ts';
 import { handleGlobalKeyDown } from '../src/components/workspace/ShortcutsHandler.tsx';
+import { resolveNodeStyle } from '../src/components/canvas/nodes/nodeStyleUtils.ts';
 
 describe('Issue #43: Logical Group, Frame Auto-Capture & Fold, Style & Z-Order', () => {
   beforeEach(() => {
@@ -191,6 +192,86 @@ describe('Issue #43: Logical Group, Frame Auto-Capture & Fold, Style & Z-Order',
       expect(state.nodes[frameId].width).toBe(380);
       expect(state.nodes[frameId].height).toBe(280);
       expect(state.nodes[childId].hidden).toBe(false);
+    });
+  });
+
+  describe('Slice 4: Node Style (fontSize, textAlign, opacity)', () => {
+    it('updates fontSize, textAlign, and opacity via store actions and resolves them for node renderers', () => {
+      const store = useProjectStore.getState();
+      const shapeId = store.addNode({
+        type: 'shape',
+        position: { x: 100, y: 100 },
+        data: { label: 'Styled Shape' },
+      });
+      const textId = store.addNode({
+        type: 'text',
+        position: { x: 300, y: 100 },
+        data: { label: 'Styled Text' },
+      });
+      const frameId = store.addNode({
+        type: 'frame',
+        position: { x: 500, y: 100 },
+        data: { label: 'Styled Frame', title: 'Styled Frame' },
+      });
+      const imageId = store.addNode({
+        type: 'image',
+        position: { x: 700, y: 100 },
+        data: { label: 'Styled Image' },
+      });
+
+      // Single-node style update
+      store.updateNodeData(shapeId, {
+        fontSize: 18,
+        textAlign: 'right',
+        opacity: 0.5,
+      });
+
+      // Batch style update across multiple node types
+      store.batchUpdateNodeData([textId, frameId, imageId], {
+        fontSize: 24,
+        textAlign: 'center',
+        opacity: 0.75,
+      });
+
+      const state = useProjectStore.getState();
+      expect(resolveNodeStyle(state.nodes[shapeId].data, { fontSize: 12, textAlign: 'center' })).toEqual({
+        fontSize: 18,
+        textAlign: 'right',
+        opacity: 0.5,
+      });
+      expect(resolveNodeStyle(state.nodes[textId].data, { fontSize: 14, textAlign: 'left' })).toEqual({
+        fontSize: 24,
+        textAlign: 'center',
+        opacity: 0.75,
+      });
+      expect(resolveNodeStyle(state.nodes[frameId].data, { fontSize: 12, textAlign: 'left' })).toEqual({
+        fontSize: 24,
+        textAlign: 'center',
+        opacity: 0.75,
+      });
+      expect(resolveNodeStyle(state.nodes[imageId].data, { fontSize: 12, textAlign: 'center' })).toEqual({
+        fontSize: 24,
+        textAlign: 'center',
+        opacity: 0.75,
+      });
+
+      // Falls back to nested data.style when top-level keys are absent, and clamps/defaults opacity
+      expect(
+        resolveNodeStyle(
+          { label: 'Nested', style: { fontSize: 16, textAlign: 'left', opacity: 0.25 } },
+          { fontSize: 12, textAlign: 'center' }
+        )
+      ).toEqual({
+        fontSize: 16,
+        textAlign: 'left',
+        opacity: 0.25,
+      });
+
+      expect(resolveNodeStyle({ label: 'Default' }, { fontSize: 12, textAlign: 'center' })).toEqual({
+        fontSize: 12,
+        textAlign: 'center',
+        opacity: 1,
+      });
     });
   });
 });

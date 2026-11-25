@@ -102,7 +102,7 @@ export const PageTabs: React.FC<PageTabsProps> = ({ className = '' }) => {
     }
   };
 
-  const handleCloseTab = (e: React.MouseEvent, pageId: string) => {
+  const handleHidePage = (e: React.MouseEvent, pageId: string) => {
     e.stopPropagation();
     if (isSingleVisiblePage) return;
     hidePage(pageId);
@@ -190,7 +190,7 @@ export const PageTabs: React.FC<PageTabsProps> = ({ className = '' }) => {
 
               <button
                 type="button"
-                onClick={(e) => handleCloseTab(e, pageId)}
+                onClick={(e) => handleHidePage(e, pageId)}
                 disabled={isSingleVisiblePage}
                 title={
                   isSingleVisiblePage

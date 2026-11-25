@@ -161,6 +161,7 @@ export interface NeuroNodeData {
   fontSize?: number;
   fontWeight?: 'normal' | 'bold';
   textAlign?: 'left' | 'center' | 'right';
+  opacity?: number;
 
   // Diagram Node specific properties (Mermaid DSL & MindMap Mode)
   mermaidCode?: string;

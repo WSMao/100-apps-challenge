@@ -23,6 +23,7 @@ import {
 } from '../../../engine/index.ts';
 import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
 import { ResizeHandles, useNodeResize } from './ResizeHandles.tsx';
+import { resolveNodeStyle } from './nodeStyleUtils.ts';
 import {
   spawnChildNode,
   spawnSiblingNode,
@@ -434,9 +435,11 @@ export function ShapeNode({
     }
   }, [id, label, data?.label, isEditingStore, setEditingNodeId, updateNodeData]);
 
+  const resolvedStyle = resolveNodeStyle(data, { fontSize: 13, textAlign: 'center' });
+
   return (
     <div
-      style={{ width: W, height: H }}
+      style={{ width: W, height: H, opacity: resolvedStyle.opacity }}
       className={`relative group flex items-center justify-center cursor-pointer transition-shadow ${
         isConnectorSource
           ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-900 shadow-[0_0_15px_rgba(52,211,153,0.7)] animate-pulse rounded-lg'
@@ -627,25 +630,27 @@ export function ShapeNode({
                 }
               }
             }}
-            className={`w-full text-center outline-none transition-all ${
+            className={`w-full outline-none transition-all ${
               isEditing
                 ? 'bg-transparent text-white text-xs px-1.5 py-0.5 rounded border border-cyan-400 pointer-events-auto caret-cyan-400 shadow-sm selection:bg-cyan-500/30'
                 : 'bg-transparent border-none pointer-events-none caret-transparent leading-tight select-none shadow-none ring-0 focus:ring-0 focus:outline-none selection:bg-transparent selection:text-inherit'
             }`}
             style={{
               color: data?.color || '#f8fafc',
-              fontSize: data?.fontSize || 13,
+              fontSize: resolvedStyle.fontSize,
               fontWeight: data?.fontWeight || 'normal',
+              textAlign: resolvedStyle.textAlign,
             }}
           />
         ) : (
           <span
             style={{
               color: data?.color || '#f8fafc',
-              fontSize: data?.fontSize || 12,
+              fontSize: data?.fontSize ?? data?.style?.fontSize ?? 12,
               fontWeight: data?.fontWeight || 'normal',
+              textAlign: resolvedStyle.textAlign,
             }}
-            className="select-none whitespace-pre-line leading-snug block break-words"
+            className="w-full select-none whitespace-pre-line leading-snug block break-words"
           >
             {label || 'Empty Node'}
           </span>

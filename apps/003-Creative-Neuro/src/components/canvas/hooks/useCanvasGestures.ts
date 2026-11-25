@@ -365,10 +365,10 @@ export function useCanvasGestures({
           position,
           width: 240,
           height: 180,
-          layoutMode: 'manual',
+          locked: false,
           data: {
             label: 'Image',
-            layoutMode: 'manual',
+            locked: false,
           },
         });
         setToolMode('select');

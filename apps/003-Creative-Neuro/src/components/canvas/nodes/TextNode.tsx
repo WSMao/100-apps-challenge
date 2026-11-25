@@ -15,6 +15,7 @@ import type { NeuroNode } from '../../../types/index.ts';
 import { useProjectStore } from '../../../store/useProjectStore.ts';
 import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
 import { ResizeHandles, useNodeResize } from './ResizeHandles.tsx';
+import { resolveNodeStyle } from './nodeStyleUtils.ts';
 import {
   spawnChildNode,
   navigateSelectionDirectionally,
@@ -121,6 +122,8 @@ export function TextNode({ id, data: rawData, selected, width, height }: NodePro
     }
   }, [id, text, data?.label, isEditingStore, setEditingNodeId, updateNodeData]);
 
+  const resolvedStyle = resolveNodeStyle(data, { fontSize: 14, textAlign: 'left' });
+
   return (
     <div
       style={{
@@ -130,6 +133,7 @@ export function TextNode({ id, data: rawData, selected, width, height }: NodePro
         backgroundColor: data?.backgroundColor || 'transparent',
         borderColor: data?.borderColor || 'transparent',
         borderWidth: data?.borderWidth || 0,
+        opacity: resolvedStyle.opacity,
       }}
       className={`relative group px-3 py-2 rounded-lg transition-all ${
         isNodeSelected
@@ -292,9 +296,9 @@ export function TextNode({ id, data: rawData, selected, width, height }: NodePro
           }}
           style={{
             color: data?.color || (isDark ? '#f1f5f9' : '#0f172a'),
-            fontSize: data?.fontSize || 14,
+            fontSize: resolvedStyle.fontSize,
             fontWeight: data?.fontWeight || 'normal',
-            textAlign: data?.textAlign || 'left',
+            textAlign: resolvedStyle.textAlign,
           }}
           className={`w-full text-sm px-1.5 py-0.5 rounded outline-none resize-none overflow-hidden leading-relaxed bg-transparent transition-all ${
             isEditing
@@ -306,9 +310,9 @@ export function TextNode({ id, data: rawData, selected, width, height }: NodePro
         <p
           style={{
             color: data?.color || (isDark ? '#f1f5f9' : '#0f172a'),
-            fontSize: data?.fontSize || 14,
+            fontSize: resolvedStyle.fontSize,
             fontWeight: data?.fontWeight || 'normal',
-            textAlign: data?.textAlign || 'left',
+            textAlign: resolvedStyle.textAlign,
           }}
           className="whitespace-pre-wrap break-words leading-relaxed select-none"
         >

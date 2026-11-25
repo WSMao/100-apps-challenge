@@ -23,6 +23,7 @@ import {
   isImageUrlCandidate,
 } from '../../../utils/imageImport.ts';
 import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
+import { resolveNodeStyle } from './nodeStyleUtils.ts';
 import { ResizeHandles, useNodeResize } from './ResizeHandles.tsx';
 
 export function ImageNode({ id, data: rawData, selected, width, height }: NodeProps) {
@@ -120,11 +121,14 @@ export function ImageNode({ id, data: rawData, selected, width, height }: NodePr
   const handleClasses =
     '!w-3 !h-3 !bg-cyan-400 !border-2 !border-slate-900 opacity-0 group-hover:opacity-100 transition-opacity z-20';
 
+  const resolvedStyle = resolveNodeStyle(data, { fontSize: 12, textAlign: 'center' });
+
   return (
     <div
       style={{
         width: W,
         height: H,
+        opacity: resolvedStyle.opacity,
         borderColor: isNodeSelected
           ? '#22d3ee'
           : data?.borderColor || (isDark ? '#334155' : '#cbd5e1'),
@@ -182,7 +186,14 @@ export function ImageNode({ id, data: rawData, selected, width, height }: NodePr
             }`}
           >
             <ImageIcon className="w-7 h-7 text-indigo-400 opacity-80" />
-            <span className="text-xs font-medium">
+            <span
+              className="w-full font-medium"
+              style={{
+                color: data?.color ?? data?.style?.color,
+                fontSize: resolvedStyle.fontSize,
+                textAlign: resolvedStyle.textAlign,
+              }}
+            >
               {loadError ? 'Failed to load image' : 'No image selected'}
             </span>
             <div className="flex items-center gap-1.5">

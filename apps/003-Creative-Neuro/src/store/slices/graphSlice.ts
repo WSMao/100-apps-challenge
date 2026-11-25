@@ -81,6 +81,47 @@ export function findOptimalHandlePair(
   return bestPair;
 }
 
+function stepZOrder(
+  set: StoreSet,
+  nodeIdOrIds: string | string[],
+  direction: 1 | -1
+): void {
+  set((state) => {
+    const ids = Array.isArray(nodeIdOrIds) ? nodeIdOrIds : [nodeIdOrIds];
+    const targetSet = new Set(ids);
+    const activePage = state.pages[state.activePageId];
+    const pageNodes = (activePage ? activePage.nodeIds : Object.keys(state.nodes))
+      .map((id) => state.nodes[id])
+      .filter((n): n is NeuroNode => Boolean(n));
+    if (pageNodes.length < 2) return;
+
+    const sorted = [...pageNodes].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
+    // Ensure strictly increasing zIndex values so ties can step cleanly
+    for (let i = 0; i < sorted.length; i++) {
+      if (i === 0) {
+        sorted[i].zIndex = sorted[i].zIndex ?? 1;
+      } else if ((sorted[i].zIndex ?? 0) <= (sorted[i - 1].zIndex ?? 0)) {
+        sorted[i].zIndex = (sorted[i - 1].zIndex ?? 0) + 1;
+      }
+    }
+
+    const start = direction === 1 ? sorted.length - 2 : 1;
+    const end = direction === 1 ? -1 : sorted.length;
+    const step = direction === 1 ? -1 : 1;
+    for (let i = start; i !== end; i += step) {
+      const neighborIdx = i + direction;
+      if (targetSet.has(sorted[i].id) && !targetSet.has(sorted[neighborIdx].id)) {
+        const tmpZ = sorted[i].zIndex!;
+        sorted[i].zIndex = sorted[neighborIdx].zIndex!;
+        sorted[neighborIdx].zIndex = tmpZ;
+        [sorted[i], sorted[neighborIdx]] = [sorted[neighborIdx], sorted[i]];
+      }
+    }
+    if (activePage) activePage.updatedAt = Date.now();
+    state.project.updatedAt = Date.now();
+  });
+}
+
 export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
   addNode: (
     nodeData: Omit<Partial<NeuroNode>, 'data'> & {
@@ -914,68 +955,11 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
   },
 
   bringForward: (nodeIdOrIds: string | string[]) => {
-    set((state) => {
-      const ids = Array.isArray(nodeIdOrIds) ? nodeIdOrIds : [nodeIdOrIds];
-      const targetSet = new Set(ids);
-      const activePage = state.pages[state.activePageId];
-      const pageNodes = (activePage ? activePage.nodeIds : Object.keys(state.nodes))
-        .map((id) => state.nodes[id])
-        .filter((n): n is NeuroNode => Boolean(n));
-      if (pageNodes.length < 2) return;
-
-      const sorted = [...pageNodes].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
-      // Ensure strictly increasing zIndex values so ties can step cleanly
-      for (let i = 0; i < sorted.length; i++) {
-        if (i === 0) {
-          sorted[i].zIndex = sorted[i].zIndex ?? 1;
-        } else if ((sorted[i].zIndex ?? 0) <= (sorted[i - 1].zIndex ?? 0)) {
-          sorted[i].zIndex = (sorted[i - 1].zIndex ?? 0) + 1;
-        }
-      }
-
-      for (let i = sorted.length - 2; i >= 0; i--) {
-        if (targetSet.has(sorted[i].id) && !targetSet.has(sorted[i + 1].id)) {
-          const tmpZ = sorted[i].zIndex!;
-          sorted[i].zIndex = sorted[i + 1].zIndex!;
-          sorted[i + 1].zIndex = tmpZ;
-          [sorted[i], sorted[i + 1]] = [sorted[i + 1], sorted[i]];
-        }
-      }
-      if (activePage) activePage.updatedAt = Date.now();
-      state.project.updatedAt = Date.now();
-    });
+    stepZOrder(set, nodeIdOrIds, 1);
   },
 
   sendBackward: (nodeIdOrIds: string | string[]) => {
-    set((state) => {
-      const ids = Array.isArray(nodeIdOrIds) ? nodeIdOrIds : [nodeIdOrIds];
-      const targetSet = new Set(ids);
-      const activePage = state.pages[state.activePageId];
-      const pageNodes = (activePage ? activePage.nodeIds : Object.keys(state.nodes))
-        .map((id) => state.nodes[id])
-        .filter((n): n is NeuroNode => Boolean(n));
-      if (pageNodes.length < 2) return;
-
-      const sorted = [...pageNodes].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
-      for (let i = 0; i < sorted.length; i++) {
-        if (i === 0) {
-          sorted[i].zIndex = sorted[i].zIndex ?? 1;
-        } else if ((sorted[i].zIndex ?? 0) <= (sorted[i - 1].zIndex ?? 0)) {
-          sorted[i].zIndex = (sorted[i - 1].zIndex ?? 0) + 1;
-        }
-      }
-
-      for (let i = 1; i < sorted.length; i++) {
-        if (targetSet.has(sorted[i].id) && !targetSet.has(sorted[i - 1].id)) {
-          const tmpZ = sorted[i].zIndex!;
-          sorted[i].zIndex = sorted[i - 1].zIndex!;
-          sorted[i - 1].zIndex = tmpZ;
-          [sorted[i], sorted[i - 1]] = [sorted[i - 1], sorted[i]];
-        }
-      }
-      if (activePage) activePage.updatedAt = Date.now();
-      state.project.updatedAt = Date.now();
-    });
+    stepZOrder(set, nodeIdOrIds, -1);
   },
 
   groupSelectedNodes: (_title?: string): string | null => {

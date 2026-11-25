@@ -23,6 +23,7 @@ import {
   PenTool,
   BoxSelect,
   AlignLeft,
+  AlignCenter,
   AlignCenterHorizontal,
   AlignRight,
   AlignStartHorizontal,
@@ -67,6 +68,21 @@ const TEXT_COLOR_SWATCHES = [
 
 const STROKE_WIDTH_OPTIONS = [0, 1, 1.5, 2, 3, 4];
 
+const FONT_SIZE_OPTIONS: { label: string; value: number }[] = [
+  { label: 'S', value: 12 },
+  { label: 'M', value: 14 },
+  { label: 'L', value: 18 },
+  { label: 'XL', value: 24 },
+];
+
+const TEXT_ALIGN_OPTIONS: { value: 'left' | 'center' | 'right'; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { value: 'left', label: 'Align Left', icon: AlignLeft },
+  { value: 'center', label: 'Align Center', icon: AlignCenter },
+  { value: 'right', label: 'Align Right', icon: AlignRight },
+];
+
+const OPACITY_PRESETS = [0.25, 0.5, 0.75, 1];
+
 const SHAPE_ITEMS: { type: ShapeType; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { type: 'rectangle', label: 'Rectangle', icon: Square },
   { type: 'rounded', label: 'Rounded Box', icon: RectangleHorizontal },
@@ -101,8 +117,8 @@ export const NodeFloatingActionBar: React.FC<NodeFloatingActionBarProps> = ({
   const alignSelectedNodes = useProjectStore((s) => s.alignSelectedNodes);
   const themeMode = useProjectStore((s) => s.themeMode);
 
-  const [openMenu, setOpenMenu] = useState<'shape' | 'bg' | 'text' | 'stroke' | 'groupStyle' | 'align' | null>(null);
-  const toggleMenu = (menu: 'shape' | 'bg' | 'text' | 'stroke' | 'groupStyle' | 'align') =>
+  const [openMenu, setOpenMenu] = useState<'shape' | 'bg' | 'text' | 'stroke' | 'opacity' | 'groupStyle' | 'align' | null>(null);
+  const toggleMenu = (menu: 'shape' | 'bg' | 'text' | 'stroke' | 'opacity' | 'groupStyle' | 'align') =>
     setOpenMenu((prev) => (prev === menu ? null : menu));
 
   // Resolve target nodes (either from multi-selection nodeIds or single nodeId)
@@ -134,6 +150,9 @@ export const NodeFloatingActionBar: React.FC<NodeFloatingActionBarProps> = ({
   const currentTextColor = primaryNode?.data?.color || '#0f172a';
   const currentStrokeColor = primaryNode?.data?.borderColor || '#94a3b8';
   const currentStrokeWidth = primaryNode?.data?.borderWidth ?? 1.5;
+  const currentFontSize = primaryNode?.data?.fontSize ?? primaryNode?.data?.style?.fontSize ?? 14;
+  const currentTextAlign = primaryNode?.data?.textAlign ?? primaryNode?.data?.style?.textAlign ?? 'center';
+  const currentOpacity = primaryNode?.data?.opacity ?? primaryNode?.data?.style?.opacity ?? 1;
 
   // Lock status resolution
   const isAllLocked = targetNodes.every((n) => Boolean(n.locked || n.data?.locked));
@@ -324,27 +343,72 @@ export const NodeFloatingActionBar: React.FC<NodeFloatingActionBarProps> = ({
         </button>
         {openMenu === 'text' && (
           <div
-            className={`absolute top-full left-0 mt-1 p-2 w-36 rounded-lg shadow-xl border z-[100000] grid grid-cols-4 gap-1.5 ${
+            className={`absolute top-full left-0 mt-1 p-2 w-44 rounded-lg shadow-xl border z-[100000] flex flex-col gap-2 ${
               isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'
             }`}
             data-testid="style-text-palette"
           >
-            {TEXT_COLOR_SWATCHES.map((sw) => (
-              <button
-                key={sw.value}
-                type="button"
-                title={sw.label}
-                data-testid={`text-color-${sw.label.toLowerCase()}`}
-                onClick={() => {
-                  applyStylePatch({ color: sw.value });
-                  setOpenMenu(null);
-                }}
-                className={`w-6 h-6 rounded-md border cursor-pointer transition hover:scale-110 ${
-                  currentTextColor === sw.value ? 'ring-2 ring-cyan-400' : 'border-slate-400/50'
-                }`}
-                style={{ backgroundColor: sw.value }}
-              />
-            ))}
+            <div className="grid grid-cols-4 gap-1.5">
+              {TEXT_COLOR_SWATCHES.map((sw) => (
+                <button
+                  key={sw.value}
+                  type="button"
+                  title={sw.label}
+                  data-testid={`text-color-${sw.label.toLowerCase()}`}
+                  onClick={() => {
+                    applyStylePatch({ color: sw.value });
+                    setOpenMenu(null);
+                  }}
+                  className={`w-6 h-6 rounded-md border cursor-pointer transition hover:scale-110 ${
+                    currentTextColor === sw.value ? 'ring-2 ring-cyan-400' : 'border-slate-400/50'
+                  }`}
+                  style={{ backgroundColor: sw.value }}
+                />
+              ))}
+            </div>
+            <div className="flex items-center gap-1 pt-1 border-t border-slate-700/30">
+              {FONT_SIZE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  title={`Font Size: ${opt.label} (${opt.value}px)`}
+                  data-testid={`font-size-${opt.value}`}
+                  onClick={() => applyStylePatch({ fontSize: opt.value })}
+                  className={`flex-1 py-0.5 rounded text-[10px] font-semibold cursor-pointer transition ${
+                    currentFontSize === opt.value
+                      ? 'bg-cyan-500 text-slate-950 font-bold'
+                      : isDark
+                      ? 'hover:bg-slate-800 text-slate-300'
+                      : 'hover:bg-slate-100 text-slate-700'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1 pt-1 border-t border-slate-700/30">
+              {TEXT_ALIGN_OPTIONS.map((opt) => {
+                const AlignIcon = opt.icon;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    title={opt.label}
+                    data-testid={`text-align-${opt.value}`}
+                    onClick={() => applyStylePatch({ textAlign: opt.value })}
+                    className={`flex-1 py-1 rounded flex items-center justify-center cursor-pointer transition ${
+                      currentTextAlign === opt.value
+                        ? 'bg-cyan-500 text-slate-950'
+                        : isDark
+                        ? 'hover:bg-slate-800 text-slate-300'
+                        : 'hover:bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    <AlignIcon className="w-3.5 h-3.5" />
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
@@ -411,6 +475,61 @@ export const NodeFloatingActionBar: React.FC<NodeFloatingActionBarProps> = ({
                 </button>
               ))}
             </div>
+          </div>
+        )}
+      </div>
+
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => toggleMenu('opacity')}
+          title="Opacity"
+          data-testid="action-style-opacity"
+          className={`px-1.5 py-1 rounded-lg flex items-center gap-1 text-[10px] font-mono cursor-pointer transition ${
+            isDark ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-100 text-slate-700'
+          }`}
+        >
+          {Math.round(currentOpacity * 100)}%
+        </button>
+        {openMenu === 'opacity' && (
+          <div
+            className={`absolute top-full left-0 mt-1 p-2 w-40 rounded-lg shadow-xl border z-[100000] flex flex-col gap-2 ${
+              isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'
+            }`}
+            data-testid="style-opacity-menu"
+          >
+            <div className="flex items-center gap-1">
+              {OPACITY_PRESETS.map((op) => (
+                <button
+                  key={op}
+                  type="button"
+                  data-testid={`opacity-preset-${Math.round(op * 100)}`}
+                  onClick={() => {
+                    applyStylePatch({ opacity: op });
+                    setOpenMenu(null);
+                  }}
+                  className={`flex-1 py-0.5 rounded text-[10px] font-mono cursor-pointer transition ${
+                    Math.abs(currentOpacity - op) < 0.01
+                      ? 'bg-cyan-500 text-slate-950 font-bold'
+                      : isDark
+                      ? 'hover:bg-slate-800 text-slate-300'
+                      : 'hover:bg-slate-100 text-slate-700'
+                  }`}
+                >
+                  {Math.round(op * 100)}%
+                </button>
+              ))}
+            </div>
+            <input
+              type="range"
+              min={0.1}
+              max={1}
+              step={0.05}
+              value={currentOpacity}
+              data-testid="opacity-slider"
+              onChange={(e) => applyStylePatch({ opacity: Number(e.target.value) })}
+              className="w-full accent-cyan-400 cursor-pointer"
+            />
           </div>
         )}
       </div>

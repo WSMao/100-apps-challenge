@@ -15,6 +15,7 @@ import { ChevronDown, ChevronRight, Frame } from 'lucide-react';
 import type { NeuroNode } from '../../../types/index.ts';
 import { useProjectStore } from '../../../store/useProjectStore.ts';
 import { NodeFloatingActionBar } from '../NodeFloatingActionBar.tsx';
+import { resolveNodeStyle } from './nodeStyleUtils.ts';
 import {
   spawnChildNode,
   navigateSelectionDirectionally,
@@ -285,6 +286,7 @@ export function FrameNode({
   const frameBorderWidth = data?.borderWidth ?? 1.5;
   const frameTextColor =
     data?.color || (isDark ? '#e2e8f0' : '#0f172a');
+  const resolvedStyle = resolveNodeStyle(data, { fontSize: 12, textAlign: 'left' });
 
   if (isCollapsed) {
     return (
@@ -295,6 +297,7 @@ export function FrameNode({
           backgroundColor: frameBg,
           borderColor: frameBorderColor,
           borderWidth: frameBorderWidth,
+          opacity: resolvedStyle.opacity,
         }}
         data-testid={`frame-node-${id}`}
         data-collapsed="true"
@@ -339,7 +342,11 @@ export function FrameNode({
           <Frame className="w-4 h-4 text-indigo-400 shrink-0" />
           <span
             className="text-xs font-semibold truncate max-w-[85px]"
-            style={{ color: frameTextColor }}
+            style={{
+              color: frameTextColor,
+              fontSize: resolvedStyle.fontSize,
+              textAlign: resolvedStyle.textAlign,
+            }}
           >
             {data?.title || data?.label || 'Container Frame'}
           </span>
@@ -363,14 +370,15 @@ export function FrameNode({
   }
 
   return (
-    <div
-      style={{
-        width: W,
-        height: H,
-        backgroundColor: frameBg,
-        borderColor: isNodeSelected ? '#06b6d4' : frameBorderColor,
-        borderWidth: frameBorderWidth,
-      }}
+      <div
+        style={{
+          width: W,
+          height: H,
+          backgroundColor: frameBg,
+          borderColor: isNodeSelected ? '#06b6d4' : frameBorderColor,
+          borderWidth: frameBorderWidth,
+          opacity: resolvedStyle.opacity,
+        }}
       data-testid={`frame-node-${id}`}
       data-collapsed="false"
       className={`group relative border-dashed rounded-2xl p-3 flex flex-col transition-shadow ${
@@ -618,7 +626,11 @@ export function FrameNode({
               e.stopPropagation();
               setEditingNodeId(id, null);
             }}
-            style={{ color: frameTextColor }}
+            style={{
+              color: frameTextColor,
+              fontSize: resolvedStyle.fontSize,
+              textAlign: resolvedStyle.textAlign,
+            }}
             className={`text-xs font-semibold px-1.5 py-0.5 rounded outline-none border transition-colors truncate ${
               isEditingStore
                 ? 'border-indigo-500 bg-transparent pointer-events-auto caret-cyan-400 selection:bg-indigo-500/30'

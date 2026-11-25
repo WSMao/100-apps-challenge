@@ -102,6 +102,76 @@ const ZOOM_ACTIVATION_KEY_CODE = ['Meta', 'Control'];
 const FIT_VIEW_OPTIONS = { padding: 0.2 };
 const PRO_OPTIONS = { hideAttribution: true };
 
+export interface ConnectDiagramEdgeParams {
+  nodes: NeuroNode[];
+  edges: NeuroEdge[];
+  connection: Connection;
+  isMindMapMode: boolean;
+  continuousLayout: boolean;
+  direction: FlowDirection;
+  mindMapDirection: MindMapDirection;
+  spacingPreset: ElkSpacingPreset;
+  edgeRouting: EdgeRoutingType;
+  lineJump: boolean;
+}
+
+export function connectDiagramEdge({
+  nodes,
+  edges,
+  connection,
+  isMindMapMode,
+  continuousLayout,
+  direction,
+  mindMapDirection,
+  spacingPreset,
+  edgeRouting,
+  lineJump,
+}: ConnectDiagramEdgeParams): { nodes: NeuroNode[]; edges: NeuroEdge[]; code: string } {
+  const newEdge: NeuroEdge = {
+    id: `e-${connection.source}-${connection.target}-${Date.now()}`,
+    source: connection.source,
+    target: connection.target,
+    sourceHandle: connection.sourceHandle || undefined,
+    targetHandle: connection.targetHandle || undefined,
+    type: edgeRouting,
+    data: {
+      routingType: edgeRouting,
+      jumpArc: lineJump,
+    },
+  };
+  const nextEdges = [...edges, newEdge];
+
+  if (isMindMapMode) {
+    const rootId = resolveMindMapRootId(nodes, nextEdges);
+    if (continuousLayout) {
+      const spacingCfg = SPACING_PRESETS[spacingPreset] || SPACING_PRESETS.normal;
+      const res = calculateMindMapLayout(nodes, nextEdges, {
+        rootId: rootId || undefined,
+        direction: mindMapDirection,
+        nodeSpacing: spacingCfg.nodeSpacing,
+        layerSpacing: spacingCfg.layerSpacing,
+      });
+      const routed = applyEdgeRouting(res.edges, edgeRouting || 'bezier', false, lineJump);
+      return {
+        nodes: res.nodes,
+        edges: routed,
+        code: serializeMindMapMermaid(res.nodes, routed, res.rootId || undefined),
+      };
+    }
+    return {
+      nodes,
+      edges: nextEdges,
+      code: serializeMindMapMermaid(nodes, nextEdges, rootId || undefined),
+    };
+  }
+
+  return {
+    nodes,
+    edges: nextEdges,
+    code: DiagramPipeline.serialize(nodes, nextEdges, direction),
+  };
+}
+
 export function FocusDiagramModal() {
   const focusedDiagramId = useProjectStore((s) => s.focusedDiagramId);
   const setFocusedDiagramId = useProjectStore((s) => s.setFocusedDiagramId);
@@ -684,25 +754,25 @@ export function FocusDiagramModal() {
   const onConnect = useCallback(
     (params: Connection) => {
       if (!params.source || !params.target) return;
-      const newEdge: NeuroEdge = {
-        id: `e-${params.source}-${params.target}-${Date.now()}`,
-        source: params.source,
-        target: params.target,
-        sourceHandle: params.sourceHandle || undefined,
-        targetHandle: params.targetHandle || undefined,
-        type: edgeRouting,
-        data: {
-          routingType: edgeRouting,
-          jumpArc: lineJump,
-        },
-      };
-      const nextEdges = [...edges, newEdge];
-      setEdges(nextEdges);
-
-      const nextMermaid = DiagramPipeline.serialize(nodes, nextEdges, direction);
-      setCode(nextMermaid);
+      const result = connectDiagramEdge({
+        nodes,
+        edges,
+        connection: params,
+        isMindMapMode,
+        continuousLayout,
+        direction,
+        mindMapDirection,
+        spacingPreset,
+        edgeRouting,
+        lineJump,
+      });
+      if (result.nodes !== nodes) {
+        setNodes(result.nodes);
+      }
+      setEdges(result.edges);
+      setCode(result.code);
     },
-    [edges, nodes, direction, edgeRouting, lineJump]
+    [edges, nodes, isMindMapMode, continuousLayout, direction, mindMapDirection, spacingPreset, edgeRouting, lineJump]
   );
 
   useEffect(() => {
