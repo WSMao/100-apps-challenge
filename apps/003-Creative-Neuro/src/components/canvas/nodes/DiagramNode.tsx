@@ -155,12 +155,6 @@ export function DiagramNode({
           n.height = nextH;
           n.position = { x: nextPosX, y: nextPosY };
           n.measured = { width: nextW, height: nextH };
-          if (n.layoutMode === 'auto-elk') {
-            n.layoutMode = 'manual';
-          }
-          if (n.data && n.data.layoutMode === 'auto-elk') {
-            n.data.layoutMode = 'manual';
-          }
         });
       };
 

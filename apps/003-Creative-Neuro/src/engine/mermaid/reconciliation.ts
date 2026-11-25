@@ -5,11 +5,10 @@
  * Conforms to specifications in algorithms.md §2.5.
  * Critical capability:
  * Solves the flaw of naive diagrams by preserving user-adjusted coordinates (x, y)
- * and layout mode states ('auto-elk' | 'manual' | 'fixed') during bi-directional Mermaid text sync.
+ * and Lock state (`locked: boolean`) during bi-directional Mermaid text sync.
  */
 
 import type {
-  LayoutMode,
   NeuroEdge,
   NeuroNode,
   Point,
@@ -17,7 +16,7 @@ import type {
 import type { ParsedMermaidAST } from './parser.ts';
 
 export interface ReconcileOptions {
-  defaultLayoutMode?: LayoutMode;
+  defaultLocked?: boolean;
 }
 
 export interface ReconcileResult {
@@ -60,10 +59,10 @@ function estimateNodeDimensions(label: string): { width: number; height: number 
 export function reconcileMermaidAST(
   ast: ParsedMermaidAST,
   existingNodes: NeuroNode[],
-  defaultMode: LayoutMode = 'auto-elk',
+  defaultLocked = false,
   options: ReconcileOptions = {}
 ): ReconcileResult {
-  const effectiveDefaultMode = options.defaultLayoutMode ?? defaultMode;
+  const effectiveDefaultLocked = options.defaultLocked ?? defaultLocked;
 
   const existingNodeMap = new Map<string, NeuroNode>(
     existingNodes.map((n) => [n.id, n])
@@ -93,7 +92,8 @@ export function reconcileMermaidAST(
         : undefined;
 
     if (existing) {
-      // Preserve coordinates and layoutMode, update semantic properties
+      // Preserve coordinates and lock state, update semantic properties
+      const preservedLocked = Boolean(existing.locked ?? existing.data?.locked);
       const updatedFrame: NeuroNode = {
         ...existing,
         type: 'frame',
@@ -103,9 +103,10 @@ export function reconcileMermaidAST(
           title: sub.title,
           label: sub.title,
           direction: sub.direction,
+          locked: preservedLocked,
         },
         position: { ...existing.position },
-        layoutMode: existing.layoutMode ?? effectiveDefaultMode,
+        locked: preservedLocked,
       };
       nextNodes.push(updatedFrame);
       updatedNodeIds.push(sub.id);
@@ -118,12 +119,12 @@ export function reconcileMermaidAST(
         width: 320,
         height: 240,
         parentId: canonicalParentId,
-        layoutMode: effectiveDefaultMode,
+        locked: effectiveDefaultLocked,
         data: {
           title: sub.title,
           label: sub.title,
           direction: sub.direction,
-          layoutMode: effectiveDefaultMode,
+          locked: effectiveDefaultLocked,
         },
       };
       nextNodes.push(newFrame);
@@ -157,18 +158,20 @@ export function reconcileMermaidAST(
     if (astNode.style?.strokeWidth !== undefined) styleOverrides.borderWidth = astNode.style.strokeWidth;
 
     if (existing) {
-      // PRESERVE user coordinates (x, y) and layoutMode!
+      // PRESERVE user coordinates (x, y) and Lock state!
+      const preservedLocked = Boolean(existing.locked ?? existing.data?.locked);
       const updatedNode: NeuroNode = {
         ...existing,
         parentId: canonicalParentId,
         width: Math.max(existing.width ?? 160, estimatedDims.width),
         height: Math.max(existing.height ?? 60, estimatedDims.height),
         position: { ...existing.position }, // Coordinate strictly preserved
-        layoutMode: existing.layoutMode ?? effectiveDefaultMode, // Mode preserved
+        locked: preservedLocked,
         data: {
           ...existing.data,
           label: astNode.label,
           shapeType: astNode.shapeType,
+          locked: preservedLocked,
           ...styleOverrides,
         },
       };
@@ -190,11 +193,11 @@ export function reconcileMermaidAST(
         width: estimatedDims.width,
         height: estimatedDims.height,
         parentId: canonicalParentId,
-        layoutMode: effectiveDefaultMode,
+        locked: effectiveDefaultLocked,
         data: {
           label: astNode.label,
           shapeType: astNode.shapeType,
-          layoutMode: effectiveDefaultMode,
+          locked: effectiveDefaultLocked,
           isUnplaced: true,
           ...styleOverrides,
         },

@@ -562,10 +562,10 @@ describe('Adversarial Persistence & Seed Data Stress Harness', () => {
         expect(['shape', 'text', 'frame', 'diagram', 'freehand', 'pageCard']).toContain(node.type);
         expect(typeof node.position.x).toBe('number');
         expect(typeof node.position.y).toBe('number');
-        expect(['auto-elk', 'manual', 'fixed']).toContain(node.layoutMode);
+        expect(typeof node.locked).toBe('boolean');
         expect(node.data).toBeDefined();
         expect(typeof node.data.label).toBe('string');
-        expect(['auto-elk', 'manual', 'fixed']).toContain(node.data.layoutMode);
+        expect(typeof node.data.locked).toBe('boolean');
       }
 
       // Edge contract

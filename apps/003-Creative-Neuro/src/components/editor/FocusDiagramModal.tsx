@@ -123,6 +123,9 @@ export function FocusDiagramModal() {
   const [spacingPreset, setSpacingPreset] = useState<ElkSpacingPreset>(
     (parentNode?.data?.customData?.spacingPreset as ElkSpacingPreset) || 'normal'
   );
+  const [continuousLayout, setContinuousLayout] = useState<boolean>(
+    Boolean(parentNode?.data?.continuousLayout)
+  );
   const [nodes, setNodes] = useState<NeuroNode[]>([]);
   const [edges, setEdges] = useState<NeuroEdge[]>([]);
   const [syntaxError, setSyntaxError] = useState<string | null>(null);
@@ -171,6 +174,7 @@ export function FocusDiagramModal() {
     setDirection(orient);
     setEdgeRouting(savedRouting);
     setSpacingPreset(savedSpacing);
+    setContinuousLayout(Boolean(parentNode.data?.continuousLayout));
     setSyntaxError(null);
 
     const savedSubNodes = parentNode.data?.customData?.subNodes as
@@ -209,6 +213,7 @@ export function FocusDiagramModal() {
       isFocused: false,
       diagramMode: 'embedded',
       diagramOrientation: direction,
+      continuousLayout,
       lineJump,
       customData: {
         ...parentNode?.data?.customData,
@@ -230,6 +235,7 @@ export function FocusDiagramModal() {
     spacingPreset,
     nodes,
     edges,
+    continuousLayout,
     parentNode?.data?.customData,
     updateNodeData,
     setFocusedDiagramId,
@@ -273,27 +279,43 @@ export function FocusDiagramModal() {
     [nodes, direction, spacingPreset, edgeRouting, scheduleFitView]
   );
 
-  // Sub-Canvas visual changes -> CodeMirror Sync
+  // Sub-Canvas visual changes -> enforce lock guard & optional Continuous Auto Layout
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
+      let shouldReLayout = false;
       setNodes((nds) => {
-        const updated = applyNodeChanges(
-          changes,
-          nds as unknown as Node[]
-        ) as unknown as NeuroNode[];
-        for (const change of changes) {
-          if (change.type === 'position' && change.position) {
-            const target = updated.find((n) => n.id === change.id);
-            if (target) {
-              target.layoutMode = 'manual';
-              if (target.data) target.data.layoutMode = 'manual';
+        const filteredChanges = changes.filter((change) => {
+          if (change.type === 'position') {
+            const existing = nds.find((n) => n.id === change.id);
+            if (existing && (existing.locked || existing.data?.locked)) {
+              return false;
+            }
+            if (continuousLayout && change.dragging === false) {
+              shouldReLayout = true;
             }
           }
+          return true;
+        });
+
+        const updated = applyNodeChanges(
+          filteredChanges,
+          nds as unknown as Node[]
+        ) as unknown as NeuroNode[];
+
+        if (shouldReLayout) {
+          const spacingCfg = SPACING_PRESETS[spacingPreset] || SPACING_PRESETS.normal;
+          const layoutResult = calculateElkLayoutSync(updated, edges, {
+            direction,
+            nodeSpacing: spacingCfg.nodeSpacing,
+            layerSpacing: spacingCfg.layerSpacing,
+          });
+          setEdges(applyRoutingToEdges(layoutResult.edges, edgeRouting));
+          return layoutResult.nodes;
         }
         return updated;
       });
     },
-    []
+    [continuousLayout, spacingPreset, edges, direction, edgeRouting, applyRoutingToEdges]
   );
 
   const onEdgesChange = useCallback((changes: EdgeChange[]) => {
@@ -355,16 +377,7 @@ export function FocusDiagramModal() {
     (newPreset: ElkSpacingPreset) => {
       setSpacingPreset(newPreset);
       const spacingCfg = SPACING_PRESETS[newPreset] || SPACING_PRESETS.normal;
-      const autoNodes = nodes.map((n) =>
-        n.layoutMode === 'fixed'
-          ? n
-          : {
-              ...n,
-              layoutMode: 'auto-elk' as const,
-              data: { ...n.data, layoutMode: 'auto-elk' as const },
-            }
-      );
-      const layoutResult = calculateElkLayoutSync(autoNodes, edges, {
+      const layoutResult = calculateElkLayoutSync(nodes, edges, {
         direction,
         nodeSpacing: spacingCfg.nodeSpacing,
         layerSpacing: spacingCfg.layerSpacing,
@@ -376,19 +389,10 @@ export function FocusDiagramModal() {
     [nodes, edges, direction, edgeRouting, applyRoutingToEdges, scheduleFitView]
   );
 
-  // Manual Trigger: Force Auto-Layout with ELK
+  // One-shot Trigger: Auto-Layout with ELK (skips locked nodes)
   const handleAutoLayout = useCallback(() => {
     const spacingCfg = SPACING_PRESETS[spacingPreset] || SPACING_PRESETS.normal;
-    const autoNodes = nodes.map((n) =>
-      n.layoutMode === 'fixed'
-        ? n
-        : {
-            ...n,
-            layoutMode: 'auto-elk' as const,
-            data: { ...n.data, layoutMode: 'auto-elk' as const },
-          }
-    );
-    const layoutResult = calculateElkLayoutSync(autoNodes, edges, {
+    const layoutResult = calculateElkLayoutSync(nodes, edges, {
       direction,
       nodeSpacing: spacingCfg.nodeSpacing,
       layerSpacing: spacingCfg.layerSpacing,
@@ -397,6 +401,16 @@ export function FocusDiagramModal() {
     setEdges(applyRoutingToEdges(layoutResult.edges, edgeRouting));
     scheduleFitView();
   }, [nodes, edges, direction, spacingPreset, edgeRouting, applyRoutingToEdges, scheduleFitView]);
+
+  const handleToggleContinuous = useCallback(
+    (checked: boolean) => {
+      setContinuousLayout(checked);
+      if (checked) {
+        handleAutoLayout();
+      }
+    },
+    [handleAutoLayout]
+  );
 
   const onConnect = useCallback(
     (params: Connection) => {
@@ -532,17 +546,32 @@ export function FocusDiagramModal() {
             <option value="spacious">Spacing: Spacious (80/130)</option>
           </select>
 
-          {/* ELK Auto-Layout Button */}
-          <button
-            type="button"
-            data-testid="focus-diagram-auto-layout"
-            onClick={handleAutoLayout}
-            title="Auto-arrange nodes using ELK hierarchical layout"
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg bg-indigo-950/80 hover:bg-indigo-900/80 text-indigo-300 border border-indigo-500/40 hover:border-indigo-500 transition cursor-pointer shadow-sm"
-          >
-            <Workflow className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Auto Layout</span>
-          </button>
+          {/* ELK Auto-Layout Button & Continuous Checkbox */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="focus-diagram-auto-layout"
+              onClick={handleAutoLayout}
+              title="Auto-arrange unlocked nodes using ELK hierarchical layout"
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg bg-indigo-950/80 hover:bg-indigo-900/80 text-indigo-300 border border-indigo-500/40 hover:border-indigo-500 transition cursor-pointer shadow-sm"
+            >
+              <Workflow className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Auto Layout</span>
+            </button>
+            <label
+              className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-slate-300 bg-slate-800/80 border border-slate-700 rounded-lg cursor-pointer select-none hover:border-indigo-500/50 transition"
+              title="Continuous Auto Layout: automatically re-balance unlocked nodes after manual drag"
+            >
+              <input
+                type="checkbox"
+                data-testid="focus-diagram-continuous-checkbox"
+                checked={continuousLayout}
+                onChange={(e) => handleToggleContinuous(e.target.checked)}
+                className="accent-indigo-500 cursor-pointer"
+              />
+              <span>Continuous</span>
+            </label>
+          </div>
 
           <select
             value={direction}
@@ -592,7 +621,10 @@ export function FocusDiagramModal() {
         <div className="flex-1 relative bg-slate-950">
           <ReactFlowProvider>
             <ReactFlow
-              nodes={nodes as unknown as Node[]}
+              nodes={nodes.map((n) => ({
+                ...n,
+                draggable: !Boolean(n.locked || n.data?.locked),
+              })) as unknown as Node[]}
               edges={edges as unknown as Edge[]}
               nodeTypes={subNodeTypes}
               edgeTypes={subEdgeTypes}

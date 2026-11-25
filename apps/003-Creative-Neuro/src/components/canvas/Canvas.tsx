@@ -8,7 +8,7 @@
  * - Custom edge types registration: JumpConnectorEdge
  * - FreehandOverlay portaled inside ReactFlow + FocusDiagramModal overlay
  * - Dragging lifecycle & Zundo history suppression (isDragging flag)
- * - Automatic layoutMode transition ('auto-elk' -> 'manual') on user drag
+ * - Lock state enforcement (`draggable: !locked`) on user drag
  * - Dynamic FrameNode parenting & auto-expansion via calculateFrameAutoGrowth
  * - Click-to-create toolbar node spawning (shape, text, frame, diagram)
  */
@@ -511,7 +511,7 @@ export function CanvasContent() {
           ...n,
           width: w,
           height: h,
-          draggable: true,
+          draggable: !Boolean(n.locked || n.data?.locked),
           selected: selectedSet.has(n.id),
           selectable: isSelectable,
           measured,

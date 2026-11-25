@@ -343,48 +343,48 @@ describe('Engine 1: Mermaid Parser, Serializer & Reconciliation Unit Tests', () 
   });
 
   describe('3. Node ID Reconciliation Engine', () => {
-    it('M1-REC-01: PRESERVES manual and fixed coordinates and layoutMode during text edit', () => {
+    it('M1-REC-01: PRESERVES coordinates and locked state during text edit', () => {
       const existingNodes: NeuroNode[] = [
         {
           id: 'A',
           type: 'shape',
-          position: { x: 350, y: 620 }, // User dragged to manual position
+          position: { x: 350, y: 620 }, // User dragged position
           width: 180,
           height: 70,
-          layoutMode: 'manual',
-          data: { label: 'Old Title A', shapeType: 'rectangle', layoutMode: 'manual' },
+          locked: false,
+          data: { label: 'Old Title A', shapeType: 'rectangle', locked: false },
         },
         {
           id: 'F',
           type: 'shape',
-          position: { x: 100, y: 100 }, // Fixed anchor
-          layoutMode: 'fixed',
-          data: { label: 'Fixed Anchor', shapeType: 'circle', layoutMode: 'fixed' },
+          position: { x: 100, y: 100 }, // Locked anchor
+          locked: true,
+          data: { label: 'Locked Anchor', shapeType: 'circle', locked: true },
         },
       ];
 
       // Mermaid code has updated label for A and new shape for F
       const mermaidCode = `flowchart TB
         A["New Title A"]
-        F(("Fixed Anchor Updated"))
+        F(("Locked Anchor Updated"))
       `;
       const ast = parseMermaid(mermaidCode);
-      const result = reconcileMermaidAST(ast, existingNodes, 'auto-elk');
+      const result = reconcileMermaidAST(ast, existingNodes);
 
       assert.strictEqual(result.nodes.length, 2);
       const nodeA = result.nodes.find((n) => n.id === 'A')!;
       const nodeF = result.nodes.find((n) => n.id === 'F')!;
 
-      // Position strictly preserved!
+      // Position & lock state strictly preserved!
       assert.strictEqual(nodeA.position.x, 350);
       assert.strictEqual(nodeA.position.y, 620);
-      assert.strictEqual(nodeA.layoutMode, 'manual');
+      assert.strictEqual(nodeA.locked, false);
       assert.strictEqual(nodeA.data.label, 'New Title A');
 
       assert.strictEqual(nodeF.position.x, 100);
       assert.strictEqual(nodeF.position.y, 100);
-      assert.strictEqual(nodeF.layoutMode, 'fixed');
-      assert.strictEqual(nodeF.data.label, 'Fixed Anchor Updated');
+      assert.strictEqual(nodeF.locked, true);
+      assert.strictEqual(nodeF.data.label, 'Locked Anchor Updated');
       assert.strictEqual(nodeF.data.shapeType, 'circle');
     });
 
@@ -394,15 +394,15 @@ describe('Engine 1: Mermaid Parser, Serializer & Reconciliation Unit Tests', () 
           id: 'A',
           type: 'shape',
           position: { x: 100, y: 100 },
-          layoutMode: 'auto-elk',
-          data: { label: 'Node A', layoutMode: 'auto-elk' },
+          locked: false,
+          data: { label: 'Node A', locked: false },
         },
         {
           id: 'B',
           type: 'shape',
           position: { x: 200, y: 100 },
-          layoutMode: 'auto-elk',
-          data: { label: 'Node B', layoutMode: 'auto-elk' },
+          locked: false,
+          data: { label: 'Node B', locked: false },
         },
       ];
 
@@ -411,7 +411,7 @@ describe('Engine 1: Mermaid Parser, Serializer & Reconciliation Unit Tests', () 
         A --> C["Node C"]
       `;
       const ast = parseMermaid(code);
-      const result = reconcileMermaidAST(ast, existingNodes, 'auto-elk');
+      const result = reconcileMermaidAST(ast, existingNodes);
 
       assert.ok(result.addedNodeIds.includes('C'));
       assert.ok(result.removedNodeIds.includes('B'));
@@ -419,7 +419,7 @@ describe('Engine 1: Mermaid Parser, Serializer & Reconciliation Unit Tests', () 
 
       const nodeC = result.nodes.find((n) => n.id === 'C')!;
       assert.ok(nodeC);
-      assert.strictEqual(nodeC.layoutMode, 'auto-elk');
+      assert.strictEqual(nodeC.locked, false);
       assert.strictEqual(nodeC.data.isUnplaced, true);
 
       // Edge A -> C exists

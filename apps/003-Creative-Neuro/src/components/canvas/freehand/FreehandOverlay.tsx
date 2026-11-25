@@ -170,10 +170,10 @@ export function FreehandOverlay() {
         position: { x: minX, y: minY },
         width: Math.max(20, maxX - minX),
         height: Math.max(20, maxY - minY),
-        layoutMode: 'manual',
+        locked: false,
         data: {
           label: 'Freehand Stroke',
-          layoutMode: 'manual',
+          locked: false,
           points: currentPoints,
           color: strokeColor,
           strokeColor,

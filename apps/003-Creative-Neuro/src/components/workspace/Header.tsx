@@ -79,49 +79,7 @@ export const Header: React.FC<HeaderProps> = ({
     setIsLayoutRunning(true);
 
     try {
-      const pageNodes = activePage.nodeIds
-        .map((id) => nodes[id])
-        .filter((n): n is NonNullable<typeof n> => Boolean(n));
-
-      const pageEdges = activePage.edgeIds
-        .map((id) => edges[id])
-        .filter((e): e is NonNullable<typeof e> => Boolean(e));
-
-      if (pageNodes.length === 0) return;
-
-      // If no nodes are in 'auto-elk' mode, promote non-fixed nodes to 'auto-elk' for this layout pass
-      const hasAutoElkNode = pageNodes.some((n) => n.layoutMode === 'auto-elk');
-      const inputNodes = hasAutoElkNode
-        ? pageNodes
-        : pageNodes.map((n) =>
-            n.layoutMode === 'fixed'
-              ? n
-              : {
-                  ...n,
-                  layoutMode: 'auto-elk' as const,
-                  data: { ...n.data, layoutMode: 'auto-elk' as const },
-                }
-          );
-
-      const result = await calculateElkLayout(inputNodes, pageEdges, {
-        direction: layoutDirection,
-      });
-
-      useProjectStore.setState((state) => {
-        for (const laidOutNode of result.nodes) {
-          const target = state.nodes[laidOutNode.id];
-          if (target) {
-            target.position = { ...laidOutNode.position };
-            if (laidOutNode.width) target.width = laidOutNode.width;
-            if (laidOutNode.height) target.height = laidOutNode.height;
-          }
-        }
-        const pg = state.pages[state.activePageId];
-        if (pg) {
-          pg.updatedAt = Date.now();
-        }
-        state.project.updatedAt = Date.now();
-      });
+      useProjectStore.getState().autoLayoutPage(layoutDirection);
     } finally {
       setIsLayoutRunning(false);
     }

@@ -1025,6 +1025,127 @@ async function runE2EScenario() {
     fs.writeFileSync(diagMainCanvasSsPath, Buffer.from(diagMainCanvasSs.result.data, 'base64'));
     console.log(`  ✓ Captured DiagramNode main canvas move & resize screenshot: ${path.relative(appRoot, diagMainCanvasSsPath)} (${fs.statSync(diagMainCanvasSsPath).size} bytes)`);
 
+    // Step 10e: Test Lock toggle in floating action bar & isolated Page vs Diagram Auto Layout
+    console.log('\n[E2E Step 10e] Testing Lock toggle & isolated Page/Diagram Auto Layout:');
+    const lockAndLayoutCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const store = window.__CREATIVE_NEURO_STORE__;
+          if (!store) return { success: false, reason: 'Store missing' };
+          const state = store.getState();
+          const activePage = state.pages[state.activePageId];
+          const targetId = activePage?.nodeIds.find((id) => state.nodes[id]?.type === 'shape');
+          if (!targetId) return { success: false, reason: 'No shape node found on active page' };
+          state.setSelectedNodes([targetId]);
+          window.__E2E_LOCK_TARGET_ID__ = targetId;
+          return {
+            success: true,
+            targetId,
+            initialPos: { ...state.nodes[targetId].position },
+            initialLocked: Boolean(state.nodes[targetId].locked),
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+    if (!lockAndLayoutCheck.result?.result?.value?.success) {
+      throw new Error(`Lock setup failed: ${lockAndLayoutCheck.result?.result?.value?.reason}`);
+    }
+    await new Promise((r) => setTimeout(r, 250));
+
+    // Click Lock toggle button in floating action bar
+    const lockToggleRes = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const btn = document.querySelector("[data-testid='toggle-node-lock']");
+          if (!btn) return { success: false, reason: 'toggle-node-lock button not found' };
+          btn.click();
+          const store = window.__CREATIVE_NEURO_STORE__.getState();
+          const targetId = window.__E2E_LOCK_TARGET_ID__;
+          return {
+            success: true,
+            lockedAfterClick: Boolean(store.nodes[targetId]?.locked),
+            subNodesBefore: JSON.stringify(store.nodes['fc-diagram-card']?.data?.customData?.subNodes || []),
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const lockAfter = lockToggleRes.result?.result?.value;
+    if (!lockAfter?.success || !lockAfter.lockedAfterClick) {
+      throw new Error(`Expected fc-api to be locked after clicking toggle-node-lock, got ${JSON.stringify(lockAfter)}`);
+    }
+
+    // Trigger Page Auto Layout and verify locked fc-api stays put and Diagram subNodes are untouched
+    const pageAutoLayoutRes = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const pageBtn = document.querySelector("[data-testid='auto-elk-layout-btn']");
+          if (!pageBtn) return { success: false, reason: 'auto-elk-layout-btn not found' };
+          pageBtn.click();
+          const store = window.__CREATIVE_NEURO_STORE__.getState();
+          const targetId = window.__E2E_LOCK_TARGET_ID__;
+          return {
+            success: true,
+            posAfterPageLayout: { ...store.nodes[targetId].position },
+            subNodesAfter: JSON.stringify(store.nodes['fc-diagram-card']?.data?.customData?.subNodes || []),
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    const pageLayoutInfo = pageAutoLayoutRes.result?.result?.value;
+    const initLockPos = lockAndLayoutCheck.result.result.value.initialPos;
+    if (
+      !pageLayoutInfo?.success ||
+      pageLayoutInfo.posAfterPageLayout.x !== initLockPos.x ||
+      pageLayoutInfo.posAfterPageLayout.y !== initLockPos.y
+    ) {
+      throw new Error(`Locked node moved during Page Auto Layout: init=${JSON.stringify(initLockPos)}, after=${JSON.stringify(pageLayoutInfo)}`);
+    }
+    if (pageLayoutInfo.subNodesAfter !== lockAfter.subNodesBefore) {
+      throw new Error('Page Auto Layout mutated Diagram internal subNodes!');
+    }
+
+    // Open Diagram Focus Modal and verify Continuous checkbox exists and toggles
+    const diagramContinuousRes = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const store = window.__CREATIVE_NEURO_STORE__.getState();
+          store.setFocusedDiagramId('fc-diagram-card');
+        })()
+      `,
+    });
+    void diagramContinuousRes;
+    await new Promise((r) => setTimeout(r, 400));
+
+    const continuousCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const modal = document.querySelector("[data-testid='focus-diagram-modal']");
+          const cb = modal?.querySelector("[data-testid='focus-diagram-continuous-checkbox']");
+          if (!cb) return { success: false, reason: 'focus-diagram-continuous-checkbox not found' };
+          const before = cb.checked;
+          cb.click();
+          const after = cb.checked;
+          return { success: true, before, after };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const contVal = continuousCheck.result?.result?.value;
+    if (!contVal?.success || contVal.before === contVal.after) {
+      throw new Error(`Continuous checkbox check failed: ${JSON.stringify(contVal)}`);
+    }
+    console.log('  ✓ Lock toggle, Page Auto Layout isolation & Diagram Continuous checkbox verified:', JSON.stringify(contVal));
+
+    // Close modal before final error boundary check
+    await pageSend('Runtime.evaluate', {
+      expression: `window.__CREATIVE_NEURO_STORE__.getState().setFocusedDiagramId(null);`,
+    });
+    await new Promise((r) => setTimeout(r, 200));
+
     // Step 10.5: Issue #41 - Canvas-level Line Jump Toggle & Connector Mode Edge Selection + Unified Action Bar
     console.log('\n[E2E Step 10.5] Testing Page-level Line Jump toggle and Connector mode edge selection/styling:');
     const lineJumpToggleCheck = await pageSend('Runtime.evaluate', {

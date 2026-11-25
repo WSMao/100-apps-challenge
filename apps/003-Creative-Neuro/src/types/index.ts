@@ -42,14 +42,8 @@ export interface Viewport {
 // 2. Enums & Literal Unions
 // ============================================================================
 
-/**
- * Tri-state layout mode:
- * - 'auto-elk': Node position is automatically recalculated by ELKjs.
- * - 'manual': Node was repositioned by user gesture; coordinates are preserved during AST sync.
- * - 'fixed': Node is permanently anchored as an obstacle; ELK routes other nodes around it.
- */
-export type LayoutMode = 'auto-elk' | 'manual' | 'fixed';
-export type NodeLayoutMode = LayoutMode; // Alias for backward compatibility
+// Layout state is a single boolean `locked` on Canvas Objects (`NeuroNode.locked`),
+// while Auto Layout controls live at the container level (Page & Diagram).
 
 /**
  * Supported geometric shapes for flowchart and mindmap nodes.
@@ -153,7 +147,7 @@ export interface EdgeStyle {
 export interface NeuroNodeData {
   label: string;
   shapeType?: ShapeType;
-  layoutMode: LayoutMode;
+  locked?: boolean;
 
   // Visual & Presentation Styling
   style?: NodeStyle;
@@ -170,6 +164,7 @@ export interface NeuroNodeData {
   mermaidCode?: string;
   diagramMode?: DiagramMode;
   diagramOrientation?: DiagramOrientation;
+  continuousLayout?: boolean;
   isFocused?: boolean;
   lineJump?: boolean;
 
@@ -235,7 +230,7 @@ export interface NeuroNode {
   parentId?: string; // Container grouping (FrameNode / DiagramNode)
   extent?: 'parent';
   groupId?: string; // Logical Grouping (FN-04)
-  layoutMode: LayoutMode;
+  locked?: boolean;
   data: NeuroNodeData;
   selected?: boolean;
   dragging?: boolean;

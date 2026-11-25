@@ -147,7 +147,7 @@ export async function importImageFileAsNode(
     position,
     width,
     height,
-    layoutMode: 'manual',
+    locked: false,
     data: {
       label: file.name || 'Image',
       assetId,
@@ -155,7 +155,7 @@ export async function importImageFileAsNode(
       naturalWidth,
       naturalHeight,
       objectFit: 'contain',
-      layoutMode: 'manual',
+      locked: false,
     },
   });
 
@@ -174,12 +174,12 @@ export function importImageUrlAsNode(
     position,
     width: 240,
     height: 180,
-    layoutMode: 'manual',
+    locked: false,
     data: {
       label: 'Image',
       src: trimmed,
       objectFit: 'contain',
-      layoutMode: 'manual',
+      locked: false,
     },
   });
   store.setSelectedNodes([nodeId]);

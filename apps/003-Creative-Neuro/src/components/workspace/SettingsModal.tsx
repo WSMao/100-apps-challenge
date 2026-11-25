@@ -19,8 +19,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   const themeMode = useProjectStore((s) => s.themeMode);
   const setThemeMode = useProjectStore((s) => s.setThemeMode);
-  const pageLayoutMode = useProjectStore((s) => s.pageLayoutMode);
-  const setPageLayoutMode = useProjectStore((s) => s.setPageLayoutMode);
 
   if (!isOpen) return null;
 
@@ -136,44 +134,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     </div>
                   </button>
                 </div>
-              </div>
-
-              {/* Layout Mode */}
-              <div className="pt-4 border-t border-slate-800/60">
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
-                  Default Layout Behavior
-                </label>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setPageLayoutMode('auto-elk')}
-                    className={`px-4 py-2 rounded-xl border text-xs font-medium cursor-pointer transition ${
-                      pageLayoutMode === 'auto-elk'
-                        ? 'bg-indigo-600 border-indigo-500 text-white shadow-md'
-                        : isDark
-                        ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                        : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
-                    }`}
-                  >
-                    Auto-ELK Hierarchical
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPageLayoutMode('manual')}
-                    className={`px-4 py-2 rounded-xl border text-xs font-medium cursor-pointer transition ${
-                      pageLayoutMode === 'manual'
-                        ? 'bg-indigo-600 border-indigo-500 text-white shadow-md'
-                        : isDark
-                        ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
-                        : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
-                    }`}
-                  >
-                    Manual Whiteboard Mode
-                  </button>
-                </div>
-                <p className="text-xs text-slate-400 mt-2">
-                  In Manual mode, node dragging and keyboard shortcuts never trigger automatic graph re-layout.
-                </p>
               </div>
             </div>
           )}

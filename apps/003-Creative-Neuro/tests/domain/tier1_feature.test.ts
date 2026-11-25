@@ -88,18 +88,23 @@ describe('Tier 1: Feature Coverage (Core Capabilities)', () => {
       expect(node.data.style?.backgroundColor).toBe('#3b82f6');
     });
 
-    it('1.4 should update node positions and transition layout mode to manual', () => {
+    it('1.4 should update node positions when unlocked and block updates when locked', () => {
       const nodeId = ws.addNode({
         position: { x: 100, y: 100 },
-        layoutMode: 'auto-elk',
+        locked: false,
       });
 
-      expect(ws.getActivePage().nodes[nodeId].layoutMode).toBe('auto-elk');
+      expect(ws.getActivePage().nodes[nodeId].locked).toBe(false);
 
       ws.updateNodePosition(nodeId, { x: 450, y: 600 });
       const updated = ws.getActivePage().nodes[nodeId];
       expect(updated.position).toEqual({ x: 450, y: 600 });
-      expect(updated.layoutMode).toBe('manual');
+      expect(updated.locked).toBe(false);
+
+      // Locked node blocks position updates
+      updated.locked = true;
+      ws.updateNodePosition(nodeId, { x: 999, y: 999 });
+      expect(ws.getActivePage().nodes[nodeId].position).toEqual({ x: 450, y: 600 });
     });
 
     it('1.5 should manage edge creation, labeling, and deletion with cascading cleanup', () => {
@@ -279,13 +284,13 @@ describe('Tier 1: Feature Coverage (Core Capabilities)', () => {
       expect(ast.nodes.find((n) => n.id === 'H')?.shapeType).toBe('hexagon');
     });
 
-    it('3.3 should reconcile node AST and preserve manual coordinates and layoutMode', () => {
+    it('3.3 should reconcile node AST and preserve coordinates and locked state', () => {
       const existingNodes: NeuroNode[] = [
         {
           id: 'A',
           type: 'shape',
           position: { x: 777, y: 888 },
-          layoutMode: 'manual',
+          locked: true,
           data: { label: 'Old Label', shapeType: 'rectangle' },
         },
       ];
@@ -300,12 +305,12 @@ describe('Tier 1: Feature Coverage (Core Capabilities)', () => {
       const reconciledA = reconciled.nodes.find((n) => n.id === 'A')!;
       expect(reconciledA).toBeDefined();
       expect(reconciledA.position).toEqual({ x: 777, y: 888 }); // Preserved!
-      expect(reconciledA.layoutMode).toBe('manual'); // Preserved!
+      expect(reconciledA.locked).toBe(true); // Preserved!
       expect(reconciledA.data.label).toBe('Updated Label'); // Updated!
 
       const reconciledB = reconciled.nodes.find((n) => n.id === 'B')!;
       expect(reconciledB).toBeDefined();
-      expect(reconciledB.layoutMode).toBe('auto-elk'); // New node gets default mode!
+      expect(reconciledB.locked).toBe(false); // New node defaults to unlocked!
     });
 
     it('3.4 should serialize canvas graph back into valid Mermaid flowchart DSL', () => {
@@ -379,10 +384,10 @@ describe('Tier 1: Feature Coverage (Core Capabilities)', () => {
       expect(n2.position.y).toBeLessThan(n3.position.y);
     });
 
-    it('4.2 should preserve fixed anchor node coordinates exactly during layout', async () => {
+    it('4.2 should preserve locked anchor node coordinates exactly during layout', async () => {
       const nodes: NeuroNode[] = [
-        { id: 'anchor', type: 'shape', position: { x: 888, y: 999 }, layoutMode: 'fixed', data: {} },
-        { id: 'child', type: 'shape', position: { x: 0, y: 0 }, layoutMode: 'auto-elk', data: {} },
+        { id: 'anchor', type: 'shape', position: { x: 888, y: 999 }, locked: true, data: {} },
+        { id: 'child', type: 'shape', position: { x: 0, y: 0 }, locked: false, data: {} },
       ];
       const edges: NeuroEdge[] = [{ id: 'e1', source: 'anchor', target: 'child' }];
 
@@ -392,17 +397,18 @@ describe('Tier 1: Feature Coverage (Core Capabilities)', () => {
       expect(anchorNode.position).toEqual({ x: 888, y: 999 });
     });
 
-    it('4.3 should preserve manual mode coordinates during layout', async () => {
+    it('4.3 should reposition unlocked nodes even if previously moved', async () => {
       const nodes: NeuroNode[] = [
-        { id: 'm1', type: 'shape', position: { x: 350, y: 550 }, layoutMode: 'manual', data: {} },
-        { id: 'a1', type: 'shape', position: { x: 0, y: 0 }, layoutMode: 'auto-elk', data: {} },
+        { id: 'm1', type: 'shape', position: { x: 350, y: 550 }, locked: false, data: {} },
+        { id: 'a1', type: 'shape', position: { x: 0, y: 0 }, locked: false, data: {} },
       ];
       const edges: NeuroEdge[] = [{ id: 'e1', source: 'm1', target: 'a1' }];
 
       const layout = await calculateElkLayout(nodes, edges);
-      const manualNode = layout.nodes.find((n) => n.id === 'm1')!;
+      const unlockedNode = layout.nodes.find((n) => n.id === 'm1')!;
+      const childNode = layout.nodes.find((n) => n.id === 'a1')!;
 
-      expect(manualNode.position).toEqual({ x: 350, y: 550 });
+      expect(unlockedNode.position.y).toBeLessThan(childNode.position.y);
     });
 
     it('4.4 should parse and support subgraphs with isolated directional directives', () => {

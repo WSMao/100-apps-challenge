@@ -15,8 +15,8 @@ import {
   Trash2,
   Ungroup,
   Group,
-  Workflow,
-  Hand,
+  Lock,
+  Unlock,
   Shapes,
   Palette,
   Type,
@@ -84,8 +84,8 @@ export const NodeFloatingActionBar: React.FC<NodeFloatingActionBarProps> = ({
   const bringForward = useProjectStore((s) => s.bringForward);
   const sendBackward = useProjectStore((s) => s.sendBackward);
   const deleteNodes = useProjectStore((s) => s.deleteNodes);
-  const setNodeLayoutMode = useProjectStore((s) => s.setNodeLayoutMode);
-  const batchSetNodeLayoutMode = useProjectStore((s) => s.batchSetNodeLayoutMode);
+  const setNodeLocked = useProjectStore((s) => s.setNodeLocked);
+  const batchSetNodeLocked = useProjectStore((s) => s.batchSetNodeLocked);
   const groupSelectedNodes = useProjectStore((s) => s.groupSelectedNodes);
   const ungroupNodes = useProjectStore((s) => s.ungroupNodes);
   const setGroupStyle = useProjectStore((s) => s.setGroupStyle);
@@ -125,9 +125,9 @@ export const NodeFloatingActionBar: React.FC<NodeFloatingActionBarProps> = ({
   const currentStrokeColor = primaryNode?.data?.borderColor || '#94a3b8';
   const currentStrokeWidth = primaryNode?.data?.borderWidth ?? 1.5;
 
-  // Layout mode resolution
-  const isAllAuto = targetNodes.every((n) => n.layoutMode === 'auto-elk');
-  const nextLayoutMode = isAllAuto ? 'manual' : 'auto-elk';
+  // Lock status resolution
+  const isAllLocked = targetNodes.every((n) => Boolean(n.locked || n.data?.locked));
+  const nextLocked = !isAllLocked;
 
   // Group status resolution
   const firstGid = targetNodes[0]?.groupId || targetNodes[0]?.data?.groupId;
@@ -156,35 +156,35 @@ export const NodeFloatingActionBar: React.FC<NodeFloatingActionBarProps> = ({
       data-testid="node-floating-action-bar"
       data-is-multi={isMulti ? 'true' : 'false'}
     >
-      {/* 0. Layout Mode Toggle (FN-01) - Single or Batch */}
+      {/* 0. Lock Toggle - Single or Batch */}
       <button
         type="button"
         onClick={() => {
           if (isMulti) {
-            batchSetNodeLayoutMode(targetIds, nextLayoutMode);
+            batchSetNodeLocked(targetIds, nextLocked);
           } else {
-            setNodeLayoutMode(targetIds[0], nextLayoutMode);
+            setNodeLocked(targetIds[0], nextLocked);
           }
         }}
-        title={`Layout Mode: ${isAllAuto ? 'Auto-ELK' : 'Manual'} (點擊全部切換為 ${nextLayoutMode})`}
+        title={isAllLocked ? 'Locked (點擊解鎖)' : 'Unlocked (點擊鎖定)'}
         className={`px-2 py-1 rounded-lg flex items-center gap-1 text-[11px] font-medium cursor-pointer transition ${
-          isAllAuto
-            ? 'bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 border border-cyan-500/30'
+          isAllLocked
+            ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 border border-amber-500/40'
             : isDark
-            ? 'bg-slate-800 text-amber-400 hover:bg-slate-700 border border-amber-500/30'
-            : 'bg-amber-50 text-amber-600 hover:bg-amber-100 border border-amber-300'
+            ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+            : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
         }`}
-        data-testid="toggle-node-layout-mode"
+        data-testid="toggle-node-lock"
       >
-        {isAllAuto ? (
+        {isAllLocked ? (
           <>
-            <Workflow className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Auto</span>
+            <Lock className="w-3.5 h-3.5 text-amber-400" />
+            <span>Locked</span>
           </>
         ) : (
           <>
-            <Hand className="w-3.5 h-3.5 text-amber-500" />
-            <span>Manual</span>
+            <Unlock className="w-3.5 h-3.5 text-slate-400" />
+            <span>Lock</span>
           </>
         )}
       </button>

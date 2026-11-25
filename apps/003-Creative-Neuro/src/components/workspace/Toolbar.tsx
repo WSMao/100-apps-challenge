@@ -214,11 +214,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         position: { x: 260 + offset, y: 200 + offset },
         width: targetShape === 'diamond' ? 150 : 160,
         height: targetShape === 'diamond' ? 90 : 60,
-        layoutMode: 'manual',
+        locked: false,
         data: {
           label: `${targetShape.charAt(0).toUpperCase() + targetShape.slice(1)} Node`,
           shapeType: targetShape,
-          layoutMode: 'manual',
+          locked: false,
         },
       });
       setSelectedNodes([newId]);
@@ -228,10 +228,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         position: { x: 280 + offset, y: 220 + offset },
         width: 200,
         height: 60,
-        layoutMode: 'manual',
+        locked: false,
         data: {
           label: 'Double-click to edit note...',
-          layoutMode: 'manual',
+          locked: false,
           backgroundColor: 'transparent',
           borderColor: 'transparent',
           borderWidth: 0,
@@ -244,13 +244,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         position: { x: 220 + offset, y: 160 + offset },
         width: 360,
         height: 260,
-        layoutMode: 'manual',
+        locked: false,
         data: {
           label: 'Container Group',
           title: 'Container Group',
           collapsed: false,
           direction: 'TB',
-          layoutMode: 'manual',
+          locked: false,
         },
       });
       setSelectedNodes([newId]);
@@ -260,14 +260,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         position: { x: 240 + offset, y: 180 + offset },
         width: 340,
         height: 260,
-        layoutMode: 'manual',
+        locked: false,
         data: {
           label: 'Mermaid Diagram',
           title: 'Mermaid Diagram',
           diagramMode: 'embedded',
           diagramOrientation: 'TB',
           mermaidCode: 'flowchart TD\n  Start([Start]) --> Process[Action]\n  Process --> End([Done])',
-          layoutMode: 'manual',
+          locked: false,
         },
       });
       setSelectedNodes([newId]);

@@ -459,7 +459,7 @@ export function parseMermaid(code: string): ParsedMermaidAST {
 export function reconcileMermaidAST(
   ast: ParsedMermaidAST,
   existingNodes: NeuroNode[],
-  defaultMode: LayoutMode = 'auto-elk'
+  defaultLocked = false
 ): { nodes: NeuroNode[]; edges: NeuroEdge[] } {
   const existingMap = new Map<string, NeuroNode>(
     existingNodes.map((n) => [n.id, n])
@@ -472,10 +472,11 @@ export function reconcileMermaidAST(
     const existing = existingMap.get(parsed.id);
 
     if (existing) {
-      // PRESERVE coordinates and layoutMode, update semantic properties
+      // PRESERVE coordinates and locked state, update semantic properties
       return {
         ...existing,
         parentId: parsed.parentId ?? existing.parentId,
+        locked: Boolean(existing.locked),
         data: {
           ...existing.data,
           label: parsed.label,
@@ -483,7 +484,7 @@ export function reconcileMermaidAST(
         },
       };
     } else {
-      // NEW Node: assign incremental position and auto-elk mode
+      // NEW Node: assign incremental position and defaultLocked
       const pos: Point = { x: autoX, y: autoY };
       autoX += 180;
       if (autoX > 800) {
@@ -497,7 +498,7 @@ export function reconcileMermaidAST(
         width: 160,
         height: 60,
         parentId: parsed.parentId,
-        layoutMode: defaultMode,
+        locked: defaultLocked,
         data: {
           label: parsed.label,
           shapeType: parsed.shapeType,
@@ -677,8 +678,8 @@ export async function calculateElkLayout(
     const layerY = 100 + l * ((layerNodes[0]?.height ?? 60) + layerSpacing);
 
     layerNodes.forEach((node, idx) => {
-      // PRESERVE fixed and manual nodes
-      if (node.layoutMode === 'fixed' || node.layoutMode === 'manual') {
+      // PRESERVE locked nodes
+      if (node.locked) {
         resultNodes.push({ ...node });
       } else {
         const layerX =
@@ -863,7 +864,7 @@ export class TestWorkspace {
       position: node.position || { x: 100, y: 100 },
       width: node.width || 160,
       height: node.height || 60,
-      layoutMode: node.layoutMode || 'auto-elk',
+      locked: Boolean(node.locked),
       data: node.data || { label: 'New Node', shapeType: 'rectangle' },
       parentId: node.parentId,
       selected: node.selected || false,
@@ -875,9 +876,8 @@ export class TestWorkspace {
   updateNodePosition(id: string, position: Point) {
     this.recordSnapshot();
     const page = this.getActivePage();
-    if (page.nodes[id]) {
+    if (page.nodes[id] && !page.nodes[id].locked) {
       page.nodes[id].position = { ...position };
-      page.nodes[id].layoutMode = 'manual';
     }
   }
 
@@ -928,7 +928,7 @@ export class TestWorkspace {
       const childId = this.addNode({
         position: newPos,
         data: { label: 'Child Node', shapeType: parentNode.data.shapeType || 'rectangle' },
-        layoutMode: parentNode.layoutMode,
+        locked: false,
         parentId: parentNode.parentId,
       });
       this.addEdge({ source: parentId, target: childId });
@@ -955,7 +955,7 @@ export class TestWorkspace {
       const newSiblingId = this.addNode({
         position: newPos,
         data: { label: 'Sibling Node', shapeType: siblingNode.data.shapeType || 'rectangle' },
-        layoutMode: siblingNode.layoutMode,
+        locked: false,
         parentId: siblingNode.parentId,
       });
 
@@ -993,7 +993,7 @@ export class TestWorkspace {
       const newId = this.addNode({
         position: newPos,
         data: { label: `${direction} Node`, shapeType: srcNode.data.shapeType },
-        layoutMode: srcNode.layoutMode,
+        locked: false,
       });
 
       this.addEdge({ source: sourceId, target: newId });

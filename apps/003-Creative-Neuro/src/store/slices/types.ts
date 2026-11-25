@@ -26,7 +26,7 @@ import type {
   ThemeMode,
   SpawnDirection,
   ProjectSummary,
-  LayoutMode,
+  FlowDirection,
   EdgeRoutingType,
   SelectionFilter,
   NodeStyle,
@@ -62,7 +62,6 @@ export interface ProjectState {
   // --- Requirements State ---
   themeMode: ThemeMode;
   lastDirection: SpawnDirection;
-  pageLayoutMode: LayoutMode;
   connectorSourceNodeId: string | null;
   defaultEdgeRoutingType: EdgeRoutingType;
   availableProjects: ProjectSummary[];
@@ -131,9 +130,9 @@ export interface ProjectActions {
   // Requirements: OP-07, PM, TL, UI-04, FN
   setLastDirection: (dir: SpawnDirection) => void;
   setThemeMode: (mode: ThemeMode) => void;
-  setPageLayoutMode: (mode: LayoutMode) => void;
-  setNodeLayoutMode: (nodeId: string, mode: LayoutMode) => void;
-  batchSetNodeLayoutMode: (nodeIds: string[], mode: LayoutMode) => void;
+  setNodeLocked: (nodeId: string, locked: boolean) => void;
+  batchSetNodeLocked: (nodeIds: string[], locked: boolean) => void;
+  autoLayoutPage: (direction?: string) => void;
   setDefaultEdgeRoutingType: (type: EdgeRoutingType) => void;
   handleConnectorNodeClick: (nodeId: string) => string | null;
   resetConnector: () => void;

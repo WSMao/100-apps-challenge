@@ -146,10 +146,10 @@ export function quickAddDirectionalNode(
       height: H,
       parentId: targetNode.parentId,
       extent: targetNode.extent,
-      layoutMode: 'manual',
+      locked: false,
       data: {
         label: 'New Node',
-        layoutMode: 'manual',
+        locked: false,
         shapeType: targetNode.data?.shapeType || 'rounded',
         backgroundColor: targetNode.data?.backgroundColor || '#1e293b',
         borderColor: targetNode.data?.borderColor || '#475569',

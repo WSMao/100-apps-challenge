@@ -11,10 +11,11 @@ import type {
   NeuroNodeData,
   NeuroNodeType,
   Point,
-  LayoutMode,
+  FlowDirection,
   EdgeRoutingType,
   NodeStyle,
 } from '../../types/index.ts';
+import { calculateElkLayoutSync } from '../../engine/layout/elkEngine.ts';
 import type { StoreSet, StoreGet } from './types.ts';
 
 /**
@@ -93,6 +94,7 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
       const isTextType = resolvedType === 'text';
       const isFrameType = resolvedType === 'frame';
       const isImageType = resolvedType === 'image';
+      const isLocked = Boolean(nodeData.locked ?? nodeData.data?.locked ?? false);
       const isDark = state.themeMode === 'dark';
       const defaultBg = isTextType || isImageType
         ? 'transparent'
@@ -120,8 +122,7 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
             : isImageType
             ? 'Image'
             : 'New Node'),
-        layoutMode:
-          nodeData.data?.layoutMode || nodeData.layoutMode || 'manual',
+        locked: isLocked,
         shapeType:
           nodeData.data?.shapeType ||
           (isTextType || isFrameType || isImageType ? undefined : 'rounded'),
@@ -145,7 +146,7 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
         height: nodeData.height || (isFrameType ? 260 : isImageType ? 180 : 60),
         parentId: nodeData.parentId,
         extent: nodeData.extent,
-        layoutMode: defaultData.layoutMode,
+        locked: isLocked,
         data: defaultData,
         zIndex: nodeData.zIndex ?? (isFrameType ? 0 : 1),
       };
@@ -187,10 +188,10 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
         position: { x: Math.round(centerPos.x - 100), y: Math.round(centerPos.y - 30) },
         width: 200,
         height: 60,
-        layoutMode: 'manual',
+        locked: false,
         data: {
           label: 'Text Note',
-          layoutMode: 'manual',
+          locked: false,
           backgroundColor: 'transparent',
           borderColor: 'transparent',
           borderWidth: 0,
@@ -203,13 +204,13 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
         position: { x: Math.round(centerPos.x - 180), y: Math.round(centerPos.y - 130) },
         width: 360,
         height: 260,
-        layoutMode: 'manual',
+        locked: false,
         data: {
           label: 'Container Group',
           title: 'Container Group',
           collapsed: false,
           direction: 'TB',
-          layoutMode: 'manual',
+          locked: false,
         },
       });
     } else if (targetType === 'diagram') {
@@ -218,7 +219,7 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
         position: { x: Math.round(centerPos.x - 170), y: Math.round(centerPos.y - 130) },
         width: 340,
         height: 260,
-        layoutMode: 'manual',
+        locked: false,
         data: {
           label: 'Mermaid Diagram',
           title: 'Mermaid Diagram',
@@ -226,7 +227,7 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
           diagramOrientation: 'TB',
           mermaidCode:
             'flowchart TD\n  Start([Start]) --> Process[Action]\n  Process --> End([Done])',
-          layoutMode: 'manual',
+          locked: false,
         },
       });
     } else if (targetType === 'image') {
@@ -235,10 +236,10 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
         position: { x: Math.round(centerPos.x - 120), y: Math.round(centerPos.y - 90) },
         width: 240,
         height: 180,
-        layoutMode: 'manual',
+        locked: false,
         data: {
           label: 'Image',
-          layoutMode: 'manual',
+          locked: false,
         },
       });
     } else {
@@ -247,10 +248,10 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
         position: { x: Math.round(centerPos.x - 80), y: Math.round(centerPos.y - 30) },
         width: 160,
         height: 60,
-        layoutMode: 'manual',
+        locked: false,
         data: {
           label: 'New Idea',
-          layoutMode: 'manual',
+          locked: false,
           shapeType: 'rounded',
           backgroundColor: isDark ? '#1e293b' : '#ffffff',
           borderColor: isDark ? '#475569' : '#cbd5e1',
@@ -285,11 +286,11 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
 
     set((state) => {
       const isTextType = nodeData.type === 'text';
+      const isLocked = Boolean(nodeData.locked ?? nodeData.data?.locked ?? false);
       const defaultData: NeuroNodeData = {
         ...nodeData.data,
         label: nodeData.data?.label || (isTextType ? 'Type text here...' : 'New Node'),
-        layoutMode:
-          nodeData.data?.layoutMode || nodeData.layoutMode || 'manual',
+        locked: isLocked,
         shapeType: nodeData.data?.shapeType || (isTextType ? undefined : 'rounded'),
         backgroundColor: isTextType
           ? (nodeData.data?.backgroundColor || 'transparent')
@@ -313,7 +314,7 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
         height: nodeData.height || 60,
         parentId: nodeData.parentId,
         extent: nodeData.extent,
-        layoutMode: defaultData.layoutMode,
+        locked: isLocked,
         data: defaultData,
         zIndex: nodeData.zIndex || 1,
       };
@@ -368,15 +369,8 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
   updateNodePosition: (id: string, position: Point) => {
     set((state) => {
       const node = state.nodes[id];
-      if (node) {
+      if (node && !node.locked && !node.data?.locked) {
         node.position = position;
-        // Moving a node manually switches auto-elk to manual to preserve coordinates
-        if (node.layoutMode === 'auto-elk') {
-          node.layoutMode = 'manual';
-        }
-        if (node.data && node.data.layoutMode === 'auto-elk') {
-          node.data.layoutMode = 'manual';
-        }
         const page = state.pages[state.activePageId];
         if (page) {
           page.updatedAt = Date.now();
@@ -393,7 +387,7 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
     let hasDataChange = false;
     if (currentData) {
       for (const key of Object.keys(patch)) {
-        if (key === 'layoutMode') continue;
+        if (key === 'locked') continue;
         if (currentData[key] !== (patch as any)[key]) {
           hasDataChange = true;
           break;
@@ -403,8 +397,8 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
       hasDataChange = true;
     }
 
-    const hasLayoutChange = patch.layoutMode && currentNode.layoutMode !== patch.layoutMode;
-    if (!hasDataChange && !hasLayoutChange) {
+    const hasLockChange = patch.locked !== undefined && Boolean(currentNode.locked) !== Boolean(patch.locked);
+    if (!hasDataChange && !hasLockChange) {
       return;
     }
 
@@ -415,8 +409,8 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
           ...node.data,
           ...patch,
         };
-        if (patch.layoutMode) {
-          node.layoutMode = patch.layoutMode;
+        if (patch.locked !== undefined) {
+          node.locked = Boolean(patch.locked);
         }
         const page = state.pages[state.activePageId];
         if (page) {
@@ -437,8 +431,8 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
             ...node.data,
             ...patch,
           };
-          if (patch.layoutMode) {
-            node.layoutMode = patch.layoutMode;
+          if (patch.locked !== undefined) {
+            node.locked = Boolean(patch.locked);
           }
         }
       }
@@ -749,15 +743,13 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
     });
   },
 
-  setPageLayoutMode: (pageLayoutMode: LayoutMode) => set({ pageLayoutMode }),
-
-  setNodeLayoutMode: (nodeId: string, mode: LayoutMode) => {
+  setNodeLocked: (nodeId: string, locked: boolean) => {
     set((state) => {
       const node = state.nodes[nodeId];
       if (node) {
-        node.layoutMode = mode;
+        node.locked = locked;
         if (node.data) {
-          node.data.layoutMode = mode;
+          node.data.locked = locked;
         }
         const page = state.pages[state.activePageId];
         if (page) page.updatedAt = Date.now();
@@ -766,20 +758,53 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
     });
   },
 
-  batchSetNodeLayoutMode: (ids: string[], mode: LayoutMode) => {
+  batchSetNodeLocked: (ids: string[], locked: boolean) => {
     if (!ids || ids.length === 0) return;
     set((state) => {
       for (const id of ids) {
         const node = state.nodes[id];
         if (node) {
-          node.layoutMode = mode;
+          node.locked = locked;
           if (node.data) {
-            node.data.layoutMode = mode;
+            node.data.locked = locked;
           }
         }
       }
       const page = state.pages[state.activePageId];
       if (page) page.updatedAt = Date.now();
+      state.project.updatedAt = Date.now();
+    });
+  },
+
+  autoLayoutPage: (direction = 'TB') => {
+    const { activePageId, pages, nodes, edges } = get();
+    const activePage = pages[activePageId];
+    if (!activePage) return;
+
+    const pageNodes = activePage.nodeIds
+      .map((id) => nodes[id])
+      .filter((n): n is NeuroNode => Boolean(n));
+    const pageEdges = activePage.edgeIds
+      .map((id) => edges[id])
+      .filter((e): e is NeuroEdge => Boolean(e));
+
+    if (pageNodes.length === 0) return;
+
+    const result = calculateElkLayoutSync(pageNodes, pageEdges, { direction });
+
+    set((state) => {
+      for (const laidOutNode of result.nodes) {
+        const target = state.nodes[laidOutNode.id];
+        if (target && !target.locked && !target.data?.locked) {
+          target.position = { ...laidOutNode.position };
+          if (laidOutNode.width) target.width = laidOutNode.width;
+          if (laidOutNode.height) target.height = laidOutNode.height;
+        }
+      }
+      const pg = state.pages[state.activePageId];
+      if (pg) {
+        pg.updatedAt = Date.now();
+      }
       state.project.updatedAt = Date.now();
     });
   },
