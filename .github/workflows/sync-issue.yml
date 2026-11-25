@@ -1,10 +1,12 @@
 
-name: Sync App001 README to Issue
+name: Sync App003 PRD to Issue #39
 
 on:
   push:
+    branches:
+      - 003-Creative-Neuro
     paths:
-      - 'apps/001-Challenge-Showcase/README.md'
+      - 'apps/003-Creative-Neuro/docs/PRD.md'
 
 permissions:
   contents: read
@@ -18,9 +20,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Sync README to Issue #28
+      - name: Sync PRD to Issue #39
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh issue edit 28 \
-            --body-file apps/001-Challenge-Showcase/README.md
+          gh issue edit 39 \
+            --body-file apps/003-Creative-Neuro/docs/PRD.md
