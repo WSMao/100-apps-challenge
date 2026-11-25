@@ -28,15 +28,10 @@ import { createSeedProject } from '../store/seedData.ts';
 import { serializeMermaid, calculateLineJumps } from '../engine/index.ts';
 import {
   compressPayload,
-  decompressPayload,
   deflateToBytes,
   embedPayloadInPngDataUrl,
   embedPayloadInSvg,
-  extractPayloadFromPngDataUrl,
-  extractPngTextChunk,
-  extractPayloadFromSvg,
   FALLBACK_1X1_PNG_BASE64,
-  isValidPng,
 } from './pakoUtils.ts';
 
 export interface UnifiedExportPayload extends SerializedProjectPayload, ProjectRecord {}
@@ -593,102 +588,46 @@ export async function exportCanvasAsPngWithMetadata(
   return exportPngWithPako(source, capturedDataUrl);
 }
 
-/**
- * Restores a normalized project payload from PNG metadata bytes or base64 string.
- */
-export function restoreProjectFromPngMetadata(
-  compressedOrPng: Uint8Array | string
-): UnifiedExportPayload {
-  if (compressedOrPng instanceof Uint8Array) {
-    if (isValidPng(compressedOrPng)) {
-      const extractedBase64 = extractPngTextChunk(compressedOrPng);
-      if (!extractedBase64) {
-        throw new Error('No Creative-Neuro metadata chunk found in PNG file');
-      }
-      const jsonStr = decompressPayload(extractedBase64);
-      return importProjectFromJson(jsonStr);
-    }
-    const jsonStr = decompressPayload(compressedOrPng);
-    return importProjectFromJson(jsonStr);
-  }
-
-  if (compressedOrPng.startsWith('data:image/png')) {
-    const extracted = extractPayloadFromPngDataUrl(compressedOrPng);
-    if (!extracted) {
-      throw new Error('No Creative-Neuro metadata found in PNG Data URL');
-    }
-    const jsonStr = decompressPayload(extracted);
-    return importProjectFromJson(jsonStr);
-  }
-
-  const jsonStr = decompressPayload(compressedOrPng);
-  return importProjectFromJson(jsonStr);
-}
-
 // ============================================================================
-// 6. Universal Importer (.neuro.json, .neuro.svg, .neuro.png)
+// 6. JSON-Only Project File Importer (.neuro.json)
 // ============================================================================
 
 /**
- * Universal import parser accepting a File, Blob, Uint8Array, or string
- * from `.neuro.json`, `.neuro.svg`, or `.neuro.png`.
+ * Parses and validates a `.neuro.json` project file or JSON string.
+ * PNG and SVG project-restoration imports are intentionally not supported (ADR-0003).
  */
-export async function importFromPngOrSvgMetadata(
-  input: File | Blob | Uint8Array | string
+export async function importProjectFromFile(
+  input: File | Blob | string
 ): Promise<UnifiedExportPayload> {
-  if (input instanceof Uint8Array) {
-    return restoreProjectFromPngMetadata(input);
-  }
-
   if (typeof input === 'string') {
     const trimmed = input.trim();
-    if (trimmed.startsWith('{')) {
-      return importProjectFromJson(trimmed);
+    if (
+      trimmed.startsWith('<svg') ||
+      trimmed.includes('<svg') ||
+      trimmed.startsWith('data:image/png')
+    ) {
+      throw new Error(
+        'PNG and SVG project import is not supported. Please import a .neuro.json file.'
+      );
     }
-    if (trimmed.startsWith('<svg') || trimmed.includes('<svg')) {
-      const svgPayload = extractPayloadFromSvg(trimmed);
-      if (!svgPayload) {
-        throw new Error('SVG file does not contain embedded Creative-Neuro metadata');
-      }
-      const jsonStr = decompressPayload(svgPayload);
-      return importProjectFromJson(jsonStr);
-    }
-    if (trimmed.startsWith('data:image/png')) {
-      return restoreProjectFromPngMetadata(trimmed);
-    }
-    // Otherwise assume base64 compressed payload
-    const jsonStr = decompressPayload(trimmed);
-    return importProjectFromJson(jsonStr);
+    return importProjectFromJson(trimmed);
   }
 
-  // Handle File / Blob
   const fileName = 'name' in input ? input.name.toLowerCase() : '';
   const mimeType = input.type.toLowerCase();
 
   if (
     fileName.endsWith('.png') ||
-    mimeType === 'image/png'
+    fileName.endsWith('.svg') ||
+    mimeType === 'image/png' ||
+    mimeType === 'image/svg+xml'
   ) {
-    const arrayBuffer = await input.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
-    return restoreProjectFromPngMetadata(bytes);
+    throw new Error(
+      'PNG and SVG project import is not supported. Please import a .neuro.json file.'
+    );
   }
 
   const textContent = await input.text();
-  if (
-    fileName.endsWith('.svg') ||
-    mimeType === 'image/svg+xml' ||
-    textContent.trim().startsWith('<svg') ||
-    textContent.includes('<svg')
-  ) {
-    const svgPayload = extractPayloadFromSvg(textContent);
-    if (!svgPayload) {
-      throw new Error('SVG file does not contain embedded Creative-Neuro metadata');
-    }
-    const jsonStr = decompressPayload(svgPayload);
-    return importProjectFromJson(jsonStr);
-  }
-
   return importProjectFromJson(textContent);
 }
 

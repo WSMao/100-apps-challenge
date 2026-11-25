@@ -38,6 +38,8 @@ export default defineConfig({
       'tests/requirements.test.ts',
       'tests/integration_canvas_lifecycle.test.ts',
       'tests/lineJumpConnector.test.ts',
+      'tests/importExport.test.ts',
+      'tests/pageLifecycle.test.ts',
     ],
   },
 });

@@ -61,6 +61,7 @@ export const createPageSlice = (
     try {
       set((state) => {
         if (state.pages[pageId]) {
+          state.pages[pageId].hidden = false;
           state.activePageId = pageId;
           state.project.activePageId = pageId;
           state.selectedNodeIds = [];
@@ -74,6 +75,88 @@ export const createPageSlice = (
             state.boards[boardId].activePageId = pageId;
           }
         }
+      });
+    } finally {
+      temporal?.resume();
+    }
+  },
+
+  hidePage: (pageId: string) => {
+    const temporal = getTemporal?.();
+    temporal?.pause();
+    try {
+      set((state) => {
+        const page = state.pages[pageId];
+        if (!page || page.hidden) return;
+
+        const visiblePageIds = state.project.pageIds.filter(
+          (id) => state.pages[id] && !state.pages[id].hidden
+        );
+        if (visiblePageIds.length <= 1) {
+          console.warn('[ProjectStore] Cannot hide the last visible page tab.');
+          return;
+        }
+
+        page.hidden = true;
+        page.updatedAt = Date.now();
+
+        if (state.activePageId === pageId) {
+          const idx = visiblePageIds.indexOf(pageId);
+          const remainingVisible = visiblePageIds.filter((id) => id !== pageId);
+          const nextActiveId =
+            remainingVisible[Math.min(idx, remainingVisible.length - 1)] ||
+            remainingVisible[0];
+
+          if (nextActiveId) {
+            state.activePageId = nextActiveId;
+            state.project.activePageId = nextActiveId;
+            state.selectedNodeIds = [];
+            state.selectedEdgeIds = [];
+            state.focusedDiagramId = null;
+            state.editingNodeId = null;
+            state.editingInitialValue = null;
+
+            const boardId = state.pages[nextActiveId]?.boardId;
+            if (boardId && state.boards[boardId]) {
+              state.boards[boardId].activePageId = nextActiveId;
+            }
+          }
+        }
+
+        state.project.updatedAt = Date.now();
+      });
+    } finally {
+      temporal?.resume();
+    }
+  },
+
+  reopenPage: (pageId: string, activate: boolean = true) => {
+    const temporal = getTemporal?.();
+    temporal?.pause();
+    try {
+      set((state) => {
+        const page = state.pages[pageId];
+        if (!page) return;
+
+        page.hidden = false;
+        page.updatedAt = Date.now();
+
+        if (activate) {
+          state.activePageId = pageId;
+          state.project.activePageId = pageId;
+          state.selectedNodeIds = [];
+          state.selectedEdgeIds = [];
+          state.focusedDiagramId = null;
+          state.editingNodeId = null;
+          state.editingInitialValue = null;
+
+          const boardId = page.boardId;
+          if (boardId && state.boards[boardId]) {
+            state.boards[boardId].activePageId = pageId;
+          }
+        }
+
+        state.project.updatedAt = Date.now();
       });
     } finally {
       temporal?.resume();
@@ -110,9 +193,15 @@ export const createPageSlice = (
       state.project.pageIds = state.project.pageIds.filter((p) => p !== pageId);
 
       if (state.activePageId === pageId) {
-        const nextActiveId = state.project.pageIds[0];
-        state.activePageId = nextActiveId;
-        state.project.activePageId = nextActiveId;
+        const nextActiveId =
+          state.project.pageIds.find(
+            (id) => state.pages[id] && !state.pages[id].hidden
+          ) || state.project.pageIds[0];
+        if (nextActiveId && state.pages[nextActiveId]) {
+          state.pages[nextActiveId].hidden = false;
+          state.activePageId = nextActiveId;
+          state.project.activePageId = nextActiveId;
+        }
       }
 
       for (const board of Object.values(state.boards)) {

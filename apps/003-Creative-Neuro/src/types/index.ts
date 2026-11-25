@@ -257,6 +257,7 @@ export interface Page {
   title: string;
   name?: string; // Alias for title
   order: number;
+  hidden?: boolean;
   viewport: Viewport;
   lineJump?: boolean;
   nodeIds: string[];
