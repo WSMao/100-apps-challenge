@@ -22,9 +22,18 @@ import {
   Type,
   PenTool,
   BoxSelect,
+  AlignLeft,
+  AlignCenterHorizontal,
+  AlignRight,
+  AlignStartHorizontal,
+  AlignCenterVertical,
+  AlignEndHorizontal,
+  AlignHorizontalDistributeCenter,
+  AlignVerticalDistributeCenter,
 } from 'lucide-react';
 import { useProjectStore } from '../../store/useProjectStore.ts';
 import type { NeuroNode, ShapeType, NodeStyle } from '../../types/index.ts';
+import type { AlignmentActionType } from '../../engine/index.ts';
 
 export interface NodeFloatingActionBarProps {
   nodeId?: string;
@@ -89,10 +98,11 @@ export const NodeFloatingActionBar: React.FC<NodeFloatingActionBarProps> = ({
   const groupSelectedNodes = useProjectStore((s) => s.groupSelectedNodes);
   const ungroupNodes = useProjectStore((s) => s.ungroupNodes);
   const setGroupStyle = useProjectStore((s) => s.setGroupStyle);
+  const alignSelectedNodes = useProjectStore((s) => s.alignSelectedNodes);
   const themeMode = useProjectStore((s) => s.themeMode);
 
-  const [openMenu, setOpenMenu] = useState<'shape' | 'bg' | 'text' | 'stroke' | 'groupStyle' | null>(null);
-  const toggleMenu = (menu: 'shape' | 'bg' | 'text' | 'stroke' | 'groupStyle') =>
+  const [openMenu, setOpenMenu] = useState<'shape' | 'bg' | 'text' | 'stroke' | 'groupStyle' | 'align' | null>(null);
+  const toggleMenu = (menu: 'shape' | 'bg' | 'text' | 'stroke' | 'groupStyle' | 'align') =>
     setOpenMenu((prev) => (prev === menu ? null : menu));
 
   // Resolve target nodes (either from multi-selection nodeIds or single nodeId)
@@ -457,6 +467,127 @@ export const NodeFloatingActionBar: React.FC<NodeFloatingActionBarProps> = ({
       </button>
 
       {/* 3. Group / Ungroup & Group Style (FN-04) */}
+      {isMulti && (
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => toggleMenu('align')}
+            title="Align & Distribute Selected Objects"
+            className={`p-1.5 rounded-lg flex items-center gap-1 cursor-pointer transition ${
+              isDark ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-100 text-slate-600'
+            }`}
+            data-testid="action-align-menu"
+          >
+            <AlignLeft className="w-3.5 h-3.5 text-cyan-500" />
+            <span className="text-[11px] font-medium">Align</span>
+          </button>
+          {openMenu === 'align' && (
+            <div
+              className={`absolute top-full left-0 mt-1 p-2 w-48 rounded-lg shadow-xl border z-[100000] flex flex-col gap-1.5 ${
+                isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'
+              }`}
+              data-testid="align-menu"
+            >
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Align Horizontal
+              </div>
+              <div className="grid grid-cols-3 gap-1">
+                {(
+                  [
+                    { action: 'align-left', label: 'Align Left', icon: AlignLeft },
+                    { action: 'align-center-h', label: 'Align Center H', icon: AlignCenterHorizontal },
+                    { action: 'align-right', label: 'Align Right', icon: AlignRight },
+                  ] as const
+                ).map(({ action, label, icon: Icon }) => (
+                  <button
+                    key={action}
+                    type="button"
+                    title={label}
+                    data-testid={action}
+                    onClick={() => {
+                      alignSelectedNodes(action as AlignmentActionType);
+                      setOpenMenu(null);
+                    }}
+                    className={`p-1.5 rounded-md flex items-center justify-center cursor-pointer transition ${
+                      isDark ? 'hover:bg-slate-800 text-slate-200' : 'hover:bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                  </button>
+                ))}
+              </div>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Align Vertical
+              </div>
+              <div className="grid grid-cols-3 gap-1">
+                {(
+                  [
+                    { action: 'align-top', label: 'Align Top', icon: AlignStartHorizontal },
+                    { action: 'align-center-v', label: 'Align Center V', icon: AlignCenterVertical },
+                    { action: 'align-bottom', label: 'Align Bottom', icon: AlignEndHorizontal },
+                  ] as const
+                ).map(({ action, label, icon: Icon }) => (
+                  <button
+                    key={action}
+                    type="button"
+                    title={label}
+                    data-testid={action}
+                    onClick={() => {
+                      alignSelectedNodes(action as AlignmentActionType);
+                      setOpenMenu(null);
+                    }}
+                    className={`p-1.5 rounded-md flex items-center justify-center cursor-pointer transition ${
+                      isDark ? 'hover:bg-slate-800 text-slate-200' : 'hover:bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                  </button>
+                ))}
+              </div>
+              {targetNodes.length >= 3 && (
+                <>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    Distribute
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
+                    <button
+                      type="button"
+                      title="Distribute Horizontally"
+                      data-testid="distribute-h"
+                      onClick={() => {
+                        alignSelectedNodes('distribute-h');
+                        setOpenMenu(null);
+                      }}
+                      className={`p-1.5 rounded-md flex items-center justify-center gap-1 text-[11px] cursor-pointer transition ${
+                        isDark ? 'hover:bg-slate-800 text-slate-200' : 'hover:bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      <AlignHorizontalDistributeCenter className="w-3.5 h-3.5" />
+                      <span>Horiz</span>
+                    </button>
+                    <button
+                      type="button"
+                      title="Distribute Vertically"
+                      data-testid="distribute-v"
+                      onClick={() => {
+                        alignSelectedNodes('distribute-v');
+                        setOpenMenu(null);
+                      }}
+                      className={`p-1.5 rounded-md flex items-center justify-center gap-1 text-[11px] cursor-pointer transition ${
+                        isDark ? 'hover:bg-slate-800 text-slate-200' : 'hover:bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      <AlignVerticalDistributeCenter className="w-3.5 h-3.5" />
+                      <span>Vert</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {isMulti && !isAllGrouped && (
         <button
           type="button"

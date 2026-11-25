@@ -25,6 +25,7 @@ export const initialState: ProjectState = {
   editingInitialValue: null,
   isDragging: false,
   isResizing: false,
+  alignmentGuides: [],
 
   themeMode: 'light',
   lastDirection: 'right',

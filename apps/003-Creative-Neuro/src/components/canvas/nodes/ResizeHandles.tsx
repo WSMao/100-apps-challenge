@@ -5,6 +5,7 @@
 import React, { useCallback } from 'react';
 import { useStoreApi } from '@xyflow/react';
 import { useProjectStore } from '../../../store/useProjectStore.ts';
+import { computeResizeSnap, type SnapRect } from '../../../engine/index.ts';
 
 export type ResizeDirection = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se';
 
@@ -122,13 +123,56 @@ export function useNodeResize({
         const dx = (moveEvent.clientX - startX) / zoom;
         const dy = (moveEvent.clientY - startY) / zoom;
 
-        const next = computeResizedBounds(
+        const rawNext = computeResizedBounds(
           { x: startPosX, y: startPosY, width: startW, height: startH },
           dir,
           dx,
           dy,
           { minWidth, minHeight, maxWidth, maxHeight }
         );
+
+        const curState = useProjectStore.getState();
+        const curNode = curState.nodes[id];
+        const parentNode = curNode?.parentId ? curState.nodes[curNode.parentId] : null;
+        const absOffsetX = parentNode ? parentNode.position.x : 0;
+        const absOffsetY = parentNode ? parentNode.position.y : 0;
+
+        const activePage = curState.pages[curState.activePageId];
+        const pageNodeIds = activePage?.nodeIds ?? Object.keys(curState.nodes);
+        const otherRects: SnapRect[] = [];
+        for (const nid of pageNodeIds) {
+          if (nid === id) continue;
+          const n = curState.nodes[nid];
+          if (!n || n.hidden || n.type === 'freehand' || n.parentId === id) continue;
+          const nParent = n.parentId ? curState.nodes[n.parentId] : null;
+          otherRects.push({
+            id: n.id,
+            x: nParent ? nParent.position.x + n.position.x : n.position.x,
+            y: nParent ? nParent.position.y + n.position.y : n.position.y,
+            width: n.width ?? n.measured?.width ?? 160,
+            height: n.height ?? n.measured?.height ?? 60,
+          });
+        }
+
+        const snapped = computeResizeSnap(
+          {
+            x: rawNext.x + absOffsetX,
+            y: rawNext.y + absOffsetY,
+            width: rawNext.width,
+            height: rawNext.height,
+          },
+          dir,
+          otherRects,
+          { minWidth, minHeight, maxWidth, maxHeight },
+          { snapThreshold: 6, gridSize: 16 }
+        );
+
+        const next = {
+          x: snapped.bounds.x - absOffsetX,
+          y: snapped.bounds.y - absOffsetY,
+          width: snapped.bounds.width,
+          height: snapped.bounds.height,
+        };
 
         const deltaPosX = next.x - prevPosX;
         const deltaPosY = next.y - prevPosY;
@@ -142,6 +186,7 @@ export function useNodeResize({
           n.height = next.height;
           n.position = { x: next.x, y: next.y };
           n.measured = { width: next.width, height: next.height };
+          s.alignmentGuides = snapped.guides;
         });
 
         if (deltaPosX !== 0 || deltaPosY !== 0) {
@@ -155,6 +200,7 @@ export function useNodeResize({
 
         useProjectStore.setState((s) => {
           s.isResizing = false;
+          s.alignmentGuides = [];
           const page = s.pages[s.activePageId];
           if (page) page.updatedAt = Date.now();
           s.project.updatedAt = Date.now();

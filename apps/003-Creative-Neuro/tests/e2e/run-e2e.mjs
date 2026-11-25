@@ -1814,6 +1814,151 @@ async function runE2EScenario() {
     }
     console.log('  ✓ Image import, resize handles & dblclick verified:', JSON.stringify(imageAndDblClickRes.result?.result?.value));
 
+    // Step 15: Issue #45 Multi-Object Alignment Tools & Live Auto-Snapping Alignment Guides
+    console.log('\n[E2E Step 15] Testing Multi-Object Alignment Tools & Live Auto-Snapping Guides...');
+    const alignSetupRes = await pageSend('Runtime.evaluate', {
+      expression: `
+        (async () => {
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const store = window.__CREATIVE_NEURO_STORE__;
+          if (!store) throw new Error('__CREATIVE_NEURO_STORE__ not found');
+
+          const st = store.getState();
+          st.resetToSeed();
+          await sleep(150);
+          const s1 = store.getState();
+          const pId = s1.addPage('Align Test Page');
+          s1.setActivePage(pId);
+          await sleep(150);
+
+          const lockedId = s1.addNode({
+            type: 'shape',
+            position: { x: 105, y: 100 },
+            width: 100,
+            height: 50,
+            locked: true,
+            data: { label: 'Locked Anchor', locked: true },
+          });
+          const u1Id = s1.addNode({
+            type: 'shape',
+            position: { x: 240, y: 200 },
+            width: 120,
+            height: 50,
+            data: { label: 'Unlocked 1' },
+          });
+          const u2Id = s1.addNode({
+            type: 'shape',
+            position: { x: 320, y: 300 },
+            width: 100,
+            height: 50,
+            data: { label: 'Unlocked 2' },
+          });
+
+          s1.setSelectedNodes([lockedId, u1Id, u2Id]);
+          await sleep(250);
+
+          const alignMenuBtn = document.querySelector("[data-testid='action-align-menu']");
+          if (!alignMenuBtn) throw new Error('action-align-menu button not found in multi-select floating action bar');
+          alignMenuBtn.click();
+          await sleep(150);
+
+          const alignRightBtn = document.querySelector("[data-testid='align-right']");
+          if (!alignRightBtn) throw new Error('align-right button not found in align menu');
+          alignRightBtn.click();
+          await sleep(150);
+
+          const afterAlign = store.getState();
+          // Max right = u2 (320 + 100 = 420); lockedId stays at 105, u1 moves to 300 (420 - 120), u2 stays at 320
+          if (afterAlign.nodes[lockedId].position.x !== 105) {
+            throw new Error('Locked node moved during align-right: ' + afterAlign.nodes[lockedId].position.x);
+          }
+          if (afterAlign.nodes[u1Id].position.x !== 300) {
+            throw new Error('Expected u1Id to align right to x=300, got ' + afterAlign.nodes[u1Id].position.x);
+          }
+
+          // Prepare for live drag-snap test: select only u1Id and get its DOM rect
+          afterAlign.setSelectedNodes([u1Id]);
+          await sleep(150);
+          const u1El = document.querySelector(".react-flow__node[data-id='" + u1Id + "']");
+          const lockedEl = document.querySelector(".react-flow__node[data-id='" + lockedId + "']");
+          if (!u1El || !lockedEl) throw new Error('Test nodes not rendered in DOM');
+          const u1Rect = u1El.getBoundingClientRect();
+          const lockedRect = lockedEl.getBoundingClientRect();
+
+          return {
+            lockedId,
+            u1Id,
+            u1Center: { x: u1Rect.left + u1Rect.width / 2, y: u1Rect.top + u1Rect.height / 2 },
+            targetDeltaX: lockedRect.left - u1Rect.left,
+          };
+        })()
+      `,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    if (alignSetupRes.exceptionDetails) {
+      throw new Error(`Alignment UI E2E failed: ${JSON.stringify(alignSetupRes.exceptionDetails)}`);
+    }
+    const alignData = alignSetupRes.result?.result?.value;
+    console.log('  ✓ Multi-object alignment bar & Lock exclusion verified:', JSON.stringify(alignData));
+
+    // Real CDP drag of u1 toward lockedId's left edge (x=105) to trigger live snap + guide line
+    const snapStartX = Math.round(alignData.u1Center.x);
+    const snapStartY = Math.round(alignData.u1Center.y);
+    const snapEndX = Math.round(alignData.u1Center.x + alignData.targetDeltaX + 2); // within 6px threshold of 105
+    const snapEndY = snapStartY;
+
+    await pageSend('Input.dispatchMouseEvent', { type: 'mouseMoved', x: snapStartX, y: snapStartY, button: 'none', buttons: 0 });
+    await pageSend('Input.dispatchMouseEvent', { type: 'mousePressed', x: snapStartX, y: snapStartY, button: 'left', buttons: 1, clickCount: 1 });
+    // Small initial move to trigger d3-drag start without losing a large step
+    await pageSend('Input.dispatchMouseEvent', { type: 'mouseMoved', x: snapStartX - 2, y: snapStartY, button: 'left', buttons: 1 });
+    await new Promise((r) => setTimeout(r, 25));
+    for (let i = 1; i <= 10; i++) {
+      const mx = Math.round(snapStartX - 2 + ((snapEndX - (snapStartX - 2)) * i) / 10);
+      await pageSend('Input.dispatchMouseEvent', { type: 'mouseMoved', x: mx, y: snapEndY, button: 'left', buttons: 1 });
+      await new Promise((r) => setTimeout(r, 25));
+    }
+
+    const duringDragRes = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const guides = document.querySelectorAll("[data-testid='alignment-guide-line']");
+          const store = window.__CREATIVE_NEURO_STORE__?.getState();
+          return {
+            guideCount: guides.length,
+            storeGuideCount: store?.alignmentGuides?.length ?? 0,
+            u1X: store?.nodes?.['${alignData.u1Id}']?.position?.x,
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const duringDrag = duringDragRes.result?.result?.value;
+    if (!duringDrag || duringDrag.guideCount < 1) {
+      throw new Error(`Expected visible alignment guide line during drag, got ${JSON.stringify(duringDrag)}`);
+    }
+    if (Math.abs((duringDrag.u1X ?? 0) - 105) > 1) {
+      throw new Error(`Expected dragged node to snap to x=105, got ${JSON.stringify(duringDrag)}`);
+    }
+
+    await pageSend('Input.dispatchMouseEvent', { type: 'mouseReleased', x: snapEndX, y: snapEndY, button: 'left', buttons: 0 });
+    await new Promise((r) => setTimeout(r, 250));
+
+    const afterDragRes = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const guides = document.querySelectorAll("[data-testid='alignment-guide-line']");
+          return { guideCountAfterRelease: guides.length };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const afterDrag = afterDragRes.result?.result?.value;
+    if (!afterDrag || afterDrag.guideCountAfterRelease !== 0) {
+      throw new Error(`Expected alignment guide lines to clear after mouseup, got ${JSON.stringify(afterDrag)}`);
+    }
+    console.log('  ✓ Live drag auto-snapping & alignment guide lines verified:', JSON.stringify({ duringDrag, afterDrag }));
+
     // Verify Error Boundary state
     console.log('\n[E2E Step 11] Validating browser crash & error-boundary guarantees:');
     const errorBoundaryCheck = await pageSend('Runtime.evaluate', {

@@ -59,6 +59,7 @@ export function useDragCoordinator() {
       try {
         useProjectStore.setState((state) => {
           state.isDragging = false;
+          state.alignmentGuides = [];
           for (const node of Object.values(state.nodes)) {
             if (node && 'dragging' in node) {
               delete node.dragging;
@@ -184,6 +185,7 @@ export function useDragCoordinator() {
         if (state.isDragging || dragStartSnapshotRef.current) {
           useProjectStore.setState((s) => {
             s.isDragging = false;
+            s.alignmentGuides = [];
             for (const node of Object.values(s.nodes)) {
               if (node && 'dragging' in node) {
                 delete node.dragging;

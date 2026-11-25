@@ -43,6 +43,7 @@ export default defineConfig({
       'tests/pageLifecycle.test.ts',
       'tests/imageAssetResizeDblClick.test.ts',
       'tests/mindmapMode.test.ts',
+      'tests/alignmentGuides.test.ts',
     ],
   },
 });

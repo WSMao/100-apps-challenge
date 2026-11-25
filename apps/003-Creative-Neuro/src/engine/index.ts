@@ -115,3 +115,17 @@ export {
   type MindMapLayoutResult,
   type MindMapTreeStructure,
 } from './mindmap/mindmapEngine.ts';
+
+// 6. Alignment & Snapping Engine
+export {
+  calculateAlignmentPositions,
+  computeDragSnap,
+  computeResizeSnap,
+  type AlignmentActionType,
+  type AlignmentGuide,
+  type SnapRect,
+  type SnapOptions,
+  type DragSnapResult,
+  type ResizeSnapConstraints,
+  type ResizeSnapResult,
+} from './geometry/alignmentEngine.ts';
