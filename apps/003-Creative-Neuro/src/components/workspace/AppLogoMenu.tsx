@@ -15,9 +15,12 @@ import {
 import logoImg from '../../../assets/logo_circle.png';
 import { useProjectStore } from '../../store/projectStore.ts';
 import {
-  importFromPngOrSvgMetadata,
+  importProjectFromJson,
   applyImportedProjectToStore,
+  registerExportStore,
 } from '../../utils/exportUtils.ts';
+
+registerExportStore(useProjectStore);
 
 /**
  * Resolves a new project name:
@@ -153,21 +156,11 @@ export const AppLogoMenu: React.FC<AppLogoMenuProps> = ({ onOpenImport }) => {
 
       if (fileName.endsWith('.neuro.json') || fileName.endsWith('.json')) {
         const text = await file.text();
-        importedProject = JSON.parse(text);
-      } else if (
-        fileName.endsWith('.neuro.svg') ||
-        fileName.endsWith('.svg') ||
-        fileName.endsWith('.neuro.png') ||
-        fileName.endsWith('.png')
-      ) {
-        importedProject = await importFromPngOrSvgMetadata(file);
-      } else {
-        alert('Unsupported file format. Please upload .neuro.json, .neuro.svg, or .neuro.png');
-        return;
-      }
-
-      if (importedProject) {
+        const importedProject = importProjectFromJson(text);
         applyImportedProjectToStore(importedProject);
+      } else {
+        alert('Unsupported file format. Please upload a .neuro.json file.');
+        return;
       }
     } catch (err) {
       console.error('[AppLogoMenu] Failed to import project file:', err);
@@ -221,7 +214,7 @@ export const AppLogoMenu: React.FC<AppLogoMenuProps> = ({ onOpenImport }) => {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".json,.neuro.json,.svg,.neuro.svg,.png,.neuro.png"
+        accept=".json,.neuro.json"
         onChange={handleFileImport}
         className="hidden"
         data-testid="header-import-input"

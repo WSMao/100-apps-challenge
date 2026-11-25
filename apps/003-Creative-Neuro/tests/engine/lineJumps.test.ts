@@ -19,6 +19,9 @@ import {
   findSegmentIntersection,
   computeLineJumpsForSegment,
   calculateLineJumps,
+  sampleEdgePolyline,
+  computeJumpArcsForPolyline,
+  buildPolylineJumpSvgPath,
 } from '../../src/engine/index.ts';
 import type { LineSegment, NeuroEdge, NeuroNode } from '../../src/types/index.ts';
 
@@ -222,6 +225,89 @@ describe('Engine 4: SVG Line Jump Geometry Unit Tests', () => {
 
       assert.ok(jumps.size > 0);
       assert.ok(duration < 25, `Batch line jump took ${duration.toFixed(2)}ms (budget: < 25ms)`);
+    });
+  });
+
+  describe('5. Multi-Geometry Line Jumps (Straight, Smoothstep, Bezier)', () => {
+    it('M4-JUMP-08: computes jump arcs for intersecting smoothstep connectors', () => {
+      const polyH = sampleEdgePolyline({
+        p1: { x: 0, y: 50 },
+        p2: { x: 240, y: 150 },
+        sourceSide: 'right',
+        targetSide: 'left',
+        routingType: 'smoothstep',
+      });
+      const polyV = sampleEdgePolyline({
+        p1: { x: 100, y: 0 },
+        p2: { x: 100, y: 200 },
+        sourceSide: 'bottom',
+        targetSide: 'top',
+        routingType: 'smoothstep',
+      });
+
+      assert.ok(polyH.length >= 3, 'Smoothstep polyline should have orthogonal corner points');
+      const jumps = computeJumpArcsForPolyline(
+        'e-smooth-h',
+        polyH,
+        [{ id: 'e-smooth-v', points: polyV }],
+        6
+      );
+      assert.ok(jumps.size > 0, 'Expected smoothstep crossing to produce jump arc(s)');
+      const svgPath = buildPolylineJumpSvgPath(polyH, jumps);
+      assert.ok(svgPath.includes('A 6 6 0 0 1'), `Expected SVG arc in smoothstep path: ${svgPath}`);
+    });
+
+    it('M4-JUMP-09: computes jump arcs for intersecting bezier connectors', () => {
+      const polyA = sampleEdgePolyline({
+        p1: { x: 0, y: 100 },
+        p2: { x: 200, y: 100 },
+        sourceSide: 'right',
+        targetSide: 'left',
+        routingType: 'bezier',
+      });
+      const polyB = sampleEdgePolyline({
+        p1: { x: 100, y: 0 },
+        p2: { x: 100, y: 200 },
+        sourceSide: 'bottom',
+        targetSide: 'top',
+        routingType: 'bezier',
+      });
+
+      assert.ok(polyA.length >= 10, 'Bezier polyline should sample curve segments');
+      const jumps = computeJumpArcsForPolyline(
+        'e-bez-a',
+        polyA,
+        [{ id: 'e-bez-b', points: polyB }],
+        6
+      );
+      assert.ok(jumps.size > 0, 'Expected bezier crossing to produce jump arc(s)');
+      const svgPath = buildPolylineJumpSvgPath(polyA, jumps);
+      assert.ok(svgPath.includes('A 6 6 0 0 1'), `Expected SVG arc in bezier path: ${svgPath}`);
+    });
+
+    it('M4-JUMP-10: computes jump arcs across mixed connector geometries (straight vs bezier)', () => {
+      const polyStraight = sampleEdgePolyline({
+        p1: { x: 0, y: 100 },
+        p2: { x: 200, y: 100 },
+        routingType: 'straight',
+      });
+      const polyBezier = sampleEdgePolyline({
+        p1: { x: 100, y: 0 },
+        p2: { x: 100, y: 200 },
+        sourceSide: 'bottom',
+        targetSide: 'top',
+        routingType: 'bezier',
+      });
+
+      const jumps = computeJumpArcsForPolyline(
+        'e-straight',
+        polyStraight,
+        [{ id: 'e-bezier', points: polyBezier }],
+        6
+      );
+      assert.ok(jumps.size > 0, 'Expected straight vs bezier crossing to produce jump arc');
+      const svgPath = buildPolylineJumpSvgPath(polyStraight, jumps);
+      assert.ok(svgPath.includes('A 6 6 0 0 1'));
     });
   });
 });

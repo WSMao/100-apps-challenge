@@ -748,15 +748,22 @@ async function runE2EScenario() {
           const curveBtn = modal.querySelector("[data-testid='focus-routing-bezier']");
           const jumpBtn = modal.querySelector("[data-testid='focus-routing-jump']");
           const lineBtn = modal.querySelector("[data-testid='focus-routing-straight']");
+          const lineJumpToggle = modal.querySelector("[data-testid='focus-diagram-line-jump-toggle']");
           const spacingSelect = modal.querySelector("[data-testid='focus-diagram-spacing']");
 
-          if (!stepBtn || !curveBtn || !jumpBtn || !lineBtn || !spacingSelect) {
-            return { success: false, reason: "Routing buttons or spacing selector missing" };
+          if (!stepBtn || !curveBtn || jumpBtn || !lineBtn || !lineJumpToggle || !spacingSelect) {
+            return { success: false, reason: "Routing buttons, Diagram Line Jump toggle, or spacing selector mismatch" };
           }
+
+          // Toggle Diagram Line Jump off and back on
+          const ljBefore = lineJumpToggle.getAttribute('aria-pressed');
+          lineJumpToggle.click();
+          const ljAfterOff = lineJumpToggle.getAttribute('aria-pressed');
+          lineJumpToggle.click();
 
           // Switch to Step (Smoothstep orthogonal routing)
           stepBtn.click();
-          return { success: true };
+          return { success: true, ljBefore, ljAfterOff };
         })()
       `,
       returnByValue: true,
@@ -1138,6 +1145,596 @@ async function runE2EScenario() {
       expression: `window.__CREATIVE_NEURO_STORE__.getState().setFocusedDiagramId(null);`,
     });
     await new Promise((r) => setTimeout(r, 200));
+
+    // Step 10.5: Issue #41 - Canvas-level Line Jump Toggle & Connector Mode Edge Selection + Unified Action Bar
+    console.log('\n[E2E Step 10.5] Testing Page-level Line Jump toggle and Connector mode edge selection/styling:');
+    const lineJumpToggleCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const toggle = document.querySelector("[data-testid='page-line-jump-toggle']");
+          if (!toggle) return { found: false };
+          const before = toggle.getAttribute('aria-pressed');
+          toggle.click();
+          return { found: true, before };
+        })()
+      `,
+      returnByValue: true,
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    const lineJumpAfter = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const toggle = document.querySelector("[data-testid='page-line-jump-toggle']");
+          const afterOff = toggle?.getAttribute('aria-pressed');
+          toggle?.click();
+          return { afterOff };
+        })()
+      `,
+      returnByValue: true,
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    const ljInit = lineJumpToggleCheck.result?.result?.value;
+    const ljOff = lineJumpAfter.result?.result?.value;
+    if (!ljInit?.found || ljInit.before !== 'true' || ljOff?.afterOff !== 'false') {
+      throw new Error(`Page Line Jump toggle check failed: ${JSON.stringify({ ljInit, ljOff })}`);
+    }
+    console.log('  ✓ Page-level Line Jump toggle verified (true -> false -> true)');
+
+    // Switch to Connector mode and click an existing edge
+    const connectorSelectCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const store = window.__CREATIVE_NEURO_STORE__?.getState();
+          if (!store) return { ok: false, reason: 'store missing' };
+          store.setToolMode('connect');
+          return { ok: true };
+        })()
+      `,
+      returnByValue: true,
+    });
+    await new Promise((r) => setTimeout(r, 150));
+
+    const edgeClickInConnectMode = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const store = window.__CREATIVE_NEURO_STORE__?.getState();
+          const firstEdgeId = Object.keys(store.edges).find((id) => id.startsWith('e-fc-'));
+          if (!firstEdgeId) return { ok: false, reason: 'no e-fc edge' };
+          store.setSelectedEdges([firstEdgeId]);
+          store.setSelectedNodes([]);
+          return { ok: true, edgeId: firstEdgeId };
+        })()
+      `,
+      returnByValue: true,
+    });
+    await new Promise((r) => setTimeout(r, 250));
+
+    const actionBarCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const edgeId = ${JSON.stringify(edgeClickInConnectMode.result?.result?.value?.edgeId || '')};
+          const bar = document.querySelector("[data-testid='edge-floating-action-bar']");
+          const hasJumpBtn = Boolean(bar?.querySelector("[data-testid='edge-route-jump']"));
+          const hasStep = Boolean(bar?.querySelector("[data-testid='edge-route-smoothstep']"));
+          const hasBezier = Boolean(bar?.querySelector("[data-testid='edge-route-bezier']"));
+          const hasStraight = Boolean(bar?.querySelector("[data-testid='edge-route-straight']"));
+          const thickBtn = bar?.querySelector("[data-testid='edge-width-thick']");
+          const cyanBtn = bar?.querySelector("[data-testid='edge-color-cyan']");
+          const updaters = document.querySelectorAll('.react-flow__edge.selected .react-flow__edgeupdater').length;
+          if (thickBtn) thickBtn.click();
+          if (cyanBtn) cyanBtn.click();
+          return {
+            hasBar: Boolean(bar),
+            hasJumpBtn,
+            hasStep,
+            hasBezier,
+            hasStraight,
+            hasThick: Boolean(thickBtn),
+            hasCyan: Boolean(cyanBtn),
+            updaters,
+            edgeId,
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+    await new Promise((r) => setTimeout(r, 200));
+
+    const abVal = actionBarCheck.result?.result?.value;
+    if (!abVal?.hasBar || abVal.hasJumpBtn || !abVal.hasStep || !abVal.hasBezier || !abVal.hasStraight || !abVal.hasThick || !abVal.hasCyan) {
+      throw new Error(`EdgeFloatingActionBar check failed: ${JSON.stringify(abVal)}`);
+    }
+    const updatedEdgeCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const edge = window.__CREATIVE_NEURO_STORE__?.getState()?.edges?.[${JSON.stringify(abVal.edgeId)}];
+          return { strokeWidth: edge?.data?.strokeWidth, color: edge?.data?.color };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const edgeStyleVal = updatedEdgeCheck.result?.result?.value;
+    if (edgeStyleVal?.strokeWidth !== 4 || edgeStyleVal?.color !== '#06b6d4') {
+      throw new Error(`Edge style update failed: ${JSON.stringify(edgeStyleVal)}`);
+    }
+    console.log(`  ✓ Unified EdgeFloatingActionBar verified (3 types, no Jump btn, strokeWidth=${edgeStyleVal.strokeWidth}, color=${edgeStyleVal.color}, updaters=${abVal.updaters})`);
+
+    // -------------------------------------------------------------------------
+    // [E2E Step 10.5] Issue #43: Logical Group, Frame auto-capture & Fold, Style & Z-Order
+    // -------------------------------------------------------------------------
+    console.log('\n[E2E Step 10.5] Testing Logical Group (⌘G & Style), Frame auto-capture & Fold, Style & Z-Order:');
+    const step43Result = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const store = window.__CREATIVE_NEURO_STORE__;
+          if (!store) return { error: 'Store not exposed' };
+          const s = store.getState();
+          // Create a clean page for deterministic #43 E2E verification
+          const pageId = s.addPage('Issue43 E2E');
+          s.setActivePage(pageId);
+
+          const n1 = store.getState().addNode({
+            type: 'shape',
+            position: { x: 100, y: 120 },
+            width: 140,
+            height: 60,
+            zIndex: 1,
+            data: { label: 'Box A', layoutMode: 'manual' },
+          });
+          const n2 = store.getState().addNode({
+            type: 'shape',
+            position: { x: 280, y: 120 },
+            width: 140,
+            height: 60,
+            zIndex: 2,
+            data: { label: 'Box B', layoutMode: 'manual' },
+          });
+          store.getState().setSelectedNodes([n1, n2]);
+          return { pageId, n1, n2 };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const ids43 = step43Result.result?.result?.value;
+    if (!ids43 || ids43.error) {
+      throw new Error(`Step 10.5 setup failed: ${JSON.stringify(ids43)}`);
+    }
+    await new Promise((r) => setTimeout(r, 250));
+
+    // Press Cmd+G to toggle Logical Group ON, then verify floating bar & Style & Z-Order controls
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', metaKey: true, bubbles: true }));
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 200));
+
+    const groupCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const s = window.__CREATIVE_NEURO_STORE__.getState();
+          const gid = s.nodes['${ids43.n1}']?.groupId;
+          const gid2 = s.nodes['${ids43.n2}']?.groupId;
+          const bar = document.querySelector("[data-testid='node-floating-action-bar']");
+          const zIdx = bar ? getComputedStyle(bar).zIndex : null;
+          const hasBg = Boolean(bar?.querySelector("[data-testid='action-style-bg']"));
+          const hasText = Boolean(bar?.querySelector("[data-testid='action-style-text']"));
+          const hasStroke = Boolean(bar?.querySelector("[data-testid='action-style-stroke']"));
+          const hasFront = Boolean(bar?.querySelector("[data-testid='action-bring-to-front']"));
+          const hasUp = Boolean(bar?.querySelector("[data-testid='action-bring-forward']"));
+          const hasDown = Boolean(bar?.querySelector("[data-testid='action-send-backward']"));
+          const hasBack = Boolean(bar?.querySelector("[data-testid='action-send-to-back']"));
+          const hasGroupStyle = Boolean(bar?.querySelector("[data-testid='action-group-style']"));
+          return { gid, gid2, zIdx, hasBg, hasText, hasStroke, hasFront, hasUp, hasDown, hasBack, hasGroupStyle };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const gc = groupCheck.result?.result?.value;
+    console.log('  ✓ Logical Group & Floating Bar check:', JSON.stringify(gc));
+    if (!gc.gid || gc.gid !== gc.gid2) {
+      throw new Error(`Expected ⌘G to assign same groupId to both nodes, got ${JSON.stringify(gc)}`);
+    }
+    if (!gc.hasBg || !gc.hasText || !gc.hasStroke || !gc.hasFront || !gc.hasUp || !gc.hasDown || !gc.hasBack || !gc.hasGroupStyle) {
+      throw new Error(`Missing Style/Z-Order/GroupStyle controls in floating bar: ${JSON.stringify(gc)}`);
+    }
+    if (Number(gc.zIdx) < 99999) {
+      throw new Error(`Expected floating action bar zIndex >= 99999, got ${gc.zIdx}`);
+    }
+
+    // Apply Group Style via UI click, then deselect and verify logical-group-box renders
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          document.querySelector("[data-testid='action-group-style']")?.click();
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          document.querySelector("[data-testid='group-border-cyan']")?.click();
+          window.__CREATIVE_NEURO_STORE__.getState().setSelectedNodes([]);
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 200));
+
+    const styledGroupBoxExists = await pageSend('Runtime.evaluate', {
+      expression: `Boolean(document.querySelector("[data-testid='logical-group-box-${gc.gid}']"))`,
+      returnByValue: true,
+    });
+    if (!styledGroupBoxExists.result?.result?.value) {
+      throw new Error('Expected styled Logical Group box to remain visible when unselected');
+    }
+    console.log('  ✓ Styled Logical Group box rendered while unselected');
+
+    // Re-select one member, verify whole group selects, and press ⌘G to ungroup
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          window.__CREATIVE_NEURO_STORE__.getState().setSelectedNodes(['${ids43.n1}']);
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', metaKey: true, bubbles: true }));
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 150));
+
+    const ungroupedCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const s = window.__CREATIVE_NEURO_STORE__.getState();
+          return { g1: s.nodes['${ids43.n1}']?.groupId, g2: s.nodes['${ids43.n2}']?.groupId };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const ug = ungroupedCheck.result?.result?.value;
+    if (ug.g1 || ug.g2) {
+      throw new Error(`Expected second ⌘G to ungroup nodes, got ${JSON.stringify(ug)}`);
+    }
+    console.log('  ✓ Second ⌘G toggled Logical Group OFF cleanly');
+
+    // Frame: create Frame, resize SE over Box A to auto-capture, then Fold & Unfold
+    const frameIdRes = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const s = window.__CREATIVE_NEURO_STORE__.getState();
+          const fid = s.addNode({
+            type: 'frame',
+            position: { x: 80, y: 80 },
+            width: 180,
+            height: 120,
+            data: { title: 'E2E Frame', layoutMode: 'manual' },
+          });
+          s.setSelectedNodes([fid]);
+          return fid;
+        })()
+      `,
+      returnByValue: true,
+    });
+    const frameId43 = frameIdRes.result?.result?.value;
+    await new Promise((r) => setTimeout(r, 250));
+
+    // Resize Frame SE corner by (+150, +100) so it encloses Box A (at 100,120 140x60)
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const el = document.querySelector("[data-testid='frame-node-${frameId43}']");
+          const se = el?.querySelector("[data-testid='frame-resize-se']");
+          if (!se) return false;
+          const r = se.getBoundingClientRect();
+          const startX = Math.round(r.left + r.width / 2);
+          const startY = Math.round(r.top + r.height / 2);
+          se.dispatchEvent(new MouseEvent('mousedown', { view: window, bubbles: true, cancelable: true, clientX: startX, clientY: startY, button: 0, buttons: 1 }));
+          window.dispatchEvent(new MouseEvent('mousemove', { view: window, bubbles: true, cancelable: true, clientX: startX + 150, clientY: startY + 100, button: 0, buttons: 1 }));
+          window.dispatchEvent(new MouseEvent('mouseup', { view: window, bubbles: true, cancelable: true, clientX: startX + 150, clientY: startY + 100, button: 0, buttons: 0 }));
+          return true;
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 250));
+
+    const captureCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const s = window.__CREATIVE_NEURO_STORE__.getState();
+          return {
+            parentId: s.nodes['${ids43.n1}']?.parentId,
+            frameBg: s.nodes['${frameId43}']?.data?.backgroundColor,
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const cc = captureCheck.result?.result?.value;
+    console.log('  ✓ Frame auto-capture check:', JSON.stringify(cc));
+    if (cc.parentId !== frameId43) {
+      throw new Error(`Expected Frame resize to auto-capture Box A (${ids43.n1}), got parentId=${cc.parentId}`);
+    }
+
+    // Fold Frame, verify collapsed=true, then Unfold
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          document.querySelector("[data-testid='frame-node-${frameId43}'] [data-testid='frame-fold-toggle']")?.click();
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 200));
+    const foldedCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const s = window.__CREATIVE_NEURO_STORE__.getState();
+          return {
+            collapsed: s.nodes['${frameId43}']?.data?.collapsed,
+            childHidden: s.nodes['${ids43.n1}']?.hidden,
+          };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const fc = foldedCheck.result?.result?.value;
+    if (!fc.collapsed || !fc.childHidden) {
+      throw new Error(`Expected Frame fold to collapse and hide child, got ${JSON.stringify(fc)}`);
+    }
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          document.querySelector("[data-testid='frame-node-${frameId43}'] [data-testid='frame-fold-toggle']")?.click();
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 200));
+    console.log('  ✓ Frame fold & unfold verified in real browser');
+
+    // Style & Z-Order UI click check on Box B
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          window.__CREATIVE_NEURO_STORE__.getState().setSelectedNodes(['${ids43.n2}']);
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          document.querySelector("[data-testid='action-style-bg']")?.click();
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 100));
+    await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          document.querySelector("[data-testid='bg-color-cyan']")?.click();
+          document.querySelector("[data-testid='action-bring-to-front']")?.click();
+        })()
+      `,
+    });
+    await new Promise((r) => setTimeout(r, 150));
+
+    const styleZCheck = await pageSend('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const s = window.__CREATIVE_NEURO_STORE__.getState();
+          const b = s.nodes['${ids43.n2}'];
+          return { bg: b?.data?.backgroundColor, zIndex: b?.zIndex };
+        })()
+      `,
+      returnByValue: true,
+    });
+    const szc = styleZCheck.result?.result?.value;
+    if (szc.bg !== '#06b6d4') {
+      throw new Error(`Expected Box B backgroundColor to update to #06b6d4, got ${JSON.stringify(szc)}`);
+    }
+    console.log('  ✓ Style & Z-Order floating bar actions verified:', JSON.stringify(szc));
+
+    // Step 10b: Issue #42 — Page Hide / Reopen / Delete Lifecycle in Real Browser
+    // -------------------------------------------------------------------------
+    console.log('\n[E2E Step 10b] Testing Page hide/reopen/delete lifecycle in real browser:');
+    const pageLifecycleRes = await pageSend('Runtime.evaluate', {
+      expression: `
+        (async () => {
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const addBtn = document.querySelector("[data-testid='add-page-btn']");
+          if (!addBtn) throw new Error('Missing add-page-btn');
+          addBtn.click();
+          await sleep(150);
+
+          const store = window.__CREATIVE_NEURO_STORE__;
+          const addedPageId = store.getState().activePageId;
+          const tabBeforeHide = document.querySelector("[data-testid='page-tab-" + addedPageId + "']");
+          if (!tabBeforeHide) throw new Error('Newly added page tab not visible');
+
+          // Close tab -> hides page without deleting data
+          const closeBtn = document.querySelector("[data-testid='close-page-tab-btn-" + addedPageId + "']");
+          if (!closeBtn) throw new Error('Missing close-page-tab-btn');
+          closeBtn.click();
+          await sleep(150);
+
+          const tabAfterHide = document.querySelector("[data-testid='page-tab-" + addedPageId + "']");
+          if (tabAfterHide) throw new Error('Hidden page tab should not be visible in tab bar');
+          if (!store.getState().pages[addedPageId]?.hidden) throw new Error('Page should be marked hidden in store');
+
+          // Open Pages manager & reopen hidden page
+          const managerBtn = document.querySelector("[data-testid='pages-manager-btn']");
+          if (!managerBtn) throw new Error('Missing pages-manager-btn');
+          managerBtn.click();
+          await sleep(150);
+
+          const reopenBtn = document.querySelector("[data-testid='reopen-page-btn-" + addedPageId + "']");
+          if (!reopenBtn) throw new Error('Missing reopen-page-btn in Pages manager');
+          reopenBtn.click();
+          await sleep(150);
+
+          const tabAfterReopen = document.querySelector("[data-testid='page-tab-" + addedPageId + "']");
+          if (!tabAfterReopen) throw new Error('Reopened page tab should be visible again');
+
+          // Open Pages manager, request delete -> cancel -> request delete -> confirm
+          managerBtn.click();
+          await sleep(150);
+          const deleteBtn = document.querySelector("[data-testid='delete-page-btn-" + addedPageId + "']");
+          if (!deleteBtn) throw new Error('Missing delete-page-btn in Pages manager');
+          deleteBtn.click();
+          await sleep(150);
+
+          const cancelBtn = document.querySelector("[data-testid='cancel-delete-page-btn']");
+          if (!cancelBtn) throw new Error('Missing confirm-delete-page-dialog cancel button');
+          cancelBtn.click();
+          await sleep(150);
+          if (!store.getState().pages[addedPageId]) throw new Error('Canceling delete should preserve page');
+
+          managerBtn.click();
+          await sleep(150);
+          document.querySelector("[data-testid='delete-page-btn-" + addedPageId + "']").click();
+          await sleep(150);
+          const confirmBtn = document.querySelector("[data-testid='confirm-delete-page-btn']");
+          if (!confirmBtn) throw new Error('Missing confirm-delete-page-btn');
+          confirmBtn.click();
+          await sleep(150);
+
+          if (store.getState().pages[addedPageId]) throw new Error('Confirmed delete should remove page');
+          return { addedPageId, deleted: true };
+        })()
+      `,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    if (pageLifecycleRes.exceptionDetails) {
+      throw new Error(`Page lifecycle E2E failed: ${JSON.stringify(pageLifecycleRes.exceptionDetails)}`);
+    }
+    console.log('  ✓ Page hide/reopen/delete lifecycle verified:', JSON.stringify(pageLifecycleRes.result?.result?.value));
+
+    // -------------------------------------------------------------------------
+    // Step 10c: Issue #42 — .neuro.json Project Import & PNG/SVG Rejection
+    // -------------------------------------------------------------------------
+    console.log('\n[E2E Step 10c] Testing .neuro.json import & PNG/SVG rejection in ExportModal:');
+    const importE2eRes = await pageSend('Runtime.evaluate', {
+      expression: `
+        (async () => {
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const exportBtn = document.querySelector("[data-testid='open-export-modal-btn']") ||
+            Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('Export'));
+          if (!exportBtn) throw new Error('Missing Export button');
+          exportBtn.click();
+          await sleep(200);
+
+          const importTab = document.querySelector("[data-testid='export-tab-import']");
+          if (!importTab) throw new Error('Missing export-tab-import');
+          importTab.click();
+          await sleep(150);
+
+          const fileInput = document.querySelector("[data-testid='import-file-input']");
+          if (!fileInput) throw new Error('Missing import-file-input');
+          if (fileInput.getAttribute('accept')?.includes('.png') || fileInput.getAttribute('accept')?.includes('.svg')) {
+            throw new Error('Import file input must not accept .png or .svg');
+          }
+
+          // Reject PNG file
+          const pngDt = new DataTransfer();
+          pngDt.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'bad.neuro.png', { type: 'image/png' }));
+          fileInput.files = pngDt.files;
+          fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+          await sleep(200);
+          const pngBanner = document.querySelector("[data-testid='import-status-banner']")?.textContent || '';
+          if (!pngBanner.includes('.neuro.json')) {
+            throw new Error('Expected PNG import rejection message, got: ' + pngBanner);
+          }
+
+          // Import valid .neuro.json
+          const payload = {
+            version: '1.0.0',
+            project: {
+              id: 'proj-e2e-imported',
+              name: 'E2E Imported Project',
+              version: '1.0.0',
+              activeBoardId: 'board-1',
+              boardIds: ['board-1'],
+              activePageId: 'page-imp-1',
+              pageIds: ['page-imp-1'],
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            },
+            boards: {
+              'board-1': {
+                id: 'board-1',
+                projectId: 'proj-e2e-imported',
+                name: 'Main Board',
+                activePageId: 'page-imp-1',
+                pageIds: ['page-imp-1'],
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+              },
+            },
+            pages: {
+              'page-imp-1': {
+                id: 'page-imp-1',
+                projectId: 'proj-e2e-imported',
+                boardId: 'board-1',
+                title: 'Imported Flow',
+                name: 'Imported Flow',
+                order: 0,
+                viewport: { x: 0, y: 0, zoom: 1 },
+                nodeIds: ['node-imp-1'],
+                edgeIds: [],
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+              },
+            },
+            nodes: {
+              'node-imp-1': {
+                id: 'node-imp-1',
+                type: 'shape',
+                position: { x: 100, y: 100 },
+                width: 160,
+                height: 60,
+                layoutMode: 'manual',
+                data: { label: 'Imported Node', shapeType: 'rectangle', layoutMode: 'manual' },
+              },
+            },
+            edges: {},
+          };
+
+          const jsonDt = new DataTransfer();
+          jsonDt.items.add(new File([JSON.stringify(payload)], 'e2e.neuro.json', { type: 'application/json' }));
+          fileInput.files = jsonDt.files;
+          fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+          await sleep(250);
+
+          const jsonBanner = document.querySelector("[data-testid='import-status-banner']")?.textContent || '';
+          if (!jsonBanner.includes('E2E Imported Project')) {
+            throw new Error('Expected JSON import success banner, got: ' + jsonBanner);
+          }
+
+          const storeState = window.__CREATIVE_NEURO_STORE__.getState();
+          if (storeState.project.name !== 'E2E Imported Project' || !storeState.nodes['node-imp-1']) {
+            throw new Error('Imported project state was not applied to store');
+          }
+
+          document.querySelector("[data-testid='close-export-modal']")?.click();
+          await sleep(150);
+          return { importedProject: storeState.project.name, nodeLabel: storeState.nodes['node-imp-1'].data.label };
+        })()
+      `,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    if (importE2eRes.exceptionDetails) {
+      throw new Error(`.neuro.json import E2E failed: ${JSON.stringify(importE2eRes.exceptionDetails)}`);
+    }
+    console.log('  ✓ .neuro.json import & PNG rejection verified:', JSON.stringify(importE2eRes.result?.result?.value));
 
     // Verify Error Boundary state
     console.log('\n[E2E Step 11] Validating browser crash & error-boundary guarantees:');

@@ -134,7 +134,7 @@ export function quickAddDirectionalNode(
   };
 
   const { sourceHandle, targetHandle } = opposites[direction];
-  const defaultRouting = store.defaultEdgeRoutingType || 'jump';
+  const defaultRouting = store.defaultEdgeRoutingType || 'smoothstep';
 
   // Atomically create the connected node and edge
   const result = store.addConnectedNode(
@@ -163,7 +163,6 @@ export function quickAddDirectionalNode(
       type: defaultRouting,
       data: {
         routingType: defaultRouting,
-        jumpArc: defaultRouting === 'jump',
       },
     }
   );

@@ -111,19 +111,22 @@ export function flattenNestedCoordinates(nodes: NeuroNode[]): Map<string, Point>
 export function applyEdgeRouting(
   edges: NeuroEdge[],
   routing: EdgeRoutingType,
-  forceOverwrite = false
+  forceOverwrite = false,
+  lineJump?: boolean
 ): NeuroEdge[] {
   return edges.map((e) => {
-    const effectiveRouting = forceOverwrite
+    const rawRouting = forceOverwrite
       ? routing
       : e.data?.routingType || routing;
+    const effectiveRouting: EdgeRoutingType =
+      (rawRouting as string) === 'jump' ? 'straight' : rawRouting;
     return {
       ...e,
-      type: 'jump',
+      type: effectiveRouting,
       data: {
         ...e.data,
         routingType: effectiveRouting,
-        jumpArc: effectiveRouting === 'jump',
+        ...(lineJump !== undefined ? { jumpArc: lineJump } : {}),
       },
     };
   });
@@ -140,7 +143,7 @@ export const DiagramPipeline = {
       savedSubEdges = [],
       direction: explicitDirection,
       spacingPreset = 'normal',
-      edgeRouting = 'jump',
+      edgeRouting = 'smoothstep',
       paddingX = 24,
       paddingY = 20,
     } = options;

@@ -52,10 +52,31 @@ export const EdgeFloatingActionBar: React.FC<EdgeFloatingActionBarProps> = ({ ed
   const isMulti = targetEdges.length > 1;
   const primaryEdge = targetEdges[0];
   const data = primaryEdge.data || {};
-  const currentRouting: EdgeRoutingType = data.routingType || (primaryEdge.type as EdgeRoutingType) || 'jump';
+  const rawRouting = (data.routingType || primaryEdge.type || 'smoothstep') as string;
+  const currentRouting: EdgeRoutingType =
+    rawRouting === 'jump' || rawRouting === 'default'
+      ? 'straight'
+      : (rawRouting as EdgeRoutingType);
   const currentLineStyle = data.lineStyle || 'solid';
+  const currentStrokeWidth = data.strokeWidth || 1.5;
+  const currentColor = data.color || '#64748b';
   const currentArrowStart = Boolean(data.arrowStart);
   const currentArrowEnd = data.arrowEnd !== false;
+
+  const STROKE_WIDTH_OPTIONS = [
+    { value: 1.5, label: '細', title: 'Thin (1.5px)', testId: 'edge-width-thin' },
+    { value: 2.5, label: '中', title: 'Medium (2.5px)', testId: 'edge-width-medium' },
+    { value: 4, label: '粗', title: 'Thick (4px)', testId: 'edge-width-thick' },
+  ];
+
+  const STROKE_COLOR_OPTIONS = [
+    { value: '#64748b', name: 'slate', title: 'Slate (#64748b)' },
+    { value: '#6366f1', name: 'indigo', title: 'Indigo (#6366f1)' },
+    { value: '#06b6d4', name: 'cyan', title: 'Cyan (#06b6d4)' },
+    { value: '#10b981', name: 'emerald', title: 'Emerald (#10b981)' },
+    { value: '#f59e0b', name: 'amber', title: 'Amber (#f59e0b)' },
+    { value: '#f43f5e', name: 'rose', title: 'Rose (#f43f5e)' },
+  ];
 
   const handleUpdate = (patch: Partial<NeuroEdgeData>) => {
     if (isStoreEdge) {
@@ -112,25 +133,8 @@ export const EdgeFloatingActionBar: React.FC<EdgeFloatingActionBarProps> = ({ ed
         </>
       )}
 
-      {/* 1. Routing Type Options */}
+      {/* 1. Routing Type Options (Straight, Smoothstep, Bezier) */}
       <div className="flex items-center gap-0.5">
-        <button
-          type="button"
-          onClick={() => handleUpdate({ routingType: 'jump' })}
-          title="Jump Arc (避障跳線)"
-          className={`px-1.5 py-1 rounded flex items-center gap-1 text-[11px] font-medium transition cursor-pointer ${
-            currentRouting === 'jump'
-              ? 'bg-indigo-600 text-white font-semibold'
-              : isDark
-              ? 'hover:bg-slate-800 text-slate-300'
-              : 'hover:bg-slate-100 text-slate-600'
-          }`}
-          data-testid="edge-route-jump"
-        >
-          <GitCommit className="w-3.5 h-3.5 text-cyan-400" />
-          <span>Jump</span>
-        </button>
-
         <button
           type="button"
           onClick={() => handleUpdate({ routingType: 'smoothstep' })}
@@ -181,6 +185,52 @@ export const EdgeFloatingActionBar: React.FC<EdgeFloatingActionBarProps> = ({ ed
           <Minus className="w-3.5 h-3.5 text-amber-400" />
           <span>Line</span>
         </button>
+      </div>
+
+      <div className={`w-[1px] h-3.5 mx-0.5 ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`} />
+
+      {/* 1.5 Stroke Width Options */}
+      <div className="flex items-center gap-0.5">
+        {STROKE_WIDTH_OPTIONS.map((w) => (
+          <button
+            key={w.value}
+            type="button"
+            onClick={() => handleUpdate({ strokeWidth: w.value })}
+            title={w.title}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition cursor-pointer ${
+              currentStrokeWidth === w.value
+                ? 'bg-indigo-500/20 text-indigo-400 font-bold'
+                : isDark
+                ? 'hover:bg-slate-800 text-slate-400'
+                : 'hover:bg-slate-100 text-slate-600'
+            }`}
+            data-testid={w.testId}
+          >
+            {w.label}
+          </button>
+        ))}
+      </div>
+
+      <div className={`w-[1px] h-3.5 mx-0.5 ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`} />
+
+      {/* 1.75 Stroke Color Swatches */}
+      <div className="flex items-center gap-1 px-0.5">
+        {STROKE_COLOR_OPTIONS.map((c) => (
+          <button
+            key={c.value}
+            type="button"
+            onClick={() => handleUpdate({ color: c.value })}
+            title={c.title}
+            aria-label={c.title}
+            className={`w-3.5 h-3.5 rounded-full transition cursor-pointer border ${
+              currentColor === c.value
+                ? 'ring-2 ring-cyan-400 ring-offset-1 ring-offset-slate-900 scale-110 border-white'
+                : 'border-slate-500/40 hover:scale-110'
+            }`}
+            style={{ backgroundColor: c.value }}
+            data-testid={`edge-color-${c.name}`}
+          />
+        ))}
       </div>
 
       <div className={`w-[1px] h-3.5 mx-0.5 ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`} />

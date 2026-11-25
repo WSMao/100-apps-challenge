@@ -326,7 +326,7 @@ export const createReactFlowSlice = (
 
   onConnect: (connection: Connection) => {
     if (!connection.source || !connection.target) return;
-    const routing = get().defaultEdgeRoutingType || 'jump';
+    const routing = get().defaultEdgeRoutingType || 'smoothstep';
     get().addEdge({
       source: connection.source,
       target: connection.target,
@@ -335,7 +335,6 @@ export const createReactFlowSlice = (
       type: routing,
       data: {
         routingType: routing,
-        jumpArc: routing === 'jump',
       },
     });
   },

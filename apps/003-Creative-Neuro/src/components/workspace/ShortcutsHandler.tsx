@@ -455,8 +455,17 @@ export function handleGlobalKeyDown(e: {
         if (state.selectedNodeIds.length > 0) {
           state.ungroupNodes(state.selectedNodeIds[0]);
         }
-      } else {
-        if (state.selectedNodeIds.length > 1) {
+      } else if (state.selectedNodeIds.length > 0) {
+        const selectedNodes = state.selectedNodeIds
+          .map((id) => state.nodes[id])
+          .filter(Boolean);
+        const firstGid = selectedNodes[0]?.groupId || selectedNodes[0]?.data?.groupId;
+        const isAllSameGroup =
+          Boolean(firstGid) &&
+          selectedNodes.every((n) => (n.groupId || n.data?.groupId) === firstGid);
+        if (isAllSameGroup && firstGid) {
+          state.ungroupNodes(firstGid);
+        } else if (state.selectedNodeIds.length > 1) {
           state.groupSelectedNodes();
         }
       }

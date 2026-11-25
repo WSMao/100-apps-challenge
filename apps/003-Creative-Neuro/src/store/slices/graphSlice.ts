@@ -13,6 +13,7 @@ import type {
   Point,
   FlowDirection,
   EdgeRoutingType,
+  NodeStyle,
 } from '../../types/index.ts';
 import { calculateElkLayoutSync } from '../../engine/layout/elkEngine.ts';
 import type { StoreSet, StoreGet } from './types.ts';
@@ -91,21 +92,39 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
     set((state) => {
       const isTextType = nodeData.type === 'text';
       const isLocked = Boolean(nodeData.locked ?? nodeData.data?.locked ?? false);
+      const isFrameType = nodeData.type === 'frame';
+      const isDark = state.themeMode === 'dark';
+      const defaultBg = isTextType
+        ? 'transparent'
+        : isFrameType
+        ? isDark
+          ? 'rgba(30, 41, 59, 0.55)'
+          : 'rgba(226, 232, 240, 0.55)'
+        : '#ffffff';
+      const defaultBorder = isTextType
+        ? 'transparent'
+        : isFrameType
+        ? isDark
+          ? '#475569'
+          : '#94a3b8'
+        : '#94a3b8';
+
       const defaultData: NeuroNodeData = {
         ...nodeData.data,
-        label: nodeData.data?.label || (isTextType ? 'Type text here...' : 'New Node'),
+        label:
+          nodeData.data?.label ||
+          (isTextType ? 'Type text here...' : isFrameType ? 'Container Frame' : 'New Node'),
         locked: isLocked,
-        shapeType: nodeData.data?.shapeType || (isTextType ? undefined : 'rounded'),
-        backgroundColor: isTextType
-          ? (nodeData.data?.backgroundColor || 'transparent')
-          : (nodeData.data?.backgroundColor || '#ffffff'),
-        borderColor: isTextType
-          ? (nodeData.data?.borderColor || 'transparent')
-          : (nodeData.data?.borderColor || '#94a3b8'),
+        shapeType:
+          nodeData.data?.shapeType || (isTextType || isFrameType ? undefined : 'rounded'),
+        backgroundColor: nodeData.data?.backgroundColor || defaultBg,
+        borderColor: nodeData.data?.borderColor || defaultBorder,
         borderWidth: isTextType
           ? (nodeData.data?.borderWidth ?? 0)
           : (nodeData.data?.borderWidth ?? 1.5),
-        color: nodeData.data?.color || (isTextType ? undefined : '#0f172a'),
+        color:
+          nodeData.data?.color ||
+          (isTextType ? undefined : isFrameType && isDark ? '#e2e8f0' : '#0f172a'),
         fontSize: nodeData.data?.fontSize || 14,
         textAlign: nodeData.data?.textAlign || (isTextType ? 'left' : 'center'),
       };
@@ -114,13 +133,13 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
         id,
         type: nodeData.type || 'shape',
         position: nodeData.position || { x: 100, y: 100 },
-        width: nodeData.width || 160,
-        height: nodeData.height || 60,
+        width: nodeData.width || (isFrameType ? 360 : 160),
+        height: nodeData.height || (isFrameType ? 260 : 60),
         parentId: nodeData.parentId,
         extent: nodeData.extent,
         locked: isLocked,
         data: defaultData,
-        zIndex: nodeData.zIndex || 1,
+        zIndex: nodeData.zIndex ?? (isFrameType ? 0 : 1),
       };
 
       state.nodes[id] = newNode;
@@ -149,7 +168,7 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
       nodeData.id ||
       `node-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const activePageId = get().activePageId;
-    const defaultRouting = get().defaultEdgeRoutingType || 'jump';
+    const defaultRouting = get().defaultEdgeRoutingType || 'smoothstep';
 
     let edgeId: string | undefined;
     if (edgeData) {
@@ -215,7 +234,6 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
           animated: edgeData.animated,
           style: edgeData.style,
           data: {
-            jumpArc: routing === 'jump',
             routingType: routing,
             ...edgeData.data,
           },
@@ -421,7 +439,7 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
       edgeData.id ||
       `edge-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const activePageId = get().activePageId;
-    const defaultRouting = get().defaultEdgeRoutingType || 'jump';
+    const defaultRouting = get().defaultEdgeRoutingType || 'smoothstep';
     const routing = (edgeData.type as EdgeRoutingType) || defaultRouting;
 
     set((state) => {
@@ -436,7 +454,6 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
         animated: edgeData.animated,
         style: edgeData.style,
         data: {
-          jumpArc: routing === 'jump',
           routingType: routing,
           ...edgeData.data,
         },
@@ -709,7 +726,7 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
       handles = findOptimalHandlePair(nodeA, nodeB);
     }
 
-    const routing = get().defaultEdgeRoutingType || 'jump';
+    const routing = get().defaultEdgeRoutingType || 'smoothstep';
 
     // Establish edge between currentSource and nodeId with optimal handles
     const edgeId = get().addEdge({
@@ -720,7 +737,6 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
       type: routing,
       data: {
         routingType: routing,
-        jumpArc: routing === 'jump',
       },
     });
 
@@ -786,6 +802,71 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
     });
   },
 
+  bringForward: (nodeIdOrIds: string | string[]) => {
+    set((state) => {
+      const ids = Array.isArray(nodeIdOrIds) ? nodeIdOrIds : [nodeIdOrIds];
+      const targetSet = new Set(ids);
+      const activePage = state.pages[state.activePageId];
+      const pageNodes = (activePage ? activePage.nodeIds : Object.keys(state.nodes))
+        .map((id) => state.nodes[id])
+        .filter((n): n is NeuroNode => Boolean(n));
+      if (pageNodes.length < 2) return;
+
+      const sorted = [...pageNodes].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
+      // Ensure strictly increasing zIndex values so ties can step cleanly
+      for (let i = 0; i < sorted.length; i++) {
+        if (i === 0) {
+          sorted[i].zIndex = sorted[i].zIndex ?? 1;
+        } else if ((sorted[i].zIndex ?? 0) <= (sorted[i - 1].zIndex ?? 0)) {
+          sorted[i].zIndex = (sorted[i - 1].zIndex ?? 0) + 1;
+        }
+      }
+
+      for (let i = sorted.length - 2; i >= 0; i--) {
+        if (targetSet.has(sorted[i].id) && !targetSet.has(sorted[i + 1].id)) {
+          const tmpZ = sorted[i].zIndex!;
+          sorted[i].zIndex = sorted[i + 1].zIndex!;
+          sorted[i + 1].zIndex = tmpZ;
+          [sorted[i], sorted[i + 1]] = [sorted[i + 1], sorted[i]];
+        }
+      }
+      if (activePage) activePage.updatedAt = Date.now();
+      state.project.updatedAt = Date.now();
+    });
+  },
+
+  sendBackward: (nodeIdOrIds: string | string[]) => {
+    set((state) => {
+      const ids = Array.isArray(nodeIdOrIds) ? nodeIdOrIds : [nodeIdOrIds];
+      const targetSet = new Set(ids);
+      const activePage = state.pages[state.activePageId];
+      const pageNodes = (activePage ? activePage.nodeIds : Object.keys(state.nodes))
+        .map((id) => state.nodes[id])
+        .filter((n): n is NeuroNode => Boolean(n));
+      if (pageNodes.length < 2) return;
+
+      const sorted = [...pageNodes].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
+      for (let i = 0; i < sorted.length; i++) {
+        if (i === 0) {
+          sorted[i].zIndex = sorted[i].zIndex ?? 1;
+        } else if ((sorted[i].zIndex ?? 0) <= (sorted[i - 1].zIndex ?? 0)) {
+          sorted[i].zIndex = (sorted[i - 1].zIndex ?? 0) + 1;
+        }
+      }
+
+      for (let i = 1; i < sorted.length; i++) {
+        if (targetSet.has(sorted[i].id) && !targetSet.has(sorted[i - 1].id)) {
+          const tmpZ = sorted[i].zIndex!;
+          sorted[i].zIndex = sorted[i - 1].zIndex!;
+          sorted[i - 1].zIndex = tmpZ;
+          [sorted[i], sorted[i - 1]] = [sorted[i - 1], sorted[i]];
+        }
+      }
+      if (activePage) activePage.updatedAt = Date.now();
+      state.project.updatedAt = Date.now();
+    });
+  },
+
   groupSelectedNodes: (_title?: string): string | null => {
     const state = get();
     const selectedIds = state.selectedNodeIds;
@@ -836,6 +917,11 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
             }
           }
         }
+        for (const page of Object.values(state.pages)) {
+          if (page.groupStyles && page.groupStyles[targetGroupId]) {
+            delete page.groupStyles[targetGroupId];
+          }
+        }
       }
 
       // 2. Also support legacy / container FrameNode unparenting if a FrameNode id is passed
@@ -853,6 +939,131 @@ export const createGraphSlice = (set: StoreSet, get: StoreGet) => ({
           activePage.nodeIds = activePage.nodeIds.filter((id) => id !== targetIdOrGroupId);
         }
         state.selectedNodeIds = state.selectedNodeIds.filter((id) => id !== targetIdOrGroupId);
+      }
+
+      const activePage = state.pages[state.activePageId];
+      if (activePage) activePage.updatedAt = Date.now();
+      state.project.updatedAt = Date.now();
+    });
+  },
+
+  setGroupStyle: (groupId: string, style: Partial<NodeStyle> | null) => {
+    if (!groupId) return;
+    set((state) => {
+      const activePage = state.pages[state.activePageId];
+      if (!activePage) return;
+      if (!activePage.groupStyles) {
+        activePage.groupStyles = {};
+      }
+      if (style === null) {
+        delete activePage.groupStyles[groupId];
+      } else {
+        activePage.groupStyles[groupId] = {
+          ...(activePage.groupStyles[groupId] || {}),
+          ...style,
+        };
+      }
+      activePage.updatedAt = Date.now();
+      state.project.updatedAt = Date.now();
+    });
+  },
+
+  captureNodesInFrame: (frameId: string): string[] => {
+    const capturedIds: string[] = [];
+    set((state) => {
+      const frame = state.nodes[frameId];
+      if (!frame || frame.type !== 'frame' || frame.data?.collapsed) return;
+
+      const fx = frame.position.x;
+      const fy = frame.position.y;
+      const fw = frame.width || 360;
+      const fh = frame.height || 260;
+
+      const activePage = state.pages[state.activePageId];
+      const pageNodeIds = activePage ? activePage.nodeIds : Object.keys(state.nodes);
+
+      for (const nid of pageNodeIds) {
+        if (nid === frameId) continue;
+        const node = state.nodes[nid];
+        if (
+          !node ||
+          node.parentId ||
+          node.type === 'frame' ||
+          node.type === 'diagram' ||
+          node.hidden
+        ) {
+          continue;
+        }
+        const nw = node.width || 160;
+        const nh = node.height || 60;
+        const cx = node.position.x + nw / 2;
+        const cy = node.position.y + nh / 2;
+
+        if (cx >= fx && cx <= fx + fw && cy >= fy && cy <= fy + fh) {
+          node.parentId = frameId;
+          node.position = {
+            x: node.position.x - fx,
+            y: node.position.y - fy,
+          };
+          node.zIndex = Math.max(node.zIndex ?? 1, (frame.zIndex ?? 0) + 1);
+          capturedIds.push(nid);
+        }
+      }
+
+      if (capturedIds.length > 0) {
+        if (activePage) activePage.updatedAt = Date.now();
+        state.project.updatedAt = Date.now();
+      }
+    });
+    return capturedIds;
+  },
+
+  toggleFrameCollapse: (frameId: string) => {
+    set((state) => {
+      const frame = state.nodes[frameId];
+      if (!frame || frame.type !== 'frame') return;
+
+      const nextCollapsed = !Boolean(frame.data?.collapsed);
+      const childIdSet = new Set<string>();
+
+      if (nextCollapsed) {
+        frame.data = {
+          ...frame.data,
+          collapsed: true,
+          minWidth: frame.width || frame.data?.minWidth || 360,
+          minHeight: frame.height || frame.data?.minHeight || 260,
+        };
+        frame.width = 180;
+        frame.height = 44;
+
+        for (const node of Object.values(state.nodes)) {
+          if (node.parentId === frameId) {
+            node.hidden = true;
+            childIdSet.add(node.id);
+          }
+        }
+      } else {
+        const restoredW = frame.data?.minWidth || 360;
+        const restoredH = frame.data?.minHeight || 260;
+        frame.data = {
+          ...frame.data,
+          collapsed: false,
+        };
+        frame.width = restoredW;
+        frame.height = restoredH;
+
+        for (const node of Object.values(state.nodes)) {
+          if (node.parentId === frameId) {
+            node.hidden = false;
+            childIdSet.add(node.id);
+          }
+        }
+      }
+
+      for (const edge of Object.values(state.edges)) {
+        if (childIdSet.has(edge.source) || childIdSet.has(edge.target)) {
+          (edge as any).hidden = nextCollapsed;
+        }
       }
 
       const activePage = state.pages[state.activePageId];

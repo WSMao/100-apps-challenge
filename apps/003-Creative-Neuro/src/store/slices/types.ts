@@ -29,6 +29,7 @@ import type {
   FlowDirection,
   EdgeRoutingType,
   SelectionFilter,
+  NodeStyle,
 } from '../../types/index.ts';
 
 export interface ProjectRecord extends Omit<Project, 'boards' | 'pages'> {
@@ -111,7 +112,11 @@ export interface ProjectActions {
   deleteNodes: (ids: string[]) => void;
   deleteEdges: (ids: string[]) => void;
   deletePage: (pageId: string) => void;
+  hidePage: (pageId: string) => void;
+  reopenPage: (pageId: string, activate?: boolean) => void;
   updatePageTitle: (pageId: string, title: string) => void;
+  setPageLineJump: (enabled: boolean, pageId?: string) => void;
+  togglePageLineJump: (pageId?: string) => void;
   setViewport: (pageId: string, viewport: Viewport) => void;
   setToolMode: (mode: ToolMode) => void;
   setSelectedNodes: (ids: string[]) => void;
@@ -133,8 +138,13 @@ export interface ProjectActions {
   toggleNodeSelection: (nodeId: string) => void;
   bringToFront: (nodeIdOrIds: string | string[]) => void;
   sendToBack: (nodeIdOrIds: string | string[]) => void;
+  bringForward: (nodeIdOrIds: string | string[]) => void;
+  sendBackward: (nodeIdOrIds: string | string[]) => void;
   groupSelectedNodes: (title?: string) => string | null;
   ungroupNodes: (frameId: string) => void;
+  setGroupStyle: (groupId: string, style: Partial<NodeStyle> | null) => void;
+  captureNodesInFrame: (frameId: string) => string[];
+  toggleFrameCollapse: (frameId: string) => void;
 
   // Project Management Actions (PM-01, PM-02)
   createProject: (name?: string) => string;

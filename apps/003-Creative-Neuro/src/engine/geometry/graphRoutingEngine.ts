@@ -427,6 +427,326 @@ export function computeSmartLabelPosition(params: {
   return bestPt;
 }
 
+export type HandleSide = 'top' | 'right' | 'bottom' | 'left';
+
+function getBezierControlOffset(p1: Point, p2: Point, side: HandleSide): Point {
+  const dx = Math.abs(p2.x - p1.x);
+  const dy = Math.abs(p2.y - p1.y);
+  const offset = Math.max(25, Math.min(180, (dx + dy) * 0.35));
+  switch (side) {
+    case 'top':
+      return { x: p1.x, y: p1.y - offset };
+    case 'bottom':
+      return { x: p1.x, y: p1.y + offset };
+    case 'left':
+      return { x: p1.x - offset, y: p1.y };
+    case 'right':
+      return { x: p1.x + offset, y: p1.y };
+  }
+}
+
+/**
+ * Samples a connector's geometry (straight, smoothstep, or bezier) into a polyline.
+ */
+export function sampleEdgePolyline(params: {
+  p1: Point;
+  p2: Point;
+  sourceSide?: HandleSide;
+  targetSide?: HandleSide;
+  routingType?: string;
+  bezierSteps?: number;
+}): Point[] {
+  const {
+    p1,
+    p2,
+    sourceSide = 'bottom',
+    targetSide = 'top',
+    routingType = 'smoothstep',
+    bezierSteps = 24,
+  } = params;
+
+  if (routingType === 'straight') {
+    return [p1, p2];
+  }
+
+  if (routingType === 'bezier') {
+    const c1 = getBezierControlOffset(p1, p2, sourceSide);
+    const c2 = getBezierControlOffset(p2, p1, targetSide);
+    const points: Point[] = [];
+    const steps = Math.max(8, bezierSteps);
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const mt = 1 - t;
+      const mt2 = mt * mt;
+      const t2 = t * t;
+      points.push({
+        x: mt2 * mt * p1.x + 3 * mt2 * t * c1.x + 3 * mt * t2 * c2.x + t2 * t * p2.x,
+        y: mt2 * mt * p1.y + 3 * mt2 * t * c1.y + 3 * mt * t2 * c2.y + t2 * t * p2.y,
+      });
+    }
+    return points;
+  }
+
+  // Smoothstep orthogonal waypoints
+  const srcIsVert = sourceSide === 'top' || sourceSide === 'bottom';
+  const tgtIsVert = targetSide === 'top' || targetSide === 'bottom';
+
+  if (srcIsVert && tgtIsVert) {
+    const midY = (p1.y + p2.y) / 2;
+    return [p1, { x: p1.x, y: midY }, { x: p2.x, y: midY }, p2];
+  }
+  if (!srcIsVert && !tgtIsVert) {
+    const midX = (p1.x + p2.x) / 2;
+    return [p1, { x: midX, y: p1.y }, { x: midX, y: p2.y }, p2];
+  }
+  if (srcIsVert && !tgtIsVert) {
+    return [p1, { x: p1.x, y: p2.y }, p2];
+  }
+  return [p1, { x: p2.x, y: p1.y }, p2];
+}
+
+function findSegmentJumpsAgainstOthers(
+  edgeId: string,
+  p1: Point,
+  p2: Point,
+  otherSegments: Array<{ id: string; q1: Point; q2: Point }>,
+  jumpRadius: number
+): JumpArcData[] {
+  const u = { x: p2.x - p1.x, y: p2.y - p1.y };
+  const uLen = Math.hypot(u.x, u.y);
+  if (uLen <= jumpRadius * 2.5) return [];
+
+  const normU = { x: u.x / uLen, y: u.y / uLen };
+  const minT = Math.max(0.05, (jumpRadius + 2) / uLen);
+  const maxT = 1 - minT;
+  const jumps: JumpArcData[] = [];
+
+  for (const other of otherSegments) {
+    if (other.id === edgeId) continue;
+    const { q1, q2 } = other;
+    const v = { x: q2.x - q1.x, y: q2.y - q1.y };
+    const vLen = Math.hypot(v.x, v.y);
+    if (vLen <= jumpRadius * 2.5) continue;
+
+    const D = crossProduct2D(u, v);
+    if (Math.abs(D) < 1e-6) continue;
+
+    const w = { x: q1.x - p1.x, y: q1.y - p1.y };
+    const t = crossProduct2D(w, v) / D;
+    const s = crossProduct2D(w, u) / D;
+
+    const minS = Math.max(0.05, (jumpRadius + 2) / vLen);
+    const maxS = 1 - minS;
+
+    if (t >= minT && t <= maxT && s >= minS && s <= maxS) {
+      const s1IsHorizontal = Math.abs(u.y) < 1e-3;
+      const s2IsVertical = Math.abs(v.x) < 1e-3;
+
+      let s1ShouldJump = false;
+      if (s1IsHorizontal && s2IsVertical) {
+        s1ShouldJump = true;
+      } else if (Math.abs(u.x) < 1e-3 && Math.abs(v.y) < 1e-3) {
+        s1ShouldJump = false;
+      } else {
+        s1ShouldJump = edgeId < other.id;
+      }
+
+      if (s1ShouldJump) {
+        const crossing: Point = {
+          x: p1.x + t * u.x,
+          y: p1.y + t * u.y,
+        };
+        jumps.push({
+          t,
+          crossingPoint: crossing,
+          startPoint: {
+            x: crossing.x - normU.x * jumpRadius,
+            y: crossing.y - normU.y * jumpRadius,
+          },
+          endPoint: {
+            x: crossing.x + normU.x * jumpRadius,
+            y: crossing.y + normU.y * jumpRadius,
+          },
+          radius: jumpRadius,
+        });
+      }
+    }
+  }
+
+  jumps.sort((a, b) => a.t - b.t);
+  const filteredJumps: JumpArcData[] = [];
+  let lastT = 0;
+  for (let i = 0; i < jumps.length; i++) {
+    const jump = jumps[i];
+    if (i > 0 && (jump.t - lastT) * uLen < jumpRadius * 2.2) {
+      continue;
+    }
+    lastT = jump.t;
+    filteredJumps.push(jump);
+  }
+  return filteredJumps;
+}
+
+/**
+ * Computes jump arcs along a polyline (keyed by global arc-length or segment index) against other edge polylines.
+ * Supports both long straight/smoothstep segments and densely-sampled bezier curves.
+ */
+export function computeJumpArcsForPolyline(
+  edgeId: string,
+  polyline: Point[],
+  otherPolylines: Array<{ id: string; points: Point[] }>,
+  jumpRadius: number = 6
+): Map<number, JumpArcData[]> {
+  const result = new Map<number, JumpArcData[]>();
+  if (polyline.length < 2) return result;
+
+  const otherSegments: Array<{ id: string; q1: Point; q2: Point }> = [];
+  for (const other of otherPolylines) {
+    if (other.id === edgeId || other.points.length < 2) continue;
+    for (let j = 0; j < other.points.length - 1; j++) {
+      otherSegments.push({
+        id: other.id,
+        q1: other.points[j],
+        q2: other.points[j + 1],
+      });
+    }
+  }
+
+  if (otherSegments.length === 0) return result;
+
+  // Compute cumulative arc lengths along polyline
+  const segLens: number[] = [];
+  let totalLen = 0;
+  for (let i = 0; i < polyline.length - 1; i++) {
+    const len = Math.hypot(
+      polyline[i + 1].x - polyline[i].x,
+      polyline[i + 1].y - polyline[i].y
+    );
+    segLens.push(len);
+    totalLen += len;
+  }
+
+  if (totalLen <= jumpRadius * 2.5) return result;
+
+  const minArc = Math.max(totalLen * 0.03, jumpRadius + 2);
+  const maxArc = totalLen - minArc;
+
+  interface RawPolylineJump {
+    segIdx: number;
+    t: number;
+    arcPos: number;
+    jump: JumpArcData;
+  }
+
+  const rawJumps: RawPolylineJump[] = [];
+  let cumLen = 0;
+
+  for (let i = 0; i < polyline.length - 1; i++) {
+    const p1 = polyline[i];
+    const p2 = polyline[i + 1];
+    const u = { x: p2.x - p1.x, y: p2.y - p1.y };
+    const uLen = segLens[i];
+    if (uLen < 1e-6) {
+      cumLen += uLen;
+      continue;
+    }
+    const normU = { x: u.x / uLen, y: u.y / uLen };
+
+    for (const other of otherSegments) {
+      const { q1, q2 } = other;
+      const v = { x: q2.x - q1.x, y: q2.y - q1.y };
+      const vLen = Math.hypot(v.x, v.y);
+      if (vLen < 1e-6) continue;
+
+      const D = crossProduct2D(u, v);
+      if (Math.abs(D) < 1e-6) continue;
+
+      const w = { x: q1.x - p1.x, y: q1.y - p1.y };
+      const t = crossProduct2D(w, v) / D;
+      const s = crossProduct2D(w, u) / D;
+
+      if (t >= 0 && t <= 1 && s >= 0 && s <= 1) {
+        const arcPos = cumLen + t * uLen;
+        if (arcPos < minArc || arcPos > maxArc) continue;
+
+        const s1IsHorizontal = Math.abs(u.y) < 1e-3;
+        const s2IsVertical = Math.abs(v.x) < 1e-3;
+
+        let s1ShouldJump = false;
+        if (s1IsHorizontal && s2IsVertical) {
+          s1ShouldJump = true;
+        } else if (Math.abs(u.x) < 1e-3 && Math.abs(v.y) < 1e-3) {
+          s1ShouldJump = false;
+        } else {
+          s1ShouldJump = edgeId < other.id;
+        }
+
+        if (s1ShouldJump) {
+          const crossing: Point = {
+            x: p1.x + t * u.x,
+            y: p1.y + t * u.y,
+          };
+          rawJumps.push({
+            segIdx: i,
+            t,
+            arcPos,
+            jump: {
+              t,
+              crossingPoint: crossing,
+              startPoint: {
+                x: crossing.x - normU.x * jumpRadius,
+                y: crossing.y - normU.y * jumpRadius,
+              },
+              endPoint: {
+                x: crossing.x + normU.x * jumpRadius,
+                y: crossing.y + normU.y * jumpRadius,
+              },
+              radius: jumpRadius,
+            },
+          });
+        }
+      }
+    }
+    cumLen += uLen;
+  }
+
+  rawJumps.sort((a, b) => a.arcPos - b.arcPos);
+
+  let lastArcPos = -Infinity;
+  for (const item of rawJumps) {
+    if (item.arcPos - lastArcPos < jumpRadius * 2.2) continue;
+    lastArcPos = item.arcPos;
+    const list = result.get(item.segIdx) || [];
+    list.push(item.jump);
+    result.set(item.segIdx, list);
+  }
+
+  return result;
+}
+
+/**
+ * Builds an SVG path string for a polyline with semicircular jump arcs on intersecting segments.
+ */
+export function buildPolylineJumpSvgPath(
+  polyline: Point[],
+  segmentJumps: Map<number, JumpArcData[]>
+): string {
+  if (polyline.length === 0) return '';
+  let pathD = `M ${polyline[0].x.toFixed(2)} ${polyline[0].y.toFixed(2)}`;
+  for (let i = 0; i < polyline.length - 1; i++) {
+    const jumps = segmentJumps.get(i);
+    if (jumps && jumps.length > 0) {
+      for (const jump of jumps) {
+        pathD += ` L ${jump.startPoint.x.toFixed(2)} ${jump.startPoint.y.toFixed(2)}`;
+        pathD += ` A ${jump.radius} ${jump.radius} 0 0 1 ${jump.endPoint.x.toFixed(2)} ${jump.endPoint.y.toFixed(2)}`;
+      }
+    }
+    const nextPt = polyline[i + 1];
+    pathD += ` L ${nextPt.x.toFixed(2)} ${nextPt.y.toFixed(2)}`;
+  }
+  return pathD;
+}
+
 export const GraphRoutingEngine = {
   isPointInRect,
   lineSegmentsCross,
@@ -436,5 +756,8 @@ export const GraphRoutingEngine = {
   findEdgesInSelectionRect,
   computeJumpArcsForEdge,
   buildJumpSvgPath,
+  sampleEdgePolyline,
+  computeJumpArcsForPolyline,
+  buildPolylineJumpSvgPath,
   computeSmartLabelPosition,
 };

@@ -29,7 +29,7 @@ export const initialState: ProjectState = {
   themeMode: 'light',
   lastDirection: 'right',
   connectorSourceNodeId: null,
-  defaultEdgeRoutingType: 'jump',
+  defaultEdgeRoutingType: 'smoothstep',
   availableProjects: [
     {
       id: initialSeed.project.id,
